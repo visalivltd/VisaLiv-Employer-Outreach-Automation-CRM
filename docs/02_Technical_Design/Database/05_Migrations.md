@@ -27,15 +27,19 @@ It ensures that database schema changes are applied in a controlled, versioned, 
 
 Migration Tool
 
-- Alembic
+Alembic
 
 ORM
 
-- SQLAlchemy
+SQLAlchemy 2.x
 
 Database
 
-- PostgreSQL
+PostgreSQL 17
+
+Package Manager
+
+uv
 
 ---
 
@@ -138,6 +142,7 @@ Commit Changes
 - Database changes should always be committed together with their corresponding migration files.
 - Migration history must be preserved in version control.
 - Direct database changes are not allowed outside the migration process.
+- Migration files will be generated and managed using Alembic within the Python uv environment.
 
 ---
 

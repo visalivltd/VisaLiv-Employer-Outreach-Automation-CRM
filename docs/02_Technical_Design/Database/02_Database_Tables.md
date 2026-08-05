@@ -209,6 +209,8 @@ The following columns are commonly used across tables.
 - Primary Keys will be defined in the Relationships document.
 - Foreign Keys will be defined in the Relationships document.
 - Indexes will be defined separately.
+- Database implementation will use PostgreSQL 17 with SQLAlchemy 2.x ORM.
+- Database migrations will be managed using Alembic.
 
 ---
 
