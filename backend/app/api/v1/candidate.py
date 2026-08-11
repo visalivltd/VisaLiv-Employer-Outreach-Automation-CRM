@@ -1,4 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -14,6 +24,56 @@ router = APIRouter(
     prefix="/candidates",
     tags=["Candidates"],
 )
+
+
+# Project root /uploads directory
+UPLOAD_DIR = Path(__file__).resolve().parents[4] / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx"}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+@router.post(
+    "/upload-cv",
+)
+async def upload_cv(
+    file: UploadFile = File(...),
+):
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No file selected",
+        )
+
+    extension = Path(file.filename).suffix.lower()
+
+    if extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only PDF, DOC, and DOCX files are allowed",
+        )
+
+    file_content = await file.read()
+
+    if len(file_content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="CV file must be 10 MB or smaller",
+        )
+
+    # Generate a unique filename so existing CVs are never overwritten.
+    filename = f"{uuid4().hex}{extension}"
+
+    file_path = UPLOAD_DIR / filename
+    file_path.write_bytes(file_content)
+
+    return {
+        "success": True,
+        "message": "CV uploaded successfully",
+        "filename": filename,
+        "file_path": f"uploads/{filename}",
+    }
 
 
 @router.post(
@@ -52,7 +112,10 @@ def get_candidate(
     candidate_id: int,
     db: Session = Depends(get_db),
 ):
-    candidate = candidate_service.get_candidate(db, candidate_id)
+    candidate = candidate_service.get_candidate(
+        db,
+        candidate_id,
+    )
 
     if candidate is None:
         raise HTTPException(

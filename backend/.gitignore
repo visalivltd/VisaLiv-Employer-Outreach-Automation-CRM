@@ -29,3 +29,7 @@ uploads/
 
 # Logs
 *.log
+
+# Google OAuth Credentials
+credentials.json
+token.json

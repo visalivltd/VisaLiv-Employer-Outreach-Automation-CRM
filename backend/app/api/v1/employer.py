@@ -26,7 +26,10 @@ def create_employer(
     db: Session = Depends(get_db),
 ):
     try:
-        return employer_service.create_employer(db, data)
+        return employer_service.create_employer(
+            db,
+            data,
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -75,11 +78,17 @@ def update_employer(
     data: EmployerUpdate,
     db: Session = Depends(get_db),
 ):
-    employer = employer_service.update_employer(
-        db,
-        employer_id,
-        data,
-    )
+    try:
+        employer = employer_service.update_employer(
+            db,
+            employer_id,
+            data,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
     if employer is None:
         raise HTTPException(

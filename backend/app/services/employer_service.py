@@ -18,12 +18,11 @@ def create_employer(
         raise ValueError("Employer with this email already exists")
 
     employer = Employer(
-        company_name=data.company_name,
-        contact_person=data.contact_person,
+        service_name=data.service_name,
         email=data.email,
         country=data.country,
-        website=data.website,
         industry=data.industry,
+        service_website=data.service_website,
     )
 
     return employer_repository.create_employer(db, employer)

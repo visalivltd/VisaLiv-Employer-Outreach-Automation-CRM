@@ -8,15 +8,15 @@ from app.db.base import Base
 class Employer(Base):
     __tablename__ = "employers"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-
-    company_name: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True,
     )
 
-    contact_person: Mapped[str | None] = mapped_column(
-        String(255)
+    service_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
     )
 
     email: Mapped[str] = mapped_column(
@@ -30,7 +30,7 @@ class Employer(Base):
         String(100)
     )
 
-    website: Mapped[str | None] = mapped_column(
+    service_website: Mapped[str | None] = mapped_column(
         String(255)
     )
 
@@ -54,7 +54,6 @@ class Employer(Base):
         onupdate=func.now(),
     )
 
-    # Relationships
     email_logs = relationship(
         "EmailLog",
         back_populates="employer",
