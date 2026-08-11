@@ -1381,3 +1381,27 @@ body {
     transform: rotate(360deg);
   }
 }
+
+.reconnect-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #2563eb;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.reconnect-button:hover {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.reconnect-button:active {
+  transform: translateY(1px);
+}

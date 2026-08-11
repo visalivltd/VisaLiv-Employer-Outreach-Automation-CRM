@@ -31,9 +31,12 @@ export default function GmailAccountsPage() {
   }, []);
 
   const connectGmail = (candidateId) => {
-    window.location.href =
-      `${API_BASE_URL}/gmail-oauth/connect/${candidateId}`;
-  };
+    window.open(
+      `${API_BASE_URL}/gmail-oauth/connect/${candidateId}`,
+      '_blank',
+      'noopener,noreferrer'
+    );
+  }
 
   return (
     <div className="content-container">
@@ -136,6 +139,7 @@ export default function GmailAccountsPage() {
                   <td>
                     <button
                       type="button"
+                      className="reconnect-button"
                       onClick={() =>
                         connectGmail(account.candidate_id)
                       }
