@@ -200,11 +200,12 @@ export default function OutreachPage() {
                     key={employer.id}
                     value={employer.id}
                   >
-                    {employer.company_name} — {employer.email}
+                    {employer.service_name} — {employer.email}
                   </option>
                 ))}
               </select>
             </div>
+            
 
             <div className="form-group">
               <label htmlFor="subject">
