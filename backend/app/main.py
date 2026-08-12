@@ -12,6 +12,7 @@ from app.api.v1.gmail_account import router as gmail_account_router
 from app.api.v1.gmail_oauth import router as gmail_oauth_router
 from app.api.v1.outreach import router as outreach_router
 from app.api.v1.email_log import router as email_log_router
+from app.api.v1.dashboard import router as dashboard_router
 
 
 app = FastAPI(
@@ -47,6 +48,7 @@ app.include_router(gmail_account_router)
 app.include_router(gmail_oauth_router)
 app.include_router(outreach_router)
 app.include_router(email_log_router)
+app.include_router(dashboard_router)
 
 @app.get("/")
 async def root():
