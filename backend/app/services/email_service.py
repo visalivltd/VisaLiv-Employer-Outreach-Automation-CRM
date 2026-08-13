@@ -18,6 +18,7 @@ class EmailService:
         to_email: str,
         subject: str,
         body: str,
+        attachment_paths: list[str] | None = None,
     ) -> EmailLog:
 
         email_log = EmailLog(
@@ -41,6 +42,7 @@ class EmailService:
                 to_email=to_email,
                 subject=subject,
                 body=body,
+                attachment_paths=attachment_paths,
             )
 
             email_log.status = "sent"

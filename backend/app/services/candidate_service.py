@@ -24,6 +24,8 @@ def create_candidate(
         country=data.country,
         visa_type=data.visa_type,
         cv_file_path=data.cv_file_path,
+        email_draft_id=data.email_draft_id,
+        is_active=True,
     )
 
     return candidate_repository.create_candidate(db, candidate)
@@ -41,8 +43,9 @@ def get_candidate(
 
 def get_candidates(
     db: Session,
+    active_only: bool = False,
 ) -> list[Candidate]:
-    return candidate_repository.get_candidates(db)
+    return candidate_repository.get_candidates(db, active_only=active_only)
 
 
 def update_candidate(
@@ -81,3 +84,24 @@ def delete_candidate(
     candidate_repository.delete_candidate(db, candidate)
 
     return True
+
+
+def assign_email_draft(
+    db: Session,
+    candidate_id: int,
+    email_draft_id: int | None,
+) -> Candidate | None:
+    candidate = candidate_repository.get_candidate_by_id(db, candidate_id)
+    if candidate is None:
+        return None
+
+    if email_draft_id is not None:
+        from app.repositories import email_draft_repository
+
+        draft = email_draft_repository.get_email_draft_by_id(db, email_draft_id)
+        if draft is None:
+            raise ValueError("Email draft not found")
+
+    candidate.email_draft_id = email_draft_id
+    db.commit()
+    return candidate_repository.get_candidate_by_id(db, candidate_id)

@@ -18,6 +18,7 @@ class GmailAccountUpdate(BaseModel):
 class GmailAccountResponse(BaseModel):
     id: int
     candidate_id: int
+    candidate_name: str | None = None
     gmail_email: str
     is_active: bool
     connected_at: datetime

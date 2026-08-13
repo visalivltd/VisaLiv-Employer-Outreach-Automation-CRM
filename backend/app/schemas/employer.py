@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class EmployerCreate(BaseModel):
-    service_name: str
+    service_name: str | None = None
     email: str
     country: str | None = None
     industry: str | None = None
@@ -22,11 +22,11 @@ class EmployerUpdate(BaseModel):
 
 class EmployerResponse(BaseModel):
     id: int
-    service_name: str
+    service_name: str | None = None
     email: str
-    country: str | None
-    industry: str | None
-    service_website: str | None
+    country: str | None = None
+    industry: str | None = None
+    service_website: str | None = None
     is_active: bool
     created_at: datetime
     updated_at: datetime

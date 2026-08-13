@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -43,6 +43,11 @@ class Candidate(Base):
         nullable=False,
     )
 
+    email_draft_id: Mapped[int | None] = mapped_column(
+        ForeignKey("email_drafts.id"),
+        nullable=True,
+    )
+
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
@@ -75,3 +80,43 @@ class Candidate(Base):
         "SchedulerJob",
         back_populates="candidate",
     )
+
+    email_draft = relationship(
+        "EmailDraft",
+        back_populates="candidates",
+    )
+
+    @property
+    def gmail_email(self) -> str | None:
+        if self.gmail_account and self.gmail_account.is_active:
+            return self.gmail_account.gmail_email
+        return None
+
+    @property
+    def email_draft_name(self) -> str | None:
+        if self.email_draft:
+            return self.email_draft.draft_name
+        return None
+
+    @property
+    def email_draft_subject(self) -> str | None:
+        if self.email_draft:
+            return self.email_draft.subject
+        return None
+
+    @property
+    def email_draft_body(self) -> str | None:
+        if self.email_draft:
+            return self.email_draft.body
+        return None
+
+    @property
+    def email_draft_info(self) -> dict | None:
+        if self.email_draft:
+            return {
+                "id": self.email_draft.id,
+                "draft_name": self.email_draft.draft_name,
+                "subject": self.email_draft.subject,
+                "has_attachment": self.email_draft.has_attachment,
+            }
+        return None

@@ -6,7 +6,8 @@ import {
   Users, 
   Building2, 
   Mail, 
-  FileText 
+  FileText,
+  FileSpreadsheet
 } from 'lucide-react';
 
 export default function Sidebar({ isOpen, onClose }) {
@@ -15,7 +16,9 @@ export default function Sidebar({ isOpen, onClose }) {
     { name: 'Candidates', path: '/candidates', icon: Users },
     { name: 'Employers', path: '/employers', icon: Building2 },
     { name: 'Gmail Accounts', path: '/gmail-accounts', icon: Mail },
-    { name: 'Email Logs', path: '/email-logs', icon: FileText },
+    { name: 'Email Drafts', path: '/email-drafts', icon: FileText },
+    { name: 'Outreach', path: '/outreach', icon: Send },
+    { name: 'Email Logs', path: '/email-logs', icon: FileSpreadsheet },
   ];
 
   return (

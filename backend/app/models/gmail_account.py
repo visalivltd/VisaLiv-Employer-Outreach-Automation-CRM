@@ -57,3 +57,9 @@ class GmailAccount(Base):
         "EmailLog",
         back_populates="gmail_account",
     )
+
+    @property
+    def candidate_name(self) -> str | None:
+        if self.candidate:
+            return self.candidate.full_name
+        return None

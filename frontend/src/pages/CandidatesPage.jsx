@@ -22,6 +22,7 @@ const emptyForm = {
   country: '',
   visa_type: '',
   cv_file_path: '',
+  email_draft_id: '',
   is_active: true,
 };
 
@@ -32,6 +33,13 @@ export default function CandidatesPage() {
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const [availableDrafts, setAvailableDrafts] = useState([]);
+  const [assigningDraftCandidate, setAssigningDraftCandidate] = useState(null);
+  const [selectedDraftId, setSelectedDraftId] = useState('');
+  const [assigning, setAssigning] = useState(false);
+
+  const [previewingDraftCandidate, setPreviewingDraftCandidate] = useState(null);
+
   const [showForm, setShowForm] = useState(false);
   const [editingCandidate, setEditingCandidate] = useState(null);
 
@@ -41,11 +49,24 @@ export default function CandidatesPage() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [deletingCandidateModal, setDeletingCandidateModal] = useState(null);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   // ================= FETCH =================
+
+  const fetchDrafts = async () => {
+    try {
+      const response = await fetch(`${API_URL}/email-drafts`);
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableDrafts(data);
+      }
+    } catch {
+      // ignore draft fetch error
+    }
+  };
 
   const fetchCandidates = async () => {
     try {
@@ -69,6 +90,17 @@ export default function CandidatesPage() {
 
   useEffect(() => {
     fetchCandidates();
+    fetchDrafts();
+
+    const handleFocus = () => {
+      fetchCandidates();
+      fetchDrafts();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   // ================= FORM =================
@@ -120,24 +152,14 @@ export default function CandidatesPage() {
       return 'Please enter a valid email address';
     }
 
-    const phone = form.phone.trim();
+    const phone = form.phone ? form.phone.trim() : '';
 
-    if (!phone) {
-      return 'Phone number is required';
-    }
+    if (phone) {
+      const phoneRegex = /^[0-9+\-\s()]{7,20}$/;
 
-    const phoneRegex = /^[0-9+\-\s()]{7,20}$/;
-
-    if (!phoneRegex.test(phone)) {
-      return 'Please enter a valid phone number';
-    }
-
-    if (!form.country.trim()) {
-      return 'Country is required';
-    }
-
-    if (!form.visa_type.trim()) {
-      return 'Visa type is required';
+      if (!phoneRegex.test(phone)) {
+        return 'Please enter a valid phone number';
+      }
     }
 
     // New candidate must have CV.
@@ -260,11 +282,12 @@ export default function CandidatesPage() {
       const payload = {
         full_name: form.full_name.trim(),
         email: form.email.trim(),
-        phone: form.phone.trim(),
-        country: form.country.trim(),
-        visa_type: form.visa_type.trim(),
+        phone: form.phone ? form.phone.trim() || null : null,
+        country: form.country ? form.country.trim() || null : null,
+        visa_type: form.visa_type ? form.visa_type.trim() || null : null,
         cv_file_path: cvFilePath,
-        is_active: form.is_active,
+        email_draft_id: form.email_draft_id ? parseInt(form.email_draft_id, 10) : null,
+        is_active: isEditing ? form.is_active : true,
       };
 
       const response = await fetch(url, {
@@ -327,6 +350,7 @@ export default function CandidatesPage() {
       country: candidate.country || '',
       visa_type: candidate.visa_type || '',
       cv_file_path: candidate.cv_file_path || '',
+      email_draft_id: candidate.email_draft_id || candidate.email_draft?.id || '',
       is_active: candidate.is_active ?? true,
     });
 
@@ -336,14 +360,15 @@ export default function CandidatesPage() {
 
   // ================= DELETE =================
 
-  const handleDelete = async (candidate) => {
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${candidate.full_name}"?`
-    );
+  const handleDelete = (candidate) => {
+    setError('');
+    setSuccess('');
+    setDeletingCandidateModal(candidate);
+  };
 
-    if (!confirmed) {
-      return;
-    }
+  const handleConfirmDelete = async () => {
+    if (!deletingCandidateModal) return;
+    const candidate = deletingCandidateModal;
 
     try {
       setDeletingId(candidate.id);
@@ -373,9 +398,10 @@ export default function CandidatesPage() {
         throw new Error(message);
       }
 
-      await fetchCandidates();
-
+      setCandidates((prev) => prev.filter((c) => c.id !== candidate.id));
       setSuccess('Candidate deleted successfully.');
+      setDeletingCandidateModal(null);
+      await fetchCandidates();
     } catch (err) {
       setError(
         err.message || 'Failed to delete candidate'
@@ -396,6 +422,124 @@ export default function CandidatesPage() {
       '_blank',
       'noopener,noreferrer'
     );
+  };
+
+  // ================= ASSIGN DRAFT =================
+
+  const getDraftName = (candidate) => {
+    if (!candidate) return null;
+    const isVal = (v) => v && typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'none';
+
+    if (isVal(candidate.email_draft?.draft_name)) return candidate.email_draft.draft_name;
+    if (isVal(candidate.email_draft?.name)) return candidate.email_draft.name;
+    if (isVal(candidate.email_draft_name)) return candidate.email_draft_name;
+    if (isVal(candidate.email_draft?.attachment_filename)) return candidate.email_draft.attachment_filename;
+    if (isVal(candidate.email_draft?.subject)) return candidate.email_draft.subject;
+
+    const draftId = candidate.email_draft_id || candidate.email_draft?.id;
+    if (draftId) {
+      const match = availableDrafts.find((d) => String(d.id) === String(draftId));
+      if (match) {
+        if (isVal(match.name)) return match.name;
+        if (isVal(match.attachment_filename)) return match.attachment_filename;
+        if (isVal(match.subject)) return match.subject;
+      }
+      return `Draft #${draftId}`;
+    }
+    return null;
+  };
+
+  const openAssignDraftModal = (candidate) => {
+    setAssigningDraftCandidate(candidate);
+    const draftId = candidate.email_draft_id || candidate.email_draft?.id;
+    setSelectedDraftId(draftId ? String(draftId) : '');
+    setError('');
+    setSuccess('');
+  };
+
+  const handleAssignDraftSubmit = async (e) => {
+    e.preventDefault();
+    if (!assigningDraftCandidate) return;
+
+    try {
+      setAssigning(true);
+      setError('');
+      setSuccess('');
+
+      const draftId = selectedDraftId ? parseInt(selectedDraftId, 10) : null;
+
+      const response = await fetch(
+        `${API_URL}/candidates/${assigningDraftCandidate.id}/email-draft`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email_draft_id: draftId,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        let msg = 'Failed to assign email draft';
+        if (typeof data.detail === 'string') {
+          msg = data.detail;
+        }
+        throw new Error(msg);
+      }
+
+      setCandidates((prev) =>
+        prev.map((c) => (c.id === data.id ? data : c))
+      );
+
+      setSuccess('Email draft assigned successfully.');
+      setAssigningDraftCandidate(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const handleRemoveDraftSubmit = async () => {
+    if (!assigningDraftCandidate) return;
+
+    try {
+      setAssigning(true);
+      setError('');
+      setSuccess('');
+
+      const response = await fetch(
+        `${API_URL}/candidates/${assigningDraftCandidate.id}/email-draft`,
+        {
+          method: 'DELETE',
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        let msg = 'Failed to remove email draft';
+        if (typeof data.detail === 'string') {
+          msg = data.detail;
+        }
+        throw new Error(msg);
+      }
+
+      setCandidates((prev) =>
+        prev.map((c) => (c.id === data.id ? data : c))
+      );
+
+      setSuccess('Email draft removed successfully.');
+      setAssigningDraftCandidate(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAssigning(false);
+    }
   };
 
   // ================= CV VIEW =================
@@ -554,7 +698,7 @@ export default function CandidatesPage() {
 
               <div className="form-field">
                 <label>
-                  Phone <span className="required">*</span>
+                  Phone
                 </label>
 
                 <input
@@ -563,7 +707,6 @@ export default function CandidatesPage() {
                   value={form.phone}
                   onChange={handleChange}
                   placeholder="9876543210"
-                  required
                 />
               </div>
 
@@ -571,7 +714,7 @@ export default function CandidatesPage() {
 
               <div className="form-field">
                 <label>
-                  Country <span className="required">*</span>
+                  Country
                 </label>
 
                 <input
@@ -580,7 +723,6 @@ export default function CandidatesPage() {
                   value={form.country}
                   onChange={handleChange}
                   placeholder="India"
-                  required
                 />
               </div>
 
@@ -588,7 +730,7 @@ export default function CandidatesPage() {
 
               <div className="form-field">
                 <label>
-                  Visa Type <span className="required">*</span>
+                  Visa Type
                 </label>
 
                 <input
@@ -597,8 +739,28 @@ export default function CandidatesPage() {
                   value={form.visa_type}
                   onChange={handleChange}
                   placeholder="H1B / Work Visa"
-                  required
                 />
+              </div>
+
+              {/* EMAIL DRAFT */}
+
+              <div className="form-field">
+                <label>
+                  Assigned Email Draft
+                </label>
+
+                <select
+                  name="email_draft_id"
+                  value={form.email_draft_id || ''}
+                  onChange={handleChange}
+                >
+                  <option value="">No Draft</option>
+                  {availableDrafts.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name || d.attachment_filename || d.subject || `Draft #${d.id}`}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* CV UPLOAD */}
@@ -668,34 +830,36 @@ export default function CandidatesPage() {
                 </div>
               </div>
 
-              {/* ACTIVE */}
+              {/* ACTIVE (Edit mode only) */}
 
-              <div className="form-field active-field">
+              {editingCandidate && (
+                <div className="form-field active-field">
 
-                <label>
-                  Status
-                </label>
+                  <label>
+                    Status
+                  </label>
 
-                <label className="active-switch-row">
+                  <label className="active-switch-row">
 
-                  <input
-                    type="checkbox"
-                    name="is_active"
-                    checked={form.is_active}
-                    onChange={handleChange}
-                  />
+                    <input
+                      type="checkbox"
+                      name="is_active"
+                      checked={form.is_active}
+                      onChange={handleChange}
+                    />
 
-                  <span className="active-switch"></span>
+                    <span className="active-switch"></span>
 
-                  <span className="active-switch-text">
-                    {form.is_active
-                      ? 'Active'
-                      : 'Inactive'}
-                  </span>
+                    <span className="active-switch-text">
+                      {form.is_active
+                        ? 'Active'
+                        : 'Inactive'}
+                    </span>
 
-                </label>
+                  </label>
 
-              </div>
+                </div>
+              )}
 
             </div>
 
@@ -817,6 +981,7 @@ export default function CandidatesPage() {
                   <th>Visa Type</th>
                   <th>Status</th>
                   <th>Gmail Account</th>
+                  <th>Email Draft</th>
                   <th>CV</th>
                   <th>Actions</th>
                 </tr>
@@ -824,13 +989,13 @@ export default function CandidatesPage() {
 
               <tbody>
 
-                {candidates.map((candidate) => (
+                {candidates.map((candidate, index) => (
 
                   <tr key={candidate.id}>
 
                     <td>
                       <span className="candidate-id">
-                        #{candidate.id}
+                        #{index + 1}
                       </span>
                     </td>
 
@@ -900,15 +1065,10 @@ export default function CandidatesPage() {
 
                       {candidate.gmail_email ? (
 
-                        <div className="gmail-connected">
-
-                          <Check size={15} />
-
-                          <span>
-                            {candidate.gmail_email}
-                          </span>
-
-                        </div>
+                        <span className="status-badge active" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                          <Check size={13} strokeWidth={2.5} />
+                          <span>Connected</span>
+                        </span>
 
                       ) : (
 
@@ -922,6 +1082,52 @@ export default function CandidatesPage() {
                           <Mail size={16} />
                           Connect Gmail
                         </button>
+
+                      )}
+
+                    </td>
+
+                    <td>
+
+                      {getDraftName(candidate) ? (
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span
+                            style={{
+                              fontSize: '13px',
+                              fontWeight: '500',
+                              color: '#1e293b',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              maxWidth: '160px',
+                            }}
+                            title={getDraftName(candidate)}
+                          >
+                            📄 {getDraftName(candidate)}
+                          </span>
+                          <button
+                            type="button"
+                            className="cv-button"
+                            style={{
+                              backgroundColor: '#eff6ff',
+                              borderColor: '#bfdbfe',
+                              color: '#1d4ed8',
+                              padding: '4px 8px',
+                              fontSize: '12px',
+                              fontWeight: '600',
+                              lineHeight: '1',
+                            }}
+                            onClick={() => setPreviewingDraftCandidate(candidate)}
+                            title="View Assigned Draft"
+                          >
+                            View
+                          </button>
+                        </div>
+
+                      ) : (
+
+                        <span className="no-cv">No Draft</span>
 
                       )}
 
@@ -958,6 +1164,18 @@ export default function CandidatesPage() {
                     <td>
 
                       <div className="candidate-actions">
+
+                        <button
+                          type="button"
+                          className="icon-action-button edit"
+                          onClick={() =>
+                            openAssignDraftModal(candidate)
+                          }
+                          title={getDraftName(candidate) || candidate.email_draft_id || candidate.email_draft ? "Change Email Draft" : "Assign Email Draft"}
+                          style={{ color: '#2563eb' }}
+                        >
+                          <FileText size={16} />
+                        </button>
 
                         <button
                           type="button"
@@ -1001,6 +1219,363 @@ export default function CandidatesPage() {
         )}
 
       </div>
+
+      {/* ASSIGN EMAIL DRAFT MODAL */}
+      {assigningDraftCandidate && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 999,
+          padding: '20px',
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '500px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '18px 24px',
+              borderBottom: '1px solid #e2e8f0',
+            }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>
+                {(assigningDraftCandidate.email_draft_id || assigningDraftCandidate.email_draft) ? 'Change Email Draft' : 'Assign Email Draft'}
+              </h3>
+              <button
+                onClick={() => setAssigningDraftCandidate(null)}
+                style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAssignDraftSubmit} style={{ padding: '24px' }}>
+              <div style={{ marginBottom: '16px', backgroundColor: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', display: 'block' }}>Candidate:</span>
+                <span style={{ fontSize: '15px', fontWeight: '600', color: '#0f172a' }}>{assigningDraftCandidate.full_name}</span>
+              </div>
+
+              <div style={{ marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '14px', fontWeight: '600', color: '#334155', margin: 0 }}>
+                    Email Draft
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAssigningDraftCandidate(null);
+                      window.location.href = '/email-drafts';
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#2563eb',
+                      fontSize: '13px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                  >
+                    + Create New Draft
+                  </button>
+                </div>
+                <select
+                  value={selectedDraftId}
+                  onChange={(e) => setSelectedDraftId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '14px',
+                    outline: 'none',
+                    backgroundColor: '#ffffff',
+                    color: '#0f172a',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <option value="">No Draft</option>
+                  {availableDrafts.map((d) => {
+                    const isVal = (v) => v && typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'none';
+                    const label = isVal(d.draft_name) ? d.draft_name : isVal(d.name) ? d.name : isVal(d.attachment_filename) ? `📄 ${d.attachment_filename}` : isVal(d.subject) ? d.subject : `Draft #${d.id}`;
+                    return (
+                      <option key={d.id} value={d.id}>
+                        {label}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  {(assigningDraftCandidate.email_draft_id || assigningDraftCandidate.email_draft) && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveDraftSubmit}
+                      disabled={assigning}
+                      style={{
+                        padding: '9px 14px',
+                        borderRadius: '6px',
+                        border: '1px solid #fecaca',
+                        backgroundColor: '#fef2f2',
+                        color: '#dc2626',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        cursor: assigning ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      Remove Draft
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setAssigningDraftCandidate(null)}
+                    style={{
+                      padding: '9px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      backgroundColor: '#ffffff',
+                      color: '#475569',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={assigning}
+                    style={{
+                      padding: '9px 18px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      backgroundColor: '#2563eb',
+                      color: '#ffffff',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      cursor: assigning ? 'not-allowed' : 'pointer',
+                      opacity: assigning ? 0.7 : 1,
+                    }}
+                  >
+                    {assigning ? 'Saving...' : 'Assign Draft'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DRAFT PREVIEW MODAL */}
+      {previewingDraftCandidate && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 999,
+          padding: '20px',
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '600px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '18px 24px',
+              borderBottom: '1px solid #e2e8f0',
+            }}>
+              <div>
+                <span style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Assigned Email Draft
+                </span>
+                <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: '2px 0 0 0' }}>
+                  {previewingDraftCandidate.email_draft_name}
+                </h3>
+              </div>
+              <button
+                onClick={() => setPreviewingDraftCandidate(null)}
+                style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                <div style={{ backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: '12px', color: '#64748b', display: 'block' }}>Candidate Name:</span>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#0f172a' }}>{previewingDraftCandidate.full_name}</span>
+                </div>
+                <div style={{ backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: '12px', color: '#64748b', display: 'block' }}>Candidate Email:</span>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#0f172a' }}>{previewingDraftCandidate.email}</span>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '16px', backgroundColor: '#f8fafc', padding: '12px 16px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', display: 'block', marginBottom: '2px' }}>
+                  Draft Subject:
+                </span>
+                <span style={{ fontSize: '15px', fontWeight: '600', color: '#0f172a' }}>
+                  {previewingDraftCandidate.email_draft_subject || 'No Subject'}
+                </span>
+              </div>
+
+              <div style={{
+                padding: '16px',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                backgroundColor: '#ffffff',
+                whiteSpace: 'pre-wrap',
+                fontSize: '14px',
+                lineHeight: '1.6',
+                color: '#334155',
+                maxHeight: '300px',
+                overflowY: 'auto',
+              }}>
+                {previewingDraftCandidate.email_draft_body || 'No Body Content'}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+                <button
+                  onClick={() => setPreviewingDraftCandidate(null)}
+                  style={{
+                    padding: '8px 18px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    backgroundColor: '#ffffff',
+                    color: '#475569',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {deletingCandidateModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 999,
+          padding: '20px',
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '440px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '18px 24px',
+              borderBottom: '1px solid #e2e8f0',
+            }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626', margin: 0 }}>
+                Delete Candidate?
+              </h3>
+              <button
+                onClick={() => setDeletingCandidateModal(null)}
+                style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px' }}>
+              <p style={{ fontSize: '14px', color: '#334155', margin: '0 0 12px 0', lineHeight: '1.5' }}>
+                Are you sure you want to permanently delete <strong style={{ color: '#0f172a' }}>"{deletingCandidateModal.full_name}"</strong>?
+              </p>
+              <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 24px 0' }}>
+                This action cannot be undone.
+              </p>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => setDeletingCandidateModal(null)}
+                  style={{
+                    padding: '9px 16px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    backgroundColor: '#ffffff',
+                    color: '#475569',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={deletingId === deletingCandidateModal.id}
+                  style={{
+                    padding: '9px 18px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    backgroundColor: '#dc2626',
+                    color: '#ffffff',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: deletingId === deletingCandidateModal.id ? 'not-allowed' : 'pointer',
+                    opacity: deletingId === deletingCandidateModal.id ? 0.7 : 1,
+                  }}
+                >
+                  {deletingId === deletingCandidateModal.id ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

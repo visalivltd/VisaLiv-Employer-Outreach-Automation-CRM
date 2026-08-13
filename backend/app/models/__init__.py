@@ -4,6 +4,7 @@ from app.models.employer import Employer
 from app.models.gmail_account import GmailAccount
 from app.models.email_log import EmailLog
 from app.models.scheduler_job import SchedulerJob
+from app.models.email_draft import EmailDraft
 
 __all__ = [
     "Admin",
@@ -12,4 +13,5 @@ __all__ = [
     "GmailAccount",
     "EmailLog",
     "SchedulerJob",
+    "EmailDraft",
 ]

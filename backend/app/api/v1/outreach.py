@@ -15,6 +15,25 @@ router = APIRouter(
 )
 
 
+@router.get(
+    "/preview",
+)
+def get_outreach_preview(
+    db: Session = Depends(get_db),
+):
+    return OutreachService.get_outreach_preview(db)
+
+
+@router.post(
+    "/batch-send",
+)
+def batch_send_outreach(
+    pairings: list[dict],
+    db: Session = Depends(get_db),
+):
+    return OutreachService.batch_outreach(db, pairings)
+
+
 @router.post(
     "/send",
     status_code=status.HTTP_201_CREATED,
@@ -42,6 +61,7 @@ def send_outreach(
             gmail_account=gmail_account,
             subject=data.subject,
             body=data.body,
+            draft_id=data.draft_id,
         )
 
         return {

@@ -13,6 +13,7 @@ from app.api.v1.gmail_oauth import router as gmail_oauth_router
 from app.api.v1.outreach import router as outreach_router
 from app.api.v1.email_log import router as email_log_router
 from app.api.v1.dashboard import router as dashboard_router
+from app.api.v1.email_draft import router as email_draft_router
 
 
 app = FastAPI(
@@ -34,7 +35,12 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
     ],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,6 +55,7 @@ app.include_router(gmail_oauth_router)
 app.include_router(outreach_router)
 app.include_router(email_log_router)
 app.include_router(dashboard_router)
+app.include_router(email_draft_router)
 
 @app.get("/")
 async def root():

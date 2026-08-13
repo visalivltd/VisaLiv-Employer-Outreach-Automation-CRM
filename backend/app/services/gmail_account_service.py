@@ -70,8 +70,9 @@ def get_gmail_account_by_candidate(
 
 def get_gmail_accounts(
     db: Session,
+    active_only: bool = True,
 ) -> list[GmailAccount]:
-    return gmail_account_repository.get_gmail_accounts(db)
+    return gmail_account_repository.get_gmail_accounts(db, active_only=active_only)
 
 
 def update_gmail_account(

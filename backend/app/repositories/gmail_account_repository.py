@@ -1,6 +1,7 @@
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, selectinload
 
+from app.models.email_log import EmailLog
 from app.models.gmail_account import GmailAccount
 
 
@@ -19,7 +20,12 @@ def get_gmail_account_by_id(
     db: Session,
     gmail_account_id: int,
 ) -> GmailAccount | None:
-    return db.get(GmailAccount, gmail_account_id)
+    statement = (
+        select(GmailAccount)
+        .where(GmailAccount.id == gmail_account_id)
+        .options(selectinload(GmailAccount.candidate))
+    )
+    return db.scalar(statement)
 
 
 def get_gmail_account_by_candidate_id(
@@ -46,8 +52,12 @@ def get_gmail_account_by_email(
 
 def get_gmail_accounts(
     db: Session,
+    active_only: bool = True,
 ) -> list[GmailAccount]:
-    statement = select(GmailAccount).order_by(GmailAccount.id)
+    statement = select(GmailAccount).options(selectinload(GmailAccount.candidate))
+    if active_only:
+        statement = statement.where(GmailAccount.is_active.is_(True))
+    statement = statement.order_by(GmailAccount.id)
 
     return list(db.scalars(statement).all())
 
@@ -66,5 +76,17 @@ def delete_gmail_account(
     db: Session,
     gmail_account: GmailAccount,
 ) -> None:
-    db.delete(gmail_account)
-    db.commit()
+    has_logs = db.scalar(
+        select(func.count(EmailLog.id)).where(
+            EmailLog.gmail_account_id == gmail_account.id
+        )
+    ) or 0
+
+    if has_logs > 0:
+        gmail_account.is_active = False
+        gmail_account.refresh_token = ""
+        db.commit()
+        db.refresh(gmail_account)
+    else:
+        db.delete(gmail_account)
+        db.commit()

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Mail, CheckCircle, XCircle, Link as LinkIcon } from 'lucide-react';
+import { Mail, CheckCircle, XCircle, Link as LinkIcon, Trash2, Check } from 'lucide-react';
 
 const API_BASE_URL = 'http://127.0.0.1:8000';
 
@@ -7,6 +7,8 @@ export default function GmailAccountsPage() {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/gmail-accounts`)
@@ -36,7 +38,53 @@ export default function GmailAccountsPage() {
       '_blank',
       'noopener,noreferrer'
     );
-  }
+  };
+
+  const deleteAccount = async (account) => {
+    const confirmed = window.confirm(
+      'Are you sure you want to delete this Gmail account connection?'
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingId(account.id);
+      setError('');
+      setSuccess('');
+
+      const response = await fetch(
+        `${API_BASE_URL}/gmail-accounts/${account.id}`,
+        {
+          method: 'DELETE',
+        }
+      );
+
+      if (!response.ok) {
+        let message = 'Failed to delete Gmail account';
+
+        try {
+          const data = await response.json();
+          message = data.detail || message;
+        } catch {
+          // Ignore JSON parsing error on 204
+        }
+
+        throw new Error(message);
+      }
+
+      setAccounts((prev) =>
+        prev.filter((item) => item.id !== account.id)
+      );
+
+      setSuccess('Gmail account deleted successfully.');
+    } catch (err) {
+      setError(err.message || 'Failed to delete Gmail account');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div className="content-container">
@@ -51,10 +99,23 @@ export default function GmailAccountsPage() {
       )}
 
       {error && (
-        <p>{error}</p>
+        <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', borderRadius: '8px', marginBottom: '18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>{error}</span>
+          <button type="button" onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontWeight: 'bold' }}>×</button>
+        </div>
       )}
 
-      {!loading && !error && accounts.length === 0 && (
+      {success && (
+        <div style={{ padding: '12px 16px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a', borderRadius: '8px', marginBottom: '18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <Check size={16} />
+            {success}
+          </span>
+          <button type="button" onClick={() => setSuccess('')} style={{ background: 'none', border: 'none', color: '#16a34a', cursor: 'pointer', fontWeight: 'bold' }}>×</button>
+        </div>
+      )}
+
+      {!loading && accounts.length === 0 && (
         <div className="placeholder-page">
           <Mail
             className="placeholder-icon"
@@ -71,7 +132,7 @@ export default function GmailAccountsPage() {
         </div>
       )}
 
-      {!loading && !error && accounts.length > 0 && (
+      {!loading && accounts.length > 0 && (
         <div className="table-wrapper">
           <table className="data-table">
             <thead>
@@ -86,14 +147,16 @@ export default function GmailAccountsPage() {
             </thead>
 
             <tbody>
-              {accounts.map((account) => (
+              {accounts.map((account, index) => (
                 <tr key={account.id}>
                   <td>
-                    {account.id}
+                    #{index + 1}
                   </td>
 
                   <td>
-                    Candidate #{account.candidate_id}
+                    <strong>
+                      {account.candidate_name || `Candidate #${account.candidate_id}`}
+                    </strong>
                   </td>
 
                   <td>
@@ -136,23 +199,61 @@ export default function GmailAccountsPage() {
                       : '-'}
                   </td>
 
-                  <td>
-                    <button
-                      type="button"
-                      className="reconnect-button"
-                      onClick={() =>
-                        connectGmail(account.candidate_id)
-                      }
-                    >
-                      <LinkIcon
-                        size={15}
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className="reconnect-button"
+                        onClick={() =>
+                          connectGmail(account.candidate_id)
+                        }
+                        title="Reconnect Gmail account"
                         style={{
-                          verticalAlign: 'middle',
-                          marginRight: '5px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          border: '1px solid #cbd5e1',
+                          backgroundColor: '#ffffff',
+                          color: '#2563eb',
+                          fontWeight: 600,
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+                          transition: 'all 0.15s ease',
                         }}
-                      />
-                      Reconnect
-                    </button>
+                      >
+                        <LinkIcon size={14} strokeWidth={2.2} />
+                        <span>Reconnect</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => deleteAccount(account)}
+                        disabled={deletingId === account.id}
+                        title="Delete Gmail account"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          border: '1px solid #fecaca',
+                          backgroundColor: '#fef2f2',
+                          color: '#dc2626',
+                          fontWeight: 600,
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+                          transition: 'all 0.15s ease',
+                          opacity: deletingId === account.id ? 0.6 : 1,
+                        }}
+                      >
+                        <Trash2 size={14} strokeWidth={2.2} />
+                        <span>Delete</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

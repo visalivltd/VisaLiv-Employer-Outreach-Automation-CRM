@@ -6,6 +6,7 @@ import DashboardPage from './pages/DashboardPage';
 import CandidatesPage from './pages/CandidatesPage';
 import EmployersPage from './pages/EmployersPage';
 import GmailAccountsPage from './pages/GmailAccountsPage';
+import EmailDraftsPage from './pages/EmailDraftsPage';
 import EmailLogsPage from './pages/EmailLogsPage';
 import OutreachPage from './pages/OutreachPage';
 
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="/candidates" element={<CandidatesPage />} />
             <Route path="/employers" element={<EmployersPage />} />
             <Route path="/gmail-accounts" element={<GmailAccountsPage />} />
+            <Route path="/email-drafts" element={<EmailDraftsPage />} />
             <Route path="/email-logs" element={<EmailLogsPage />} />
             <Route path="/outreach" element={<OutreachPage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

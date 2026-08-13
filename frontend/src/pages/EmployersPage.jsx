@@ -38,13 +38,22 @@ export default function EmployersPage() {
       const response = await fetch(`${API_URL}/employers`);
 
       if (!response.ok) {
-        throw new Error('Failed to fetch employers');
+        let detailMsg = 'Failed to fetch employers';
+        try {
+          const errData = await response.json();
+          detailMsg = typeof errData.detail === 'string' ? errData.detail : detailMsg;
+        } catch {
+          // ignore
+        }
+        throw new Error(detailMsg);
       }
 
       const data = await response.json();
       setEmployers(data);
+      setError('');
     } catch (err) {
-      setError(err.message);
+      console.error('Fetch employers error:', err);
+      setError(err.message || 'Failed to fetch employers');
     } finally {
       setLoading(false);
     }
@@ -73,11 +82,11 @@ export default function EmployersPage() {
     setEditingEmployer(employer);
 
     setForm({
-      service_name: employer.company_name || '',
+      service_name: employer.service_name || employer.company_name || '',
       email: employer.email || '',
       country: employer.country || '',
       industry: employer.industry || '',
-      service_website: employer.website || '',
+      service_website: employer.service_website || employer.website || '',
       is_active: employer.is_active ?? true,
     });
 
@@ -99,22 +108,21 @@ export default function EmployersPage() {
       setError('');
       setSuccess('');
 
-      if (!form.service_name.trim()) {
-        throw new Error('Service Name is required.');
-      }
+      const email = form.email.trim();
 
-      if (!form.email.trim()) {
+      if (!email) {
         throw new Error('Email is required.');
       }
 
-      const emailPattern = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
-      if (!emailPattern.test(form.email.trim())) {
+      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailPattern.test(email)) {
         throw new Error('Please enter a valid email address.');
       }
 
-      if (form.service_website.trim()) {
+      const serviceWebsite = form.service_website ? form.service_website.trim() : '';
+      if (serviceWebsite) {
         try {
-          const url = new URL(form.service_website.trim());
+          const url = new URL(serviceWebsite);
           if (!['http:', 'https:'].includes(url.protocol)) {
             throw new Error();
           }
@@ -135,11 +143,11 @@ export default function EmployersPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          company_name: form.service_name.trim(),
-          email: form.email.trim(),
-          country: form.country.trim() || null,
-          industry: form.industry.trim() || null,
-          website: form.service_website.trim() || null,
+          service_name: form.service_name ? form.service_name.trim() || null : null,
+          email: email,
+          country: form.country ? form.country.trim() || null : null,
+          industry: form.industry ? form.industry.trim() || null : null,
+          service_website: serviceWebsite || null,
           is_active: form.is_active,
         }),
       });
@@ -147,7 +155,13 @@ export default function EmployersPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || 'Failed to save employer');
+        let detail = 'Failed to save employer';
+        if (typeof data.detail === 'string') {
+          detail = data.detail;
+        } else if (Array.isArray(data.detail) && data.detail[0]?.msg) {
+          detail = data.detail[0].msg;
+        }
+        throw new Error(detail);
       }
 
       if (isEditing) {
@@ -212,8 +226,9 @@ export default function EmployersPage() {
   };
 
   const deleteEmployer = async (employer) => {
+    const label = employer.service_name || employer.company_name || employer.email || 'this employer';
     const confirmed = window.confirm(
-      `Are you sure you want to delete "${employer.company_name || '-'}"?`
+      `Are you sure you want to delete "${label}"?`
     );
 
     if (!confirmed) {
@@ -407,11 +422,11 @@ export default function EmployersPage() {
               </thead>
 
               <tbody>
-                {employers.map((employer) => (
+                {employers.map((employer, index) => (
                   <tr key={employer.id}>
 
                     <td style={tdStyle}>
-                      #{employer.id}
+                      #{index + 1}
                     </td>
 
                     <td
@@ -596,7 +611,6 @@ export default function EmployersPage() {
                 value={form.service_name}
                 onChange={handleChange}
                 placeholder="e.g. Visa Sponsorship Services"
-                required
               />
 
               <FormField
@@ -860,7 +874,7 @@ function FormField({
           color: '#334155',
         }}
       >
-        {label}
+        {label} {required && <span style={{ color: '#ef4444' }}>*</span>}
       </label>
 
       <input

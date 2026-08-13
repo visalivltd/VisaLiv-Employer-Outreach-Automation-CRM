@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.schemas.candidate import (
+    CandidateAssignDraft,
     CandidateCreate,
     CandidateResponse,
     CandidateUpdate,
@@ -99,9 +100,10 @@ def create_candidate(
     response_model=list[CandidateResponse],
 )
 def get_candidates(
+    active_only: bool = False,
     db: Session = Depends(get_db),
 ):
-    return candidate_service.get_candidates(db)
+    return candidate_service.get_candidates(db, active_only=active_only)
 
 
 @router.get(
@@ -139,6 +141,83 @@ def update_candidate(
         db,
         candidate_id,
         data,
+    )
+
+    if candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found",
+        )
+
+    return candidate
+
+
+@router.put(
+    "/{candidate_id}/assign-draft",
+    response_model=CandidateResponse,
+)
+def assign_email_draft(
+    candidate_id: int,
+    data: CandidateAssignDraft,
+    db: Session = Depends(get_db),
+):
+    try:
+        candidate = candidate_service.assign_email_draft(
+            db, candidate_id, data.email_draft_id
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    if candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found",
+        )
+
+    return candidate
+
+
+@router.put(
+    "/{candidate_id}/email-draft",
+    response_model=CandidateResponse,
+)
+def update_candidate_email_draft(
+    candidate_id: int,
+    data: CandidateAssignDraft,
+    db: Session = Depends(get_db),
+):
+    try:
+        candidate = candidate_service.assign_email_draft(
+            db, candidate_id, data.email_draft_id
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    if candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found",
+        )
+
+    return candidate
+
+
+@router.delete(
+    "/{candidate_id}/email-draft",
+    response_model=CandidateResponse,
+)
+def remove_candidate_email_draft(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+):
+    candidate = candidate_service.assign_email_draft(
+        db, candidate_id, None
     )
 
     if candidate is None:

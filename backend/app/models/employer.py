@@ -14,9 +14,9 @@ class Employer(Base):
         index=True,
     )
 
-    service_name: Mapped[str] = mapped_column(
+    service_name: Mapped[str | None] = mapped_column(
         String(255),
-        nullable=False,
+        nullable=True,
     )
 
     email: Mapped[str] = mapped_column(

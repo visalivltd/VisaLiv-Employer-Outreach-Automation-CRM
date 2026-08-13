@@ -5,6 +5,9 @@ import {
   Building2,
   Mail,
   Send,
+  ShieldCheck,
+  Clock3,
+  Target,
 } from 'lucide-react';
 
 const API_BASE_URL = 'http://127.0.0.1:8000';
@@ -108,10 +111,44 @@ export default function DashboardPage() {
   const recentEmails =
     dashboard.recentEmails || [];
 
+  /*
+   * Daily outreach rule:
+   * Each candidate can be assigned up to 5 employers per day.
+   */
+  const dailyTarget =
+    dashboard.dailyTarget ??
+    dashboard.totalCandidates * 5;
+
+  /*
+   * This field will come from backend once daily
+   * sending statistics are implemented.
+   *
+   * We intentionally do NOT use total emailsSent here
+   * because that is the historical total.
+   */
+  const emailsSentToday =
+    dashboard.emailsSentToday ?? null;
+
+  const remainingToday =
+    emailsSentToday !== null
+      ? Math.max(
+          dailyTarget - emailsSentToday,
+          0
+        )
+      : null;
+
+  const progressPercentage =
+    emailsSentToday !== null && dailyTarget > 0
+      ? Math.min(
+          (emailsSentToday / dailyTarget) * 100,
+          100
+        )
+      : 0;
+
   return (
     <div className="content-container">
 
-      {/* Page Title & Welcome Subtitle */}
+      {/* Page Title */}
       <h1 className="page-title">
         Dashboard
       </h1>
@@ -123,7 +160,7 @@ export default function DashboardPage() {
       {/* Summary Metric Cards */}
       <div className="summary-grid">
 
-        {/* Card 1: Total Candidates */}
+        {/* Total Candidates */}
         <div className="summary-card">
           <div className="summary-card-left">
 
@@ -151,7 +188,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Card 2: Total Employers */}
+        {/* Total Employers */}
         <div className="summary-card">
           <div className="summary-card-left">
 
@@ -179,7 +216,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Card 3: Emails Sent */}
+        {/* Total Emails Sent */}
         <div className="summary-card">
           <div className="summary-card-left">
 
@@ -209,8 +246,181 @@ export default function DashboardPage() {
 
       </div>
 
+      {/* Daily Outreach Distribution */}
+      {/* Daily Outreach Rules */}
+      <div
+        className="activity-card"
+        style={{ marginTop: '24px' }}
+      >
+        <div className="activity-card-header">
+          <div>
+            <h2>
+              Automated Outreach Rules
+            </h2>
+
+            <p
+              style={{
+                marginTop: '6px',
+                marginBottom: 0,
+                color: '#64748b',
+                fontSize: '14px',
+              }}
+            >
+              Automated employer outreach governance & rules.
+            </p>
+          </div>
+        </div>
+
+        {/* Rules */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns:
+              'repeat(3, minmax(0, 1fr))',
+            gap: '12px',
+            padding: '0 20px 20px 20px',
+          }}
+        >
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px',
+              padding: '14px',
+              borderRadius: '10px',
+              background: '#eff6ff',
+            }}
+          >
+            <Users
+              size={19}
+              style={{
+                marginTop: '2px',
+                flexShrink: 0,
+                color: '#2563eb',
+              }}
+            />
+
+            <div>
+              <strong
+                style={{
+                  display: 'block',
+                  fontSize: '14px',
+                  color: '#1e3a8a',
+                }}
+              >
+                5 Employers / Candidate
+              </strong>
+
+              <span
+                style={{
+                  display: 'block',
+                  marginTop: '4px',
+                  fontSize: '12px',
+                  color: '#475569',
+                }}
+              >
+                Each candidate can be assigned
+                up to 5 employers per day.
+              </span>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px',
+              padding: '14px',
+              borderRadius: '10px',
+              background: '#ecfdf5',
+            }}
+          >
+            <Clock3
+              size={19}
+              style={{
+                marginTop: '2px',
+                flexShrink: 0,
+                color: '#059669',
+              }}
+            />
+
+            <div>
+              <strong
+                style={{
+                  display: 'block',
+                  fontSize: '14px',
+                  color: '#065f46',
+                }}
+              >
+                3-Day Employer Cooldown
+              </strong>
+
+              <span
+                style={{
+                  display: 'block',
+                  marginTop: '4px',
+                  fontSize: '12px',
+                  color: '#475569',
+                }}
+              >
+                Employer enters 3-day cooldown for all candidates after receiving successful outreach.
+              </span>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px',
+              padding: '14px',
+              borderRadius: '10px',
+              background: '#fff7ed',
+            }}
+          >
+            <ShieldCheck
+              size={19}
+              style={{
+                marginTop: '2px',
+                flexShrink: 0,
+                color: '#ea580c',
+              }}
+            />
+
+            <div>
+              <strong
+                style={{
+                  display: 'block',
+                  fontSize: '14px',
+                  color: '#9a3412',
+                }}
+              >
+                No Duplicate Outreach
+              </strong>
+
+              <span
+                style={{
+                  display: 'block',
+                  marginTop: '4px',
+                  fontSize: '12px',
+                  color: '#475569',
+                }}
+              >
+                The same candidate can never email
+                the same employer twice.
+              </span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
       {/* Recent Email Activity */}
-      <div className="activity-card">
+      <div
+        className="activity-card"
+        style={{ marginTop: '24px' }}
+      >
 
         <div className="activity-card-header">
           <h2>

@@ -1,3 +1,4 @@
+import os
 import base64
 import hashlib
 import hmac
@@ -31,6 +32,11 @@ GOOGLE_IDENTITY_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
 ]
 
+OAUTH_SCOPES = [
+    GMAIL_SEND_SCOPE,
+    *GOOGLE_IDENTITY_SCOPES,
+]
+
 STATE_EXPIRY_SECONDS = 600
 
 
@@ -51,10 +57,7 @@ def create_flow(
 
     return Flow.from_client_config(
         client_config,
-        scopes=[
-            GMAIL_SEND_SCOPE,
-            *GOOGLE_IDENTITY_SCOPES,
-        ],
+        scopes=OAUTH_SCOPES,
         redirect_uri=settings.GOOGLE_REDIRECT_URI,
         code_verifier=code_verifier,
         autogenerate_code_verifier=(
@@ -174,13 +177,10 @@ def connect_gmail(
         code_verifier=code_verifier,
     )
 
-    authorization_url, _ = (
-        flow.authorization_url(
-            access_type="offline",
-            include_granted_scopes="true",
-            prompt="consent",
-            state=state,
-        )
+    authorization_url, _ = flow.authorization_url(
+        access_type="offline",
+        prompt="consent",
+        state=state,
     )
 
     return RedirectResponse(
@@ -190,10 +190,39 @@ def connect_gmail(
 
 @router.get("/callback")
 def gmail_callback(
-    code: str,
-    state: str,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
     db: Session = Depends(get_db),
 ):
+    # Handle Google OAuth error if user denied access or authorization failed
+    if error:
+        if error == "access_denied":
+            raise HTTPException(
+                status_code=400,
+                detail="Gmail authorization was denied. Please try Connect Gmail again and allow the requested Gmail permissions.",
+            )
+        detail_msg = f"Google OAuth authorization error: {error}"
+        if error_description:
+            detail_msg += f" ({error_description})"
+        raise HTTPException(
+            status_code=400,
+            detail=detail_msg,
+        )
+
+    if not code:
+        raise HTTPException(
+            status_code=400,
+            detail="Authorization code is missing from Google response.",
+        )
+
+    if not state:
+        raise HTTPException(
+            status_code=400,
+            detail="State parameter is missing from Google response.",
+        )
+
     candidate_id, code_verifier = verify_state(
         state
     )
@@ -209,8 +238,10 @@ def gmail_callback(
             detail="Candidate not found",
         )
 
-    # Re-create the Flow with the SAME PKCE
-    # verifier used during authorization.
+    # Re-create the Flow with the SAME PKCE verifier used during authorization.
+    # Set OAUTHLIB_RELAX_TOKEN_SCOPE=1 so oauthlib does not fail due to scope ordering/formatting.
+    os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
+
     flow = create_flow(
         code_verifier=code_verifier,
     )
@@ -226,6 +257,14 @@ def gmail_callback(
         ) from exc
 
     credentials = flow.credentials
+
+    # Verify that gmail.send scope was explicitly granted by the user
+    granted_scopes = set(credentials.scopes or [])
+    if GMAIL_SEND_SCOPE not in granted_scopes:
+        raise HTTPException(
+            status_code=400,
+            detail="Gmail send permission was not granted. Please reconnect the Gmail account and allow Gmail sending access.",
+        )
 
     if not credentials.refresh_token:
         raise HTTPException(
