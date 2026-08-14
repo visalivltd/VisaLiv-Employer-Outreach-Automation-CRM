@@ -8,6 +8,7 @@ from app.models.candidate import Candidate
 from app.models.email_log import EmailLog
 from app.models.employer import Employer
 from app.models.gmail_account import GmailAccount
+from app.services.email_draft_service import extract_draft_content
 from app.services.email_service import EmailService
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -212,16 +213,19 @@ class OutreachService:
             raise ValueError(reason)
 
         candidate = db.get(Candidate, candidate_id)
+        
+        # Extract draft subject & body if explicit subject/body not provided
+        draft_subj, draft_body = extract_draft_content(
+            candidate.email_draft if candidate else None,
+            candidate.full_name if candidate else "Candidate"
+        )
+        final_subject = subject.strip() if subject and subject.strip() else draft_subj
+        final_body = body.strip() if body and body.strip() else draft_body
+
+        # Attach ONLY the candidate CV (never attach the email draft docx itself)
         attachment_paths = []
-        if candidate:
-            if candidate.cv_file_path:
-                attachment_paths.append(candidate.cv_file_path)
-            if candidate.email_draft and candidate.email_draft.attachment_path:
-                draft = candidate.email_draft
-                if draft.attachment_filename:
-                    attachment_paths.append((draft.attachment_path, draft.attachment_filename))
-                else:
-                    attachment_paths.append(draft.attachment_path)
+        if candidate and candidate.cv_file_path:
+            attachment_paths.append(candidate.cv_file_path)
 
         return EmailService.send_and_log(
             db=db,
@@ -229,8 +233,8 @@ class OutreachService:
             employer_id=employer_id,
             gmail_account=gmail_account,
             to_email=employer.email,
-            subject=subject,
-            body=body,
+            subject=final_subject,
+            body=final_body,
             attachment_paths=attachment_paths if attachment_paths else None,
         )
 
@@ -271,17 +275,27 @@ class OutreachService:
                 continue
 
             draft = candidate.email_draft
-            subject = item.get("subject") or (draft.subject if draft else f"Outreach Email for {candidate.full_name}")
-            body = item.get("body") or (draft.body if draft else f"Dear {employer.service_name or 'Employer'},\n\nPlease find attached the CV for {candidate.full_name}.")
+            draft_subj, draft_body = extract_draft_content(
+                draft,
+                candidate.full_name
+            )
 
+            subject = item.get("subject").strip() if item.get("subject") and item.get("subject").strip() else draft_subj
+            body = item.get("body").strip() if item.get("body") and item.get("body").strip() else draft_body
+
+            # Attach ONLY candidate's CV (never attach the email draft docx)
             attachment_paths = []
             if candidate.cv_file_path:
                 attachment_paths.append(candidate.cv_file_path)
-            if draft and draft.attachment_path:
-                if draft.attachment_filename:
-                    attachment_paths.append((draft.attachment_path, draft.attachment_filename))
-                else:
-                    attachment_paths.append(draft.attachment_path)
+
+            print("=" * 60, flush=True)
+            print("OUTREACH PAIRING PROCESSING:", flush=True)
+            print(f"  Candidate: {candidate.full_name} ({candidate.email})", flush=True)
+            print(f"  Employer: {employer.service_name or 'Employer'} ({employer.email})", flush=True)
+            print(f"  Gmail account: {candidate.gmail_account.gmail_email}", flush=True)
+            print(f"  Draft: {draft.draft_name if draft else 'No draft'}", flush=True)
+            print(f"  Subject: {subject}", flush=True)
+            print(f"  Attachments: {attachment_paths}", flush=True)
 
             try:
                 log = EmailService.send_and_log(
@@ -296,6 +310,9 @@ class OutreachService:
                 )
                 if log.status == "sent":
                     sent_count += 1
+                    print("  Result: SUCCESS", flush=True)
+                    print("  Failure reason: None", flush=True)
+                    print("=" * 60, flush=True)
                     results.append({
                         "candidate_id": candidate_id,
                         "employer_id": employer_id,
@@ -304,6 +321,9 @@ class OutreachService:
                     })
                 else:
                     failed_count += 1
+                    print("  Result: FAILED", flush=True)
+                    print(f"  Failure reason: {log.error_message}", flush=True)
+                    print("=" * 60, flush=True)
                     results.append({
                         "candidate_id": candidate_id,
                         "employer_id": employer_id,
@@ -312,14 +332,20 @@ class OutreachService:
                     })
             except Exception as e:
                 failed_count += 1
+                err_msg = str(e)
+                print("  Result: FAILED", flush=True)
+                print(f"  Failure reason: {err_msg}", flush=True)
+                print("=" * 60, flush=True)
                 results.append({
                     "candidate_id": candidate_id,
                     "employer_id": employer_id,
                     "status": "failed",
-                    "error": str(e),
+                    "error": err_msg,
                 })
 
         return {
+            "sent": sent_count,
+            "failed": failed_count,
             "sent_count": sent_count,
             "failed_count": failed_count,
             "skipped_count": skipped_count,

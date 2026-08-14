@@ -25,28 +25,34 @@ class EmailService:
             candidate_id=candidate_id,
             employer_id=employer_id,
             gmail_account_id=gmail_account.id,
-            subject=subject,
+            subject=subject or "Outreach Email",
             status="pending",
         )
 
-        db.add(email_log)
-        db.commit()
-        db.refresh(email_log)
+        try:
+            db.add(email_log)
+            db.commit()
+            db.refresh(email_log)
+        except Exception as exc:
+            db.rollback()
+            raise RuntimeError(f"Database error creating EmailLog: {exc}") from exc
 
         try:
             gmail_service = GmailService(
                 refresh_token=gmail_account.refresh_token,
             )
 
-            gmail_service.send_email(
+            gmail_message_id = gmail_service.send_email(
                 to_email=to_email,
                 subject=subject,
                 body=body,
+                sender_email=gmail_account.gmail_email,
                 attachment_paths=attachment_paths,
             )
 
             email_log.status = "sent"
             email_log.sent_at = datetime.now(timezone.utc)
+            email_log.gmail_message_id = gmail_message_id
             email_log.error_message = None
 
             db.commit()
@@ -55,10 +61,13 @@ class EmailService:
             return email_log
 
         except Exception as exc:
-            email_log.status = "failed"
-            email_log.error_message = str(exc)
-
-            db.commit()
-            db.refresh(email_log)
+            db.rollback()
+            try:
+                email_log.status = "failed"
+                email_log.error_message = str(exc)
+                db.commit()
+                db.refresh(email_log)
+            except Exception:
+                db.rollback()
 
             raise

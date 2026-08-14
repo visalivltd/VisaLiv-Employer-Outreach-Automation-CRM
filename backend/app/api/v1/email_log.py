@@ -20,7 +20,30 @@ def get_email_logs(
         .order_by(EmailLog.id.desc())
     ).all()
 
-    return logs
+    result = []
+    for log in logs:
+        cand = log.candidate
+        emp = log.employer
+        gm = log.gmail_account
+
+        result.append({
+            "id": log.id,
+            "candidate_id": log.candidate_id,
+            "candidate_name": cand.full_name if cand else f"Candidate #{log.candidate_id}",
+            "employer_id": log.employer_id,
+            "employer_name": emp.service_name if emp else f"Employer #{log.employer_id}",
+            "employer_email": emp.email if emp else None,
+            "gmail_account_id": log.gmail_account_id,
+            "gmail_email": gm.gmail_email if gm else None,
+            "subject": log.subject,
+            "status": log.status,
+            "gmail_message_id": getattr(log, "gmail_message_id", None),
+            "sent_at": log.sent_at.isoformat() if log.sent_at else None,
+            "error_message": log.error_message,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+        })
+
+    return result
 
 
 @router.get("/{email_log_id}")

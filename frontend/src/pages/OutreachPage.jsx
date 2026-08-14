@@ -183,11 +183,28 @@ export default function OutreachPage() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Batch outreach failed');
+      if (!res.ok) throw new Error(data.detail || 'Batch outreach request failed');
 
-      setMessage(
-        `Batch Outreach Complete: ${data.sent_count} sent successfully, ${data.failed_count} failed, ${data.skipped_count} skipped.`
-      );
+      const sentCount = data.sent_count ?? data.sent ?? 0;
+      const failedCount = data.failed_count ?? data.failed ?? 0;
+      const skippedCount = data.skipped_count ?? data.skipped ?? 0;
+
+      const failedDetails = (data.details || []).filter((d) => d.status === 'failed');
+
+      if (failedCount > 0 && failedDetails.length > 0) {
+        const errorReasons = failedDetails
+          .map((d) => d.error || 'Unknown error')
+          .join('; ');
+        setError(`Email failed: ${errorReasons}`);
+      }
+
+      if (sentCount > 0) {
+        setMessage(
+          `Batch Outreach Complete: ${sentCount} sent successfully${failedCount > 0 ? `, ${failedCount} failed` : ''}${skippedCount > 0 ? `, ${skippedCount} skipped` : ''}.`
+        );
+      } else if (failedCount === 0 && skippedCount > 0) {
+        setMessage(`Batch Outreach Complete: 0 sent, ${skippedCount} skipped.`);
+      }
 
       setSelectedKeys(new Set());
       setShowConfirmModal(false);
@@ -195,7 +212,11 @@ export default function OutreachPage() {
       await loadData();
       await loadPreview();
     } catch (err) {
-      setError(err.message || 'Failed to execute batch outreach');
+      if (err.name === 'TypeError' || (err.message && err.message.includes('fetch'))) {
+        setError('Failed to fetch: Network or server unreachable.');
+      } else {
+        setError(err.message || 'Failed to execute batch outreach');
+      }
     } finally {
       setStartingBatch(false);
     }

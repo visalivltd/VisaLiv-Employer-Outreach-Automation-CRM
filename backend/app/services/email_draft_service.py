@@ -1,8 +1,65 @@
+import re
+from pathlib import Path
+import docx
+
 from sqlalchemy.orm import Session
 
 from app.models.email_draft import EmailDraft
 from app.repositories import email_draft_repository
 from app.schemas.email_draft import EmailDraftCreate, EmailDraftUpdate
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def extract_draft_content(draft: EmailDraft | None, candidate_full_name: str) -> tuple[str, str]:
+    """
+    Extracts (subject, body) from the candidate's assigned EmailDraft .docx attachment.
+    If the .docx begins with 'Subject: ...', that line is extracted as the Gmail subject
+    and stripped from the email body.
+    If no .docx is present or readable, falls back to draft.subject/draft.body or default.
+    """
+    extracted_subject = None
+    body_paragraphs = []
+
+    if draft and draft.attachment_path:
+        path_str = draft.attachment_path
+        fp1 = PROJECT_ROOT / path_str
+        fp2 = PROJECT_ROOT.parent / path_str
+        file_path = fp1 if fp1.exists() else (fp2 if fp2.exists() else None)
+
+        if file_path and file_path.suffix.lower() == ".docx":
+            try:
+                doc = docx.Document(file_path)
+                lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+                if lines:
+                    match = re.match(r"^subject\s*:\s*(.*)$", lines[0], re.IGNORECASE)
+                    if match:
+                        extracted_subject = match.group(1).strip()
+                        lines = lines[1:]
+                    body_paragraphs = lines
+            except Exception as exc:
+                print(f"Warning: Failed to read docx draft file {file_path}: {exc}")
+
+    subject = (
+        extracted_subject
+        or (draft.subject if draft and draft.subject and draft.subject.strip() else None)
+        or f"Outreach Email for {candidate_full_name}"
+    )
+
+    if body_paragraphs:
+        body = "\n\n".join(body_paragraphs)
+    elif draft and draft.body and draft.body.strip():
+        b_lines = [l.strip() for l in draft.body.splitlines() if l.strip()]
+        if b_lines and re.match(r"^subject\s*:\s*(.*)$", b_lines[0], re.IGNORECASE):
+            if not extracted_subject:
+                subject = re.match(r"^subject\s*:\s*(.*)$", b_lines[0], re.IGNORECASE).group(1).strip()
+            body = "\n\n".join(b_lines[1:])
+        else:
+            body = draft.body.strip()
+    else:
+        body = f"Dear Employer,\n\nPlease find attached the CV for {candidate_full_name}."
+
+    return subject, body
 
 
 def create_email_draft(

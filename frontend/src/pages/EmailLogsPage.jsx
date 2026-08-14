@@ -85,23 +85,47 @@ export default function EmailLogsPage() {
                   <td>{log.id}</td>
 
                   <td>
-                    Candidate #{log.candidate_id}
+                    <strong style={{ color: '#0f172a' }}>
+                      {log.candidate_name || `Candidate #${log.candidate_id}`}
+                    </strong>
                   </td>
 
                   <td>
-                    Employer #{log.employer_id}
+                    <strong style={{ color: '#0f172a', display: 'block' }}>
+                      {log.employer_name || `Employer #${log.employer_id}`}
+                    </strong>
+                    {log.employer_email && (
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>
+                        {log.employer_email}
+                      </span>
+                    )}
                   </td>
 
                   <td>
-                    Gmail #{log.gmail_account_id}
+                    <span style={{ fontSize: '12px', color: '#047857' }}>
+                      {log.gmail_email || `Gmail #${log.gmail_account_id}`}
+                    </span>
                   </td>
 
                   <td>
-                    {log.subject}
+                    <span style={{ fontWeight: 500, color: '#1e293b' }}>{log.subject}</span>
+                    {log.gmail_message_id && (
+                      <span style={{ display: 'block', fontSize: '11px', color: '#94a3b8' }}>
+                        Msg ID: {log.gmail_message_id}
+                      </span>
+                    )}
                   </td>
 
                   <td>
-                    {log.status}
+                    {log.status === 'sent' || log.status === 'Sent' ? (
+                      <span className="status-badge active">
+                        <span className="status-dot"></span> Sent
+                      </span>
+                    ) : log.status === 'failed' || log.status === 'Failed' ? (
+                      <span className="status-badge inactive">Failed</span>
+                    ) : (
+                      <span className="status-badge">{log.status}</span>
+                    )}
                   </td>
 
                   <td>
