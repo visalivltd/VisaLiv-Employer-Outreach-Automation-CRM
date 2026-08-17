@@ -37,6 +37,54 @@ def create_gmail_account(
         )
 
 
+def check_account_send_scope(account) -> bool:
+    if not account or not account.refresh_token or not account.is_active:
+        return False
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        from app.core.config import settings
+        from app.services.gmail_service import GMAIL_SEND_SCOPE
+
+        creds = Credentials(
+            token=None,
+            refresh_token=account.refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=settings.GOOGLE_CLIENT_ID,
+            client_secret=settings.GOOGLE_CLIENT_SECRET,
+            scopes=[GMAIL_SEND_SCOPE],
+        )
+        creds.refresh(Request())
+        return True
+    except Exception:
+        return False
+
+
+def check_account_read_scope(account) -> bool:
+    if not account or not account.refresh_token or not account.is_active:
+        return False
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+        from app.core.config import settings
+
+        creds = Credentials(
+            token=None,
+            refresh_token=account.refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=settings.GOOGLE_CLIENT_ID,
+            client_secret=settings.GOOGLE_CLIENT_SECRET,
+            scopes=None,
+        )
+        creds.refresh(Request())
+        gmail = build("gmail", "v1", credentials=creds)
+        gmail.users().messages().list(userId="me", maxResults=1).execute()
+        return True
+    except Exception:
+        return False
+
+
 @router.get(
     "",
     response_model=list[GmailAccountResponse],
@@ -44,7 +92,17 @@ def create_gmail_account(
 def get_gmail_accounts(
     db: Session = Depends(get_db),
 ):
-    return gmail_account_service.get_gmail_accounts(db)
+    accounts = gmail_account_service.get_gmail_accounts(db)
+    result = []
+    for acc in accounts:
+        has_send = check_account_send_scope(acc)
+        has_read = check_account_read_scope(acc)
+        resp = GmailAccountResponse.model_validate(acc)
+        resp.has_send_scope = has_send
+        resp.has_read_scope = has_read
+        resp.requires_reauthorization = not (has_send and has_read)
+        result.append(resp)
+    return result
 
 
 @router.get(
@@ -68,7 +126,13 @@ def get_gmail_account_by_candidate(
             detail="Gmail account not found for this candidate",
         )
 
-    return gmail_account
+    has_send = check_account_send_scope(gmail_account)
+    has_read = check_account_read_scope(gmail_account)
+    resp = GmailAccountResponse.model_validate(gmail_account)
+    resp.has_send_scope = has_send
+    resp.has_read_scope = has_read
+    resp.requires_reauthorization = not (has_send and has_read)
+    return resp
 
 
 @router.get(

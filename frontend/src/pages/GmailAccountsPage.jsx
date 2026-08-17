@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Mail, CheckCircle, XCircle, Link as LinkIcon, Trash2, Check } from 'lucide-react';
+import { Mail, CheckCircle, XCircle, AlertTriangle, Link as LinkIcon, Trash2, Check } from 'lucide-react';
 
 const API_BASE_URL = 'http://127.0.0.1:8000';
 
@@ -11,23 +11,30 @@ export default function GmailAccountsPage() {
   const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
+    console.log('[GMAIL ACCOUNTS UI] fetch started');
+    setLoading(true);
     fetch(`${API_BASE_URL}/gmail-accounts`)
       .then(async (response) => {
+        console.log('[GMAIL ACCOUNTS UI] response status:', response.status);
         if (!response.ok) {
-          throw new Error('Failed to fetch Gmail accounts');
+          throw new Error(`Failed to fetch Gmail accounts (HTTP ${response.status})`);
         }
-
-        return response.json();
+        const data = await response.json();
+        console.log('[GMAIL ACCOUNTS UI] response received, item count:', Array.isArray(data) ? data.length : 'non-array');
+        return data;
       })
       .then((data) => {
-        setAccounts(data);
+        const safeData = Array.isArray(data) ? data : (data?.accounts || []);
+        console.log('[GMAIL ACCOUNTS UI] setting accounts:', safeData.length);
+        setAccounts(safeData);
         setError('');
       })
       .catch((err) => {
-        console.error('Gmail accounts fetch error:', err);
-        setError('Failed to fetch Gmail accounts');
+        console.error('[GMAIL ACCOUNTS UI] fetch error:', err);
+        setError(err.message || 'Failed to fetch Gmail accounts');
       })
       .finally(() => {
+        console.log('[GMAIL ACCOUNTS UI] setting loading false');
         setLoading(false);
       });
   }, []);
@@ -166,29 +173,39 @@ export default function GmailAccountsPage() {
                   </td>
 
                   <td>
-                    {account.is_active ? (
-                      <span>
-                        <CheckCircle
-                          size={16}
-                          style={{
-                            verticalAlign: 'middle',
-                            marginRight: '6px',
-                          }}
-                        />
-                        Connected
-                      </span>
-                    ) : (
-                      <span>
-                        <XCircle
-                          size={16}
-                          style={{
-                            verticalAlign: 'middle',
-                            marginRight: '6px',
-                          }}
-                        />
-                        Inactive
-                      </span>
-                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {account.is_active && account.has_read_scope !== false && account.has_send_scope !== false ? (
+                        <span style={{ color: '#16a34a', fontSize: '13px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <CheckCircle size={15} />
+                          Connected
+                        </span>
+                      ) : (
+                        <span style={{ color: '#d97706', fontSize: '13px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <AlertTriangle size={15} />
+                          Reauthorization Required
+                        </span>
+                      )}
+
+                      {account.has_read_scope !== false ? (
+                        <span style={{ fontSize: '12px', color: '#059669', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          ✓ Email sync enabled
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '12px', color: '#d97706', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          ⚠ Email sync permission required
+                        </span>
+                      )}
+
+                      {account.has_send_scope !== false ? (
+                        <span style={{ fontSize: '12px', color: '#059669', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          ✓ Sending enabled
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '12px', color: '#d97706', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          ⚠ Sending permission required
+                        </span>
+                      )}
+                    </div>
                   </td>
 
                   <td>
@@ -225,7 +242,7 @@ export default function GmailAccountsPage() {
                         }}
                       >
                         <LinkIcon size={14} strokeWidth={2.2} />
-                        <span>Reconnect</span>
+                        <span>Reconnect Gmail</span>
                       </button>
 
                       <button

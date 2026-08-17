@@ -52,6 +52,30 @@ class EmailLog(Base):
     gmail_message_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
+        index=True,
+    )
+
+    gmail_thread_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+
+    body: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    snippet: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    direction: Mapped[str] = mapped_column(
+        String(20),
+        default="outgoing",
+        server_default="outgoing",
+        nullable=False,
     )
 
     created_at: Mapped[DateTime] = mapped_column(

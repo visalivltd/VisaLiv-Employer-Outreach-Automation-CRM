@@ -14,11 +14,43 @@ from app.api.v1.outreach import router as outreach_router
 from app.api.v1.email_log import router as email_log_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.email_draft import router as email_draft_router
+from app.api.v1.notification import router as notification_router
+from app.api.v1.email_tracking import router as email_tracking_router
+
+
+import asyncio
+from contextlib import asynccontextmanager
+
+async def periodic_gmail_sync():
+    """Background polling loop that syncs incoming Gmail emails every 60 seconds."""
+    from app.db.session import SessionLocal
+    from app.services.gmail_sync_service import sync_incoming_replies
+
+    while True:
+        try:
+            db = SessionLocal()
+            try:
+                sync_incoming_replies(db)
+            finally:
+                db.close()
+        except Exception as exc:
+            print(f"[BACKGROUND GMAIL SYNC ERROR] {exc}", flush=True)
+
+        await asyncio.sleep(60)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start background polling task on server startup
+    sync_task = asyncio.create_task(periodic_gmail_sync())
+    yield
+    sync_task.cancel()
 
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
+    lifespan=lifespan,
 )
 
 UPLOAD_DIR = Path(__file__).resolve().parents[2] / "uploads"
@@ -56,6 +88,8 @@ app.include_router(outreach_router)
 app.include_router(email_log_router)
 app.include_router(dashboard_router)
 app.include_router(email_draft_router)
+app.include_router(notification_router)
+app.include_router(email_tracking_router)
 
 @app.get("/")
 async def root():

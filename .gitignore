@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyc
 .venv/
 venv/
 
@@ -24,3 +25,7 @@ frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
+
+#local database
+backend/app.db
+

@@ -69,12 +69,13 @@ export default function EmailLogsPage() {
             <thead>
               <tr>
                 <th>ID</th>
+                <th>Direction</th>
                 <th>Candidate</th>
                 <th>Employer</th>
                 <th>Gmail Account</th>
                 <th>Subject</th>
                 <th>Status</th>
-                <th>Sent At</th>
+                <th>Sent / Received At</th>
                 <th>Error</th>
               </tr>
             </thead>
@@ -83,6 +84,18 @@ export default function EmailLogsPage() {
               {logs.map((log) => (
                 <tr key={log.id}>
                   <td>{log.id}</td>
+
+                  <td>
+                    {log.direction === 'incoming' ? (
+                      <span style={{ padding: '3px 8px', borderRadius: '4px', backgroundColor: '#ecfdf5', color: '#047857', fontSize: '11px', fontWeight: 600, border: '1px solid #a7f3d0', display: 'inline-block' }}>
+                        INCOMING / REPLY
+                      </span>
+                    ) : (
+                      <span style={{ padding: '3px 8px', borderRadius: '4px', backgroundColor: '#eff6ff', color: '#1d4ed8', fontSize: '11px', fontWeight: 600, border: '1px solid #bfdbfe', display: 'inline-block' }}>
+                        OUTGOING
+                      </span>
+                    )}
+                  </td>
 
                   <td>
                     <strong style={{ color: '#0f172a' }}>

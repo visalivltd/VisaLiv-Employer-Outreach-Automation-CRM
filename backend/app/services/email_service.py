@@ -27,6 +27,9 @@ class EmailService:
             gmail_account_id=gmail_account.id,
             subject=subject or "Outreach Email",
             status="pending",
+            direction="outgoing",
+            body=body,
+            snippet=body[:150] if body else "",
         )
 
         try:
@@ -53,6 +56,8 @@ class EmailService:
             email_log.status = "sent"
             email_log.sent_at = datetime.now(timezone.utc)
             email_log.gmail_message_id = gmail_message_id
+            email_log.body = body
+            email_log.snippet = body[:150] if body else ""
             email_log.error_message = None
 
             db.commit()

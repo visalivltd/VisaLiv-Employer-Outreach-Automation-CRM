@@ -9,6 +9,10 @@ import GmailAccountsPage from './pages/GmailAccountsPage';
 import EmailDraftsPage from './pages/EmailDraftsPage';
 import EmailLogsPage from './pages/EmailLogsPage';
 import OutreachPage from './pages/OutreachPage';
+import EmailTrackingPage from './pages/EmailTrackingPage';
+
+
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 
 export default function App() {
@@ -41,10 +45,10 @@ export default function App() {
             <Route path="/employers" element={<EmployersPage />} />
             <Route path="/gmail-accounts" element={<GmailAccountsPage />} />
             <Route path="/email-drafts" element={<EmailDraftsPage />} />
+            <Route path="/email-tracking" element={<ErrorBoundary><EmailTrackingPage /></ErrorBoundary>} />
             <Route path="/email-logs" element={<EmailLogsPage />} />
             <Route path="/outreach" element={<OutreachPage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            
           </Routes>
         </main>
       </div>

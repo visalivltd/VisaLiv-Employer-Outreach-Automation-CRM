@@ -5,6 +5,7 @@ import {
   Building2,
   Mail,
   Send,
+  Inbox,
   ShieldCheck,
   Clock3,
   Target,
@@ -241,6 +242,34 @@ export default function DashboardPage() {
 
           <div className="summary-watermark">
             <Send size={72} />
+          </div>
+        </div>
+
+        {/* Total Emails Received */}
+        <div className="summary-card">
+          <div className="summary-card-left">
+
+            <div className="summary-icon-box orange">
+              <Inbox
+                size={24}
+                strokeWidth={2.2}
+              />
+            </div>
+
+            <div className="summary-info">
+              <div className="summary-label">
+                Total Emails Received
+              </div>
+
+              <div className="summary-value orange">
+                {dashboard.totalEmailsReceived ?? dashboard.total_emails_received ?? 0}
+              </div>
+            </div>
+
+          </div>
+
+          <div className="summary-watermark">
+            <Inbox size={72} />
           </div>
         </div>
 

@@ -103,9 +103,15 @@ body {
   margin-bottom: 28px;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 640px) {
   .summary-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .summary-grid {
+    grid-template-columns: repeat(4, 1fr);
   }
 }
 
@@ -153,6 +159,16 @@ body {
   color: var(--purple-primary);
 }
 
+.summary-icon-box.orange {
+  background-color: #fff7ed;
+  color: #ea580c;
+}
+
+.summary-icon-box.teal {
+  background-color: #ecfdf5;
+  color: #059669;
+}
+
 .summary-info .summary-label {
   font-size: 14px;
   font-weight: 500;
@@ -176,6 +192,14 @@ body {
 
 .summary-info .summary-value.purple {
   color: var(--purple-primary);
+}
+
+.summary-info .summary-value.orange {
+  color: #ea580c;
+}
+
+.summary-info .summary-value.teal {
+  color: #059669;
 }
 
 .summary-watermark {
@@ -1491,4 +1515,40 @@ body {
 
 .outreach-table tbody tr:last-child td {
   border-bottom: none;
+}
+
+/* Email Tracking 3-Pane Responsive Layout */
+@media (max-width: 1200px) {
+  .email-tracking-grid {
+    grid-template-columns: 220px 320px 1fr !important;
+  }
+}
+
+@media (max-width: 992px) {
+  .email-tracking-grid {
+    grid-template-columns: 1fr 1.2fr !important;
+  }
+  .email-tracking-grid > div:first-child {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .email-tracking-grid {
+    grid-template-columns: 1fr !important;
+    height: auto !important;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
 }

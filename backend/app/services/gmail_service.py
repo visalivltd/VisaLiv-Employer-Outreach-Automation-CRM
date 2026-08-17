@@ -11,6 +11,7 @@ from googleapiclient.discovery import build
 from app.core.config import settings
 
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -21,25 +22,40 @@ class GmailService:
     ):
         self.refresh_token = refresh_token
 
-    def _get_credentials(self) -> Credentials:
-        credentials = Credentials(
-            token=None,
-            refresh_token=self.refresh_token,
-            token_uri="https://oauth2.googleapis.com/token",
-            client_id=settings.GOOGLE_CLIENT_ID,
-            client_secret=settings.GOOGLE_CLIENT_SECRET,
-            scopes=[GMAIL_SEND_SCOPE],
-        )
-
+    def _get_credentials(self, scopes: list[str] | None = None) -> Credentials:
+        target_scopes = scopes
         try:
+            credentials = Credentials(
+                token=None,
+                refresh_token=self.refresh_token,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_CLIENT_ID,
+                client_secret=settings.GOOGLE_CLIENT_SECRET,
+                scopes=target_scopes,
+            )
             credentials.refresh(Request())
+            return credentials
         except Exception as exc:
+            # Fallback: Refresh token using default granted scopes without forcing explicit scopes
+            if target_scopes is not None:
+                try:
+                    fallback_credentials = Credentials(
+                        token=None,
+                        refresh_token=self.refresh_token,
+                        token_uri="https://oauth2.googleapis.com/token",
+                        client_id=settings.GOOGLE_CLIENT_ID,
+                        client_secret=settings.GOOGLE_CLIENT_SECRET,
+                        scopes=None,
+                    )
+                    fallback_credentials.refresh(Request())
+                    return fallback_credentials
+                except Exception:
+                    pass
+
             raise HTTPException(
                 status_code=400,
                 detail=f"Google Gmail authentication failed: {exc}",
             ) from exc
-
-        return credentials
 
     def send_email(
         self,
@@ -48,6 +64,7 @@ class GmailService:
         body: str,
         sender_email: str | None = None,
         attachment_paths: list[str] | None = None,
+        thread_id: str | None = None,
     ) -> str:
         credentials = self._get_credentials()
 
@@ -64,6 +81,11 @@ class GmailService:
             message["From"] = sender_email.strip()
         message["To"] = to_email_clean
         message["Subject"] = subject
+        if thread_id:
+            clean_thread = thread_id.strip("<>")
+            message["In-Reply-To"] = f"<{clean_thread}>"
+            message["References"] = f"<{clean_thread}>"
+
         message.set_content(body)
 
         for item in (attachment_paths or []):
@@ -110,6 +132,20 @@ class GmailService:
         print(f"  From: {sender_email or 'me'}", flush=True)
         print(f"  To: {to_email_clean}", flush=True)
         print(f"  Subject: {subject}", flush=True)
+        print(f"  Thread ID: {thread_id or 'None'}", flush=True)
+        print(f"  Attachment Count: {len(attachment_paths or [])}", flush=True)
+
+        payload = {"raw": encoded_message}
+        if thread_id and thread_id.strip():
+            clean_thread = thread_id.strip("<>")
+            payload["threadId"] = clean_thread
+
+        print("=" * 60, flush=True)
+        print("[REPLY DEBUG] GMAIL API SENDING MESSAGE:", flush=True)
+        print(f"  From: {sender_email or 'me'}", flush=True)
+        print(f"  To: {to_email_clean}", flush=True)
+        print(f"  Subject: {subject}", flush=True)
+        print(f"  Thread ID: {thread_id or 'None'}", flush=True)
         print(f"  Attachment Count: {len(attachment_paths or [])}", flush=True)
 
         try:
@@ -118,23 +154,47 @@ class GmailService:
                 .messages()
                 .send(
                     userId="me",
-                    body={"raw": encoded_message},
+                    body=payload,
                 )
                 .execute()
             )
             msg_id = result.get("id")
-            thread_id = result.get("threadId")
+            ret_thread_id = result.get("threadId")
 
-            print("GMAIL API SEND CONFIRMED:", flush=True)
+            print("[REPLY DEBUG] GMAIL API SEND CONFIRMED:", flush=True)
             print(f"  Gmail Message ID: {msg_id}", flush=True)
-            print(f"  Thread ID: {thread_id}", flush=True)
-            print(f"  Gmail API Raw Response: {result}", flush=True)
-            print(f"  Note: Gmail accepted/sent message to mail server.", flush=True)
+            print(f"  Thread ID: {ret_thread_id}", flush=True)
             print("=" * 60, flush=True)
 
             return msg_id
         except Exception as exc:
-            print("GMAIL API SEND ERROR:", flush=True)
+            err_str = str(exc)
+            if "threadId" in payload and ("404" in err_str or "notFound" in err_str or "not found" in err_str.lower()):
+                print("[REPLY DEBUG] Stale/invalid threadId in payload. Retrying send without threadId payload...", flush=True)
+                payload.pop("threadId", None)
+                try:
+                    result = (
+                        gmail.users()
+                        .messages()
+                        .send(
+                            userId="me",
+                            body=payload,
+                        )
+                        .execute()
+                    )
+                    msg_id = result.get("id")
+                    ret_thread_id = result.get("threadId")
+
+                    print("[REPLY DEBUG] RETRY SEND SUCCESS CONFIRMED:", flush=True)
+                    print(f"  Gmail Message ID: {msg_id}", flush=True)
+                    print(f"  Thread ID: {ret_thread_id}", flush=True)
+                    print("=" * 60, flush=True)
+
+                    return msg_id
+                except Exception as retry_exc:
+                    exc = retry_exc
+
+            print("[REPLY DEBUG] GMAIL API SEND ERROR:", flush=True)
             print(f"  Error: {exc}", flush=True)
             print("=" * 60, flush=True)
             raise

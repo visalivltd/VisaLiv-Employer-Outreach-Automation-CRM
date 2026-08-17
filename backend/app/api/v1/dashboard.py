@@ -48,6 +48,16 @@ def get_dashboard(
     ) or 0
 
     # ==========================================
+    # TOTAL EMAILS RECEIVED
+    # ==========================================
+
+    total_emails_received = db.scalar(
+        select(func.count(EmailLog.id)).where(
+            EmailLog.direction == "incoming"
+        )
+    ) or 0
+
+    # ==========================================
     # DAILY OUTREACH TARGET
     #
     # 1 candidate = maximum 5 employers/day
@@ -171,6 +181,8 @@ def get_dashboard(
         "totalCandidates": total_candidates,
         "totalEmployers": total_employers,
         "emailsSent": emails_sent,
+        "totalEmailsReceived": total_emails_received,
+        "total_emails_received": total_emails_received,
         "emailsSentToday": emails_sent_today,
         "recentEmails": recent_emails,
     }

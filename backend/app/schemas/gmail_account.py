@@ -21,6 +21,9 @@ class GmailAccountResponse(BaseModel):
     candidate_name: str | None = None
     gmail_email: str
     is_active: bool
+    has_send_scope: bool = True
+    has_read_scope: bool = True
+    requires_reauthorization: bool = False
     connected_at: datetime
     updated_at: datetime
 

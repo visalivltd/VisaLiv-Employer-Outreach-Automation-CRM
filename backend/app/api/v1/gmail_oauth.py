@@ -26,6 +26,7 @@ router = APIRouter(
 
 
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 
 GOOGLE_IDENTITY_SCOPES = [
     "openid",
@@ -34,6 +35,7 @@ GOOGLE_IDENTITY_SCOPES = [
 
 OAUTH_SCOPES = [
     GMAIL_SEND_SCOPE,
+    GMAIL_READONLY_SCOPE,
     *GOOGLE_IDENTITY_SCOPES,
 ]
 
@@ -258,18 +260,24 @@ def gmail_callback(
 
     credentials = flow.credentials
 
-    # Verify that gmail.send scope was explicitly granted by the user
+    # Verify that BOTH gmail.send and gmail.readonly scopes were explicitly granted by the user
     granted_scopes = set(credentials.scopes or [])
+    missing_scopes = []
     if GMAIL_SEND_SCOPE not in granted_scopes:
+        missing_scopes.append("Gmail Send")
+    if GMAIL_READONLY_SCOPE not in granted_scopes:
+        missing_scopes.append("Gmail Read / Sync")
+
+    if missing_scopes:
         raise HTTPException(
             status_code=400,
-            detail="Gmail send permission was not granted. Please reconnect the Gmail account and allow Gmail sending access.",
+            detail=f"Required Gmail permissions missing ({', '.join(missing_scopes)}). Please reconnect the Gmail account and grant all requested permissions.",
         )
 
     if not credentials.refresh_token:
         raise HTTPException(
             status_code=400,
-            detail="Google did not return a refresh token",
+            detail="Google did not return a refresh token. Please reconnect Gmail.",
         )
 
     # Get the authenticated Google account email
@@ -303,6 +311,26 @@ def gmail_callback(
             detail="Google account email not available",
         )
 
+    print(f"[GMAIL OAUTH] email={gmail_email}", flush=True)
+    print(f"[GMAIL OAUTH] granted_scopes={credentials.scopes}", flush=True)
+
+    # IMMEDIATELY VERIFY CREDENTIALS WITH LIVE API CALLS BEFORE SAVING TO DB
+    from googleapiclient.discovery import build
+    try:
+        gmail_test_client = build("gmail", "v1", credentials=credentials)
+        profile_res = gmail_test_client.users().getProfile(userId="me").execute()
+        print(f"[GMAIL OAUTH TEST] getProfile() HTTP 200 OK! Profile email: {profile_res.get('emailAddress')}", flush=True)
+
+        list_res = gmail_test_client.users().messages().list(userId="me", maxResults=1).execute()
+        print(f"[GMAIL OAUTH TEST SUCCESS] Account {gmail_email} messages.list() HTTP 200 OK! Message count sample: {len(list_res.get('messages', []))}", flush=True)
+    except Exception as test_exc:
+        err_str = str(test_exc)
+        print(f"[GMAIL OAUTH TEST FAILED] Account {gmail_email} verification failed: {err_str}", flush=True)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Gmail read permission verification failed ({err_str}). Please reconnect Gmail and ensure you grant full access.",
+        ) from test_exc
+
     # Check whether this candidate already has
     # a Gmail account connected.
     existing_account = (
@@ -333,11 +361,6 @@ def gmail_callback(
 
     db.commit()
 
-    return {
-        "success": True,
-        "message": (
-            "Gmail account connected successfully"
-        ),
-        "candidate_id": candidate_id,
-        "gmail_email": gmail_email,
-    }
+    # Redirect user back to Frontend Gmail Accounts page with success notification
+    frontend_url = f"http://localhost:5173/gmail-accounts?success=true&email={gmail_email}&candidate_id={candidate_id}"
+    return RedirectResponse(url=frontend_url)
