@@ -362,5 +362,6 @@ def gmail_callback(
     db.commit()
 
     # Redirect user back to Frontend Gmail Accounts page with success notification
-    frontend_url = f"http://localhost:5173/gmail-accounts?success=true&email={gmail_email}&candidate_id={candidate_id}"
-    return RedirectResponse(url=frontend_url)
+    frontend_base = settings.FRONTEND_URL.rstrip("/")
+    frontend_url = f"{frontend_base}/gmail-accounts?success=true&email={gmail_email}&candidate_id={candidate_id}"
+    return RedirectResponse(url=frontend_url)

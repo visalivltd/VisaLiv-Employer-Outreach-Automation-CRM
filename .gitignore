@@ -29,3 +29,5 @@ Thumbs.db
 #local database
 backend/app.db
 
+# User uploads
+uploads/
