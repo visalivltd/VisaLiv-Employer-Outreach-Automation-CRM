@@ -237,10 +237,16 @@ def delete_candidate(
     candidate_id: int,
     db: Session = Depends(get_db),
 ):
-    deleted = candidate_service.delete_candidate(
-        db,
-        candidate_id,
-    )
+    try:
+        deleted = candidate_service.delete_candidate(
+            db,
+            candidate_id,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     if not deleted:
         raise HTTPException(

@@ -81,7 +81,17 @@ def create_email_draft(
         attachment_path=data.attachment_path,
     )
 
-    return email_draft_repository.create_email_draft(db, draft)
+    created_draft = email_draft_repository.create_email_draft(db, draft)
+
+    if data.candidate_id:
+        from app.models.candidate import Candidate
+        candidate = db.get(Candidate, data.candidate_id)
+        if candidate:
+            candidate.email_draft_id = created_draft.id
+            db.commit()
+            db.refresh(created_draft)
+
+    return created_draft
 
 
 def get_email_draft(
@@ -108,6 +118,9 @@ def update_email_draft(
 
     update_data = data.model_dump(exclude_unset=True)
 
+    candidate_id_supplied = "candidate_id" in update_data
+    target_candidate_id = update_data.pop("candidate_id", None) if candidate_id_supplied else None
+
     if "name" in update_data:
         raw_name = update_data.pop("name")
         new_name = raw_name.strip() if raw_name and raw_name.strip() else None
@@ -133,7 +146,23 @@ def update_email_draft(
     for field, value in update_data.items():
         setattr(draft, field, value)
 
-    return email_draft_repository.update_email_draft(db, draft)
+    updated_draft = email_draft_repository.update_email_draft(db, draft)
+
+    if candidate_id_supplied:
+        from app.models.candidate import Candidate
+        for c in list(updated_draft.candidates):
+            if target_candidate_id is None or c.id != target_candidate_id:
+                c.email_draft_id = None
+
+        if target_candidate_id:
+            cand = db.get(Candidate, target_candidate_id)
+            if cand:
+                cand.email_draft_id = updated_draft.id
+
+        db.commit()
+        db.refresh(updated_draft)
+
+    return updated_draft
 
 
 def delete_email_draft(

@@ -75,3 +75,10 @@ class EmailDraft(Base):
             names = [c.full_name for c in self.candidates if c.full_name]
             return ", ".join(names) if names else None
         return None
+
+    @property
+    def candidate_id(self) -> int | None:
+        if self.candidates and len(self.candidates) > 0:
+            return self.candidates[0].id
+        return None
+

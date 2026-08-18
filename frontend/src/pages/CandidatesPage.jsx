@@ -402,6 +402,7 @@ export default function CandidatesPage() {
       setSuccess('Candidate deleted successfully.');
       setDeletingCandidateModal(null);
       await fetchCandidates();
+      await fetchDrafts();
     } catch (err) {
       setError(
         err.message || 'Failed to delete candidate'

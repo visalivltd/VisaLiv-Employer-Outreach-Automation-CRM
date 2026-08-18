@@ -8,6 +8,7 @@ class EmailDraftCreate(BaseModel):
     body: str | None = None
     attachment_filename: str | None = None
     attachment_path: str | None = None
+    candidate_id: int | None = None
 
 
 class EmailDraftUpdate(BaseModel):
@@ -17,6 +18,7 @@ class EmailDraftUpdate(BaseModel):
     attachment_filename: str | None = None
     attachment_path: str | None = None
     remove_attachment: bool | None = None
+    candidate_id: int | None = None
 
 
 class EmailDraftResponse(BaseModel):
@@ -26,8 +28,10 @@ class EmailDraftResponse(BaseModel):
     body: str | None = None
     attachment_filename: str | None = None
     attachment_path: str | None = None
+    candidate_id: int | None = None
     assigned_candidate_name: str | None = None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+

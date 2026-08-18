@@ -20,10 +20,12 @@ const emptyForm = {
   attachment_filename: '',
   attachment_path: '',
   remove_attachment: false,
+  candidate_id: '',
 };
 
 export default function EmailDraftsPage() {
   const [drafts, setDrafts] = useState([]);
+  const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -41,6 +43,18 @@ export default function EmailDraftsPage() {
 
   const [deletingDraft, setDeletingDraft] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  const fetchCandidates = async () => {
+    try {
+      const response = await fetch(`${API_URL}/candidates`);
+      if (response.ok) {
+        const data = await response.json();
+        setCandidates(data);
+      }
+    } catch {
+      // ignore candidate fetch error
+    }
+  };
 
   const fetchDrafts = async () => {
     try {
@@ -73,9 +87,21 @@ export default function EmailDraftsPage() {
 
   useEffect(() => {
     fetchDrafts();
+    fetchCandidates();
+
+    const handleFocus = () => {
+      fetchDrafts();
+      fetchCandidates();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   const openCreateModal = () => {
+    fetchCandidates();
     setEditingDraft(null);
     setForm(emptyForm);
     setError('');
@@ -84,6 +110,7 @@ export default function EmailDraftsPage() {
   };
 
   const openEditModal = (draft) => {
+    fetchCandidates();
     setEditingDraft(draft);
     setForm({
       name: draft.name || '',
@@ -92,6 +119,7 @@ export default function EmailDraftsPage() {
       attachment_filename: draft.attachment_filename || '',
       attachment_path: draft.attachment_path || '',
       remove_attachment: false,
+      candidate_id: draft.candidate_id ? String(draft.candidate_id) : '',
     });
     setError('');
     setSuccess('');
@@ -190,6 +218,7 @@ export default function EmailDraftsPage() {
           attachment_filename: form.attachment_filename || null,
           attachment_path: form.attachment_path || null,
           remove_attachment: form.remove_attachment,
+          candidate_id: form.candidate_id ? parseInt(form.candidate_id, 10) : null,
         }),
       });
 
@@ -213,6 +242,7 @@ export default function EmailDraftsPage() {
 
       closeFormModal();
       fetchDrafts();
+      fetchCandidates();
     } catch (err) {
       console.error('Save draft error:', err);
       setError(err.message || 'Failed to save email draft');
@@ -529,6 +559,34 @@ export default function EmailDraftsPage() {
                     boxSizing: 'border-box',
                   }}
                 />
+              </div>
+
+              <div style={{ marginBottom: '18px' }}>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
+                  Assigned Candidate
+                </label>
+                <select
+                  value={form.candidate_id || ''}
+                  onChange={(e) => setForm((prev) => ({ ...prev, candidate_id: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '14px',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                    backgroundColor: '#ffffff',
+                    color: '#0f172a',
+                  }}
+                >
+                  <option value="">Unassigned</option>
+                  {candidates.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.full_name} ({c.email})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div style={{ marginBottom: '18px' }}>
