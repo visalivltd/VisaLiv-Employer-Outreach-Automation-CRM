@@ -48,6 +48,11 @@ class Candidate(Base):
         nullable=True,
     )
 
+    real_candidate_id: Mapped[int | None] = mapped_column(
+        ForeignKey("real_candidates.id"),
+        nullable=True,
+    )
+
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
@@ -65,6 +70,11 @@ class Candidate(Base):
     )
 
     # Relationships
+    real_candidate = relationship(
+        "RealCandidate",
+        back_populates="candidates",
+    )
+
     gmail_account = relationship(
         "GmailAccount",
         back_populates="candidate",

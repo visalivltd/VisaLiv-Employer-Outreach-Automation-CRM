@@ -6,6 +6,7 @@ from app.models.email_log import EmailLog
 from app.models.scheduler_job import SchedulerJob
 from app.models.email_draft import EmailDraft
 from app.models.notification import Notification
+from app.models.real_candidate import RealCandidate
 
 __all__ = [
     "Admin",
@@ -16,4 +17,5 @@ __all__ = [
     "SchedulerJob",
     "EmailDraft",
     "Notification",
+    "RealCandidate",
 ]

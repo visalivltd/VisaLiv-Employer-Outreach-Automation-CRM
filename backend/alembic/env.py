@@ -15,6 +15,7 @@ from app.models import (
     GmailAccount,
     EmailLog,
     SchedulerJob,
+    RealCandidate,
 )
 
 # this is the Alembic Config object, which provides

@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import DashboardPage from './pages/DashboardPage';
 import CandidatesPage from './pages/CandidatesPage';
+import RealCandidatesPage from './pages/RealCandidatesPage';
 import EmployersPage from './pages/EmployersPage';
 import GmailAccountsPage from './pages/GmailAccountsPage';
 import EmailDraftsPage from './pages/EmailDraftsPage';
@@ -42,6 +43,7 @@ export default function App() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/candidates" element={<CandidatesPage />} />
+            <Route path="/real-candidates" element={<RealCandidatesPage />} />
             <Route path="/employers" element={<EmployersPage />} />
             <Route path="/gmail-accounts" element={<GmailAccountsPage />} />
             <Route path="/email-drafts" element={<EmailDraftsPage />} />

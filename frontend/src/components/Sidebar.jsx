@@ -4,6 +4,7 @@ import {
   Send, 
   LayoutGrid, 
   Users, 
+  UserCheck,
   Building2, 
   Mail, 
   FileText,
@@ -15,6 +16,7 @@ export default function Sidebar({ isOpen, onClose }) {
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutGrid },
     { name: 'Candidates', path: '/candidates', icon: Users },
+    { name: 'Real Candidates', path: '/real-candidates', icon: UserCheck },
     { name: 'Employers', path: '/employers', icon: Building2 },
     { name: 'Gmail Accounts', path: '/gmail-accounts', icon: Mail },
     { name: 'Email Drafts', path: '/email-drafts', icon: FileText },
