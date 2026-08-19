@@ -28,6 +28,121 @@ VisaLiv Recruitment Team
 support@visaliv.com
 www.visaliv.com"""
 
+VISALIV_SUMMARY_HTML_TEMPLATE = """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Application Update</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #334155; -webkit-font-smoothing: antialiased;">
+  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); border: 1px solid #e2e8f0;">
+          
+          <!-- Header Banner -->
+          <tr>
+            <td style="background-color: #1e3a8a; padding: 32px 32px 28px 32px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.2;">
+                VisaLiv
+              </h1>
+              <p style="color: #93c5fd; margin: 6px 0 0 0; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">
+                Your Global Career &amp; Immigration Partner
+              </p>
+            </td>
+          </tr>
+
+          <!-- Main Email Content -->
+          <tr>
+            <td style="padding: 36px 36px 28px 36px;">
+              
+              <!-- Section Title -->
+              <h2 style="color: #0f172a; margin: 0 0 20px 0; font-size: 20px; font-weight: 700; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; display: inline-block;">
+                Application Update
+              </h2>
+
+              <p style="color: #334155; font-size: 15px; line-height: 1.6; margin: 0 0 16px 0;">
+                Dear <strong>{{candidate_name}}</strong>,
+              </p>
+
+              <p style="color: #334155; font-size: 15px; line-height: 1.6; margin: 0 0 24px 0;">
+                We are pleased to inform you that we have successfully applied to the following employer(s) on your behalf on <strong>{{application_date}}</strong>:
+              </p>
+
+              <!-- Dynamic Employer Cards -->
+              {{employer_cards}}
+
+              <p style="color: #334155; font-size: 15px; line-height: 1.6; margin: 28px 0 16px 0;">
+                We will keep you updated on any further developments regarding your application.
+              </p>
+
+              <p style="color: #334155; font-size: 15px; line-height: 1.6; margin: 0 0 28px 0;">
+                Thank you for your trust in VisaLiv.
+              </p>
+
+              <!-- Sign-off Signature -->
+              <div style="border-top: 1px solid #f1f5f9; padding-top: 20px;">
+                <p style="color: #475569; font-size: 14px; margin: 0 0 4px 0; font-weight: 600;">
+                  Kind regards,
+                </p>
+                <p style="color: #1e293b; font-size: 15px; margin: 0 0 6px 0; font-weight: 700;">
+                  VisaLiv Recruitment Team
+                </p>
+                <p style="color: #2563eb; font-size: 13px; margin: 0;">
+                  <a href="mailto:support@visaliv.com" style="color: #2563eb; text-decoration: none;">support@visaliv.com</a> &nbsp;|&nbsp; 
+                  <a href="https://www.visaliv.com" style="color: #2563eb; text-decoration: none;">www.visaliv.com</a>
+                </p>
+              </div>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; padding: 18px 32px; text-align: center; border-top: 1px solid #e2e8f0;">
+              <p style="color: #94a3b8; font-size: 12px; margin: 0;">
+                This is an automated application update from VisaLiv.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
+def _render_employer_cards(employer_names: list[str]) -> str:
+    if not employer_names:
+        return """
+        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 12px;">
+          <tr>
+            <td style="background-color: #ffffff; border: 1px solid #cbd5e1; border-left: 4px solid #94a3b8; border-radius: 8px; padding: 14px 18px;">
+              <span style="font-size: 14px; color: #64748b; font-style: italic;">
+                None
+              </span>
+            </td>
+          </tr>
+        </table>
+        """
+    cards = []
+    for emp in employer_names:
+        cards.append(f"""
+        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 12px;">
+          <tr>
+            <td style="background-color: #ffffff; border: 1px solid #cbd5e1; border-left: 4px solid #2563eb; border-radius: 8px; padding: 14px 18px;">
+              <span style="font-size: 15px; font-weight: 700; color: #0f172a;">
+                {emp}
+              </span>
+            </td>
+          </tr>
+        </table>
+        """)
+    return "".join(cards)
+
 
 def get_todays_applications_for_real_candidate(
     db: Session,
@@ -91,6 +206,7 @@ def generate_summary_content(
                 employer_names.append(emp_name)
 
     bullet_list = "\n".join([f"• {emp}" for emp in employer_names]) if employer_names else "• None"
+    employer_cards_html = _render_employer_cards(employer_names)
 
     raw_subject = (
         custom_subject
@@ -101,25 +217,37 @@ def generate_summary_content(
     raw_body = (
         custom_body
         or real_candidate.summary_template_body
-        or DEFAULT_SUMMARY_BODY
     )
 
-    replacements = {
-        "{{candidate_name}}": real_candidate.name,
-        "{{candidate_email}}": real_candidate.email,
-        "{{real_candidate_id}}": real_candidate.real_candidate_id,
-        "{{application_date}}": formatted_date,
-        "{{employer_list}}": bullet_list,
-        "{{job_list}}": bullet_list,
-        "{{application_count}}": str(len(employer_names)),
-    }
+    rendered_subject = raw_subject.replace("{{candidate_name}}", real_candidate.name).replace("{{application_date}}", formatted_date)
 
-    rendered_subject = raw_subject
-    rendered_body = raw_body
-
-    for key, val in replacements.items():
-        rendered_subject = rendered_subject.replace(key, val)
-        rendered_body = rendered_body.replace(key, val)
+    if raw_body and ("<html" in raw_body.lower() or "<!doctype" in raw_body.lower()):
+        rendered_body = raw_body
+        replacements = {
+            "{{candidate_name}}": real_candidate.name,
+            "{{candidate_email}}": real_candidate.email,
+            "{{real_candidate_id}}": real_candidate.real_candidate_id,
+            "{{application_date}}": formatted_date,
+            "{{employer_list}}": bullet_list,
+            "{{employer_cards}}": employer_cards_html,
+            "{{job_list}}": bullet_list,
+            "{{application_count}}": str(len(employer_names)),
+        }
+        for key, val in replacements.items():
+            rendered_body = rendered_body.replace(key, val)
+    else:
+        # Use canonical VisaLiv HTML email template as the single source of truth
+        rendered_body = VISALIV_SUMMARY_HTML_TEMPLATE
+        replacements = {
+            "{{candidate_name}}": real_candidate.name,
+            "{{candidate_email}}": real_candidate.email,
+            "{{real_candidate_id}}": real_candidate.real_candidate_id,
+            "{{application_date}}": formatted_date,
+            "{{employer_cards}}": employer_cards_html,
+            "{{application_count}}": str(len(employer_names)),
+        }
+        for key, val in replacements.items():
+            rendered_body = rendered_body.replace(key, val)
 
     return rendered_subject, rendered_body, employer_names
 
@@ -242,6 +370,7 @@ def send_daily_summary_for_real_candidate(
         subject=subject,
         body=body,
         sender_email=sender_account.gmail_email,
+        is_html=True,
     )
 
     # 6. Log entry in EmailLog

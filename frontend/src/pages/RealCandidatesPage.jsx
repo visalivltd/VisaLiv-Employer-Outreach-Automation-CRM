@@ -732,11 +732,19 @@ export default function RealCandidatesPage() {
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#475569', marginBottom: '6px' }}>
-                Rendered Email Content Preview:
+                Rendered Email Content Preview (VisaLiv HTML):
               </label>
-              <pre style={{ backgroundColor: '#ffffff', border: '1px solid #cbd5e1', padding: '16px', borderRadius: '8px', fontSize: '13px', color: '#1e293b', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'sans-serif', margin: 0 }}>
-                {previewData.body}
-              </pre>
+              <iframe
+                srcDoc={previewData.body}
+                title="Daily Summary HTML Email Preview"
+                style={{
+                  width: '100%',
+                  height: '450px',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '8px',
+                  backgroundColor: '#f1f5f9',
+                }}
+              />
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

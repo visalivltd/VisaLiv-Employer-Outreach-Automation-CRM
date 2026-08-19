@@ -15,6 +15,31 @@ GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+import html
+import re
+
+def _is_html_content(text: str | None) -> bool:
+    if not text:
+        return False
+    s = text.strip().lower()
+    return any(tag in s for tag in ("<html", "<table", "<div", "<p>", "<p ", "<body", "<!doctype html"))
+
+def _strip_html(text: str) -> str:
+    if not text:
+        return ""
+    clean = re.sub(r'<style.*?>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    clean = re.sub(r'<script.*?>.*?</script>', '', clean, flags=re.DOTALL | re.IGNORECASE)
+    clean = re.sub(r'<br\s*/?>', '\n', clean, flags=re.IGNORECASE)
+    clean = re.sub(r'</p>', '\n\n', clean, flags=re.IGNORECASE)
+    clean = re.sub(r'</div>', '\n', clean, flags=re.IGNORECASE)
+    clean = re.sub(r'<tr.*?>', '\n', clean, flags=re.IGNORECASE)
+    clean = re.sub(r'<td.*?>', '  ', clean, flags=re.IGNORECASE)
+    clean = re.sub(r'<.*?>', '', clean)
+    clean = html.unescape(clean)
+    lines = [line.strip() for line in clean.splitlines()]
+    return '\n'.join([line for line in lines if line])
+
+
 class GmailService:
     def __init__(
         self,
@@ -65,6 +90,8 @@ class GmailService:
         sender_email: str | None = None,
         attachment_paths: list[str] | None = None,
         thread_id: str | None = None,
+        is_html: bool = False,
+        html_body: str | None = None,
     ) -> str:
         credentials = self._get_credentials()
 
@@ -86,7 +113,14 @@ class GmailService:
             message["In-Reply-To"] = f"<{clean_thread}>"
             message["References"] = f"<{clean_thread}>"
 
-        message.set_content(body)
+        target_html = html_body if html_body else (body if (is_html or _is_html_content(body)) else None)
+
+        if target_html:
+            plain_fallback = _strip_html(target_html)
+            message.set_content(plain_fallback)
+            message.add_alternative(target_html, subtype="html")
+        else:
+            message.set_content(body)
 
         for item in (attachment_paths or []):
             if not item:
