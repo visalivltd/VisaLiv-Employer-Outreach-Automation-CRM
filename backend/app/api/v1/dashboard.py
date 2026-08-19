@@ -37,6 +37,18 @@ def get_dashboard(
         select(func.count(Employer.id)).where(Employer.is_active.is_(True))
     ) or 0
 
+    employers_with_email = db.scalar(
+        select(func.count(Employer.id)).where(Employer.is_active.is_(True), Employer.email.isnot(None), Employer.email != "")
+    ) or 0
+
+    employers_without_email = db.scalar(
+        select(func.count(Employer.id)).where(Employer.is_active.is_(True), (Employer.email.is_(None) | (Employer.email == "")))
+    ) or 0
+
+    imported_employers = db.scalar(
+        select(func.count(Employer.id)).where(Employer.is_active.is_(True), Employer.import_order.isnot(None))
+    ) or 0
+
     # ==========================================
     # TOTAL EMAILS SENT
     # ==========================================
@@ -180,6 +192,9 @@ def get_dashboard(
     return {
         "totalCandidates": total_candidates,
         "totalEmployers": total_employers,
+        "employersWithEmail": employers_with_email,
+        "employersWithoutEmail": employers_without_email,
+        "importedEmployers": imported_employers,
         "emailsSent": emails_sent,
         "totalEmailsReceived": total_emails_received,
         "total_emails_received": total_emails_received,

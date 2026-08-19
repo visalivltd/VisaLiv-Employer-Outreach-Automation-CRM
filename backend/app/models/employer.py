@@ -19,10 +19,10 @@ class Employer(Base):
         nullable=True,
     )
 
-    email: Mapped[str] = mapped_column(
+    email: Mapped[str | None] = mapped_column(
         String(255),
         unique=True,
-        nullable=False,
+        nullable=True,
         index=True,
     )
 
@@ -36,6 +36,47 @@ class Employer(Base):
 
     industry: Mapped[str | None] = mapped_column(
         String(100)
+    )
+
+    hr_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    recruitment_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    careers_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    manager_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    info_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    general_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    primary_email_type: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
+    import_order: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
     )
 
     is_active: Mapped[bool] = mapped_column(

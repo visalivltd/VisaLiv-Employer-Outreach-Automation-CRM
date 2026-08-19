@@ -42,7 +42,10 @@ def get_employers(
     statement = select(Employer)
     if active_only:
         statement = statement.where(Employer.is_active.is_(True))
-    statement = statement.order_by(Employer.id)
+    statement = statement.order_by(
+        Employer.import_order.asc().nullsfirst(),
+        Employer.id.asc(),
+    )
 
     return list(db.scalars(statement).all())
 

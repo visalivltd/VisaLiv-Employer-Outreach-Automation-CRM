@@ -9,20 +9,18 @@ def create_employer(
     db: Session,
     data: EmployerCreate,
 ) -> Employer:
-    email = data.email.strip()
-    if not email:
-        raise ValueError("Email is required")
+    email = data.email.strip() if data.email and data.email.strip() else None
 
-    if "@" not in email or "." not in email:
-        raise ValueError("Please enter a valid email address")
+    if email:
+        if "@" not in email or "." not in email:
+            raise ValueError("Please enter a valid email address")
 
-    existing_employer = employer_repository.get_employer_by_email(
-        db,
-        email,
-    )
-
-    if existing_employer:
-        raise ValueError("Employer with this email already exists")
+        existing_employer = employer_repository.get_employer_by_email(
+            db,
+            email,
+        )
+        if existing_employer:
+            raise ValueError("Employer with this email already exists")
 
     employer = Employer(
         service_name=data.service_name.strip() if data.service_name and data.service_name.strip() else None,
@@ -30,6 +28,13 @@ def create_employer(
         country=data.country.strip() if data.country and data.country.strip() else None,
         industry=data.industry.strip() if data.industry and data.industry.strip() else None,
         service_website=data.service_website.strip() if data.service_website and data.service_website.strip() else None,
+        hr_email=data.hr_email.strip() if data.hr_email and data.hr_email.strip() else None,
+        recruitment_email=data.recruitment_email.strip() if data.recruitment_email and data.recruitment_email.strip() else None,
+        careers_email=data.careers_email.strip() if data.careers_email and data.careers_email.strip() else None,
+        manager_email=data.manager_email.strip() if data.manager_email and data.manager_email.strip() else None,
+        info_email=data.info_email.strip() if data.info_email and data.info_email.strip() else None,
+        general_email=data.general_email.strip() if data.general_email and data.general_email.strip() else None,
+        primary_email_type=data.primary_email_type or ("Manual" if email else None),
     )
 
     return employer_repository.create_employer(db, employer)

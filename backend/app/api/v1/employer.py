@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.schemas.employer import (
     EmployerCreate,
+    EmployerImportPreviewResponse,
+    EmployerImportResultResponse,
     EmployerResponse,
     EmployerUpdate,
 )
-from app.services import employer_service
+from app.services import employer_import_service, employer_service
 
 
 router = APIRouter(
@@ -45,6 +47,52 @@ def get_employers(
     db: Session = Depends(get_db),
 ):
     return employer_service.get_employers(db)
+
+
+@router.post(
+    "/preview-import",
+    response_model=EmployerImportPreviewResponse,
+)
+async def preview_employer_import(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    if not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only Excel files (.xlsx) are allowed.",
+        )
+    contents = await file.read()
+    try:
+        return employer_import_service.preview_employer_import(db, contents)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/import",
+    response_model=EmployerImportResultResponse,
+)
+async def execute_employer_import(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    if not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only Excel files (.xlsx) are allowed.",
+        )
+    contents = await file.read()
+    try:
+        return employer_import_service.execute_employer_import(db, contents)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get(
