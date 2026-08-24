@@ -6,14 +6,14 @@ steps:
       - '-f'
       - 'frontend/Dockerfile'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/visaliv-crm-frontend:$COMMIT_SHA'
+      - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-frontend/visaliv-crm-frontend:$COMMIT_SHA'
       - 'frontend'
 
-  # Push image
+  # Push image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'gcr.io/$PROJECT_ID/visaliv-crm-frontend:$COMMIT_SHA'
+      - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-frontend/visaliv-crm-frontend:$COMMIT_SHA'
 
   # Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -23,7 +23,7 @@ steps:
       - 'deploy'
       - 'visaliv-crm-frontend'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/visaliv-crm-frontend:$COMMIT_SHA'
+      - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-frontend/visaliv-crm-frontend:$COMMIT_SHA'
       - '--region'
       - 'asia-south2'
       - '--platform'
@@ -31,7 +31,7 @@ steps:
       - '--allow-unauthenticated'
 
 images:
-  - 'gcr.io/$PROJECT_ID/visaliv-crm-frontend:$COMMIT_SHA'
+  - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-frontend/visaliv-crm-frontend:$COMMIT_SHA'
 
 options:
   logging: CLOUD_LOGGING_ONLY
