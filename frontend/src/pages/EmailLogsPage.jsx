@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { FileText } from 'lucide-react';
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
 
 export default function EmailLogsPage() {
   const [logs, setLogs] = useState([]);

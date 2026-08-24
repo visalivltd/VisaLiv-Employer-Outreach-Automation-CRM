@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2 } from 'lucide-react';
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
 
 export default function OutreachPage() {
   const [candidates, setCandidates] = useState([]);

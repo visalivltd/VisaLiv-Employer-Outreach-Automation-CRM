@@ -31,7 +31,7 @@ import {
   Link as LinkIcon
 } from 'lucide-react';
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
 
 export default function EmailTrackingPage() {
   const navigate = useNavigate();
@@ -432,7 +432,7 @@ export default function EmailTrackingPage() {
     if (selectedConversation && selectedConversation.messages.length > 0) {
       const latestMsg =
         selectedConversation.messages[
-          selectedConversation.messages.length - 1
+        selectedConversation.messages.length - 1
         ];
       const newSet = new Set();
       if (latestMsg?.id) {
@@ -1402,13 +1402,13 @@ export default function EmailTrackingPage() {
                       backgroundColor: isSelected
                         ? '#f0f9ff'
                         : conv.has_unread
-                        ? '#f8fafc'
-                        : '#ffffff',
+                          ? '#f8fafc'
+                          : '#ffffff',
                       borderLeft: isSelected
                         ? '4px solid #2563eb'
                         : conv.has_unread
-                        ? '4px solid #0284c7'
-                        : '4px solid transparent',
+                          ? '4px solid #0284c7'
+                          : '4px solid transparent',
                       cursor: 'pointer',
                       transition: 'all 0.15s ease',
                     }}
@@ -1864,13 +1864,13 @@ export default function EmailTrackingPage() {
                           <span style={{ fontSize: '11px', color: '#94a3b8' }}>
                             {msg.sent_at || msg.created_at
                               ? new Date(
-                                  msg.sent_at || msg.created_at
-                                ).toLocaleString([], {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })
+                                msg.sent_at || msg.created_at
+                              ).toLocaleString([], {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
                               : ''}
                           </span>
                           <ChevronDown size={16} style={{ color: '#64748b' }} />
@@ -1947,9 +1947,9 @@ export default function EmailTrackingPage() {
                             <span style={{ fontSize: '12px', color: '#64748b' }}>
                               {isIncoming
                                 ? msg.employer_email ||
-                                  selectedConversation.employer_email
+                                selectedConversation.employer_email
                                 : msg.gmail_email ||
-                                  selectedConversation.candidate_gmail}
+                                selectedConversation.candidate_gmail}
                             </span>
                           </div>
                         </div>
@@ -1972,14 +1972,14 @@ export default function EmailTrackingPage() {
                             >
                               {msg.sent_at || msg.created_at
                                 ? new Date(
-                                    msg.sent_at || msg.created_at
-                                  ).toLocaleString([], {
-                                    year: 'numeric',
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })
+                                  msg.sent_at || msg.created_at
+                                ).toLocaleString([], {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
                                 : ''}
                             </span>
 

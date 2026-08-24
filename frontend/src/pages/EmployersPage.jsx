@@ -13,7 +13,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 
-const rawApiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const rawApiUrl = import.meta.env.VITE_API_URL || 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
 const API_URL = rawApiUrl.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
 
 const emptyForm = {

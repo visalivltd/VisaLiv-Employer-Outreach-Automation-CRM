@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Mail, CheckCircle, XCircle, AlertTriangle, Link as LinkIcon, Trash2, Check } from 'lucide-react';
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
 
 export default function GmailAccountsPage() {
   const [accounts, setAccounts] = useState([]);
@@ -211,8 +211,8 @@ export default function GmailAccountsPage() {
                   <td>
                     {account.connected_at
                       ? new Date(
-                          account.connected_at
-                        ).toLocaleString()
+                        account.connected_at
+                      ).toLocaleString()
                       : '-'}
                   </td>
 

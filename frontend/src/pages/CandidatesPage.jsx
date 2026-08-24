@@ -13,7 +13,7 @@ import {
   Upload,
 } from 'lucide-react';
 
-const API_URL = 'http://127.0.0.1:8000';
+const API_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
 
 const emptyForm = {
   full_name: '',
@@ -303,9 +303,9 @@ export default function CandidatesPage() {
       if (!response.ok) {
         throw new Error(
           data.detail ||
-            (isEditing
-              ? 'Failed to update candidate'
-              : 'Failed to create candidate')
+          (isEditing
+            ? 'Failed to update candidate'
+            : 'Failed to create candidate')
         );
       }
 
@@ -326,9 +326,9 @@ export default function CandidatesPage() {
     } catch (err) {
       setError(
         err.message ||
-          (editingCandidate
-            ? 'Failed to update candidate'
-            : 'Failed to create candidate')
+        (editingCandidate
+          ? 'Failed to update candidate'
+          : 'Failed to create candidate')
       );
     } finally {
       setSaving(false);

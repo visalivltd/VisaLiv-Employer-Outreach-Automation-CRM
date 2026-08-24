@@ -11,7 +11,7 @@ import {
   Target,
 } from 'lucide-react';
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
 
 // Google / Gmail M Logo Component
 function GmailLogoIcon() {
@@ -133,17 +133,17 @@ export default function DashboardPage() {
   const remainingToday =
     emailsSentToday !== null
       ? Math.max(
-          dailyTarget - emailsSentToday,
-          0
-        )
+        dailyTarget - emailsSentToday,
+        0
+      )
       : null;
 
   const progressPercentage =
     emailsSentToday !== null && dailyTarget > 0
       ? Math.min(
-          (emailsSentToday / dailyTarget) * 100,
-          100
-        )
+        (emailsSentToday / dailyTarget) * 100,
+        100
+      )
       : 0;
 
   return (
@@ -543,8 +543,8 @@ export default function DashboardPage() {
                     <td>
                       {email.sentAt
                         ? new Date(
-                            email.sentAt
-                          ).toLocaleString()
+                          email.sentAt
+                        ).toLocaleString()
                         : '-'}
                     </td>
 
