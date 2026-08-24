@@ -1,0 +1,37 @@
+steps:
+  # Build frontend Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'frontend/Dockerfile'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/visaliv-crm-frontend:$COMMIT_SHA'
+      - 'frontend'
+
+  # Push image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/visaliv-crm-frontend:$COMMIT_SHA'
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'visaliv-crm-frontend'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/visaliv-crm-frontend:$COMMIT_SHA'
+      - '--region'
+      - 'asia-south2'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+
+images:
+  - 'gcr.io/$PROJECT_ID/visaliv-crm-frontend:$COMMIT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
