@@ -56,3 +56,33 @@ class CandidateResponse(BaseModel):
 
 class CandidateAssignDraft(BaseModel):
     email_draft_id: int | None = None
+
+
+class CandidateImportPreviewRow(BaseModel):
+    row_number: int
+    full_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    country: str | None = None
+    visa_type: str | None = None
+    cv_file_path: str | None = None
+    status: str
+    status_reason: str
+
+
+class CandidateImportPreviewResponse(BaseModel):
+    total_rows: int
+    valid_count: int
+    duplicate_count: int
+    invalid_rows_count: int
+    rows: list[CandidateImportPreviewRow]
+
+
+class CandidateImportResultResponse(BaseModel):
+    success: bool
+    total_rows: int
+    imported_count: int
+    skipped_duplicates_count: int
+    invalid_rows_count: int
+    message: str
+    details: list[dict] = []
