@@ -84,7 +84,11 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(candidate_router)
+app.include_router(candidate_router, prefix="/api/v1")
+app.include_router(candidate_router, prefix="/api")
 app.include_router(employer_router)
+app.include_router(employer_router, prefix="/api/v1")
+app.include_router(employer_router, prefix="/api")
 app.include_router(gmail_account_router)
 app.include_router(gmail_oauth_router)
 app.include_router(outreach_router)
@@ -94,6 +98,7 @@ app.include_router(email_draft_router)
 app.include_router(notification_router)
 app.include_router(email_tracking_router)
 app.include_router(real_candidate_router)
+
 
 @app.get("/")
 async def root():

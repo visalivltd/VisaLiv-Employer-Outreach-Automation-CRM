@@ -11,9 +11,25 @@ import {
   Pencil,
   Trash2,
   Upload,
+  FileSpreadsheet,
+  CheckCircle2,
 } from 'lucide-react';
 
-const API_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+const getApiUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || !host.includes('run.app')) {
+      return `${window.location.protocol}//${host}:8000`;
+    }
+  }
+  return 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+};
+
+const rawApiUrl = getApiUrl();
+const API_URL = rawApiUrl.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
 
 const emptyForm = {
   full_name: '',
@@ -53,6 +69,14 @@ export default function CandidatesPage() {
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Import Excel Modal state
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
 
   // ================= FETCH =================
 
@@ -102,6 +126,104 @@ export default function CandidatesPage() {
       window.removeEventListener('focus', handleFocus);
     };
   }, []);
+
+  // --- Excel Import Modal Flow ---
+
+  const openImportModal = () => {
+    setImportFile(null);
+    setImportPreview(null);
+    setImportResult(null);
+    setError('');
+    setSuccess('');
+    setShowImportModal(true);
+  };
+
+  const closeImportModal = () => {
+    if (importing) return;
+    setShowImportModal(false);
+    setImportFile(null);
+    setImportPreview(null);
+    setImportResult(null);
+    setError('');
+  };
+
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+      setError('Only Excel files (.xlsx) are supported.');
+      return;
+    }
+
+    setImportFile(file);
+    setImportPreview(null);
+    setImportResult(null);
+
+    try {
+      setPreviewLoading(true);
+      setError('');
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch(`${API_URL}/candidates/preview-import`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        let msg = data.detail || 'Failed to parse Excel file';
+        if (res.status === 405 || msg === 'Method Not Allowed') {
+          msg = 'Candidate import endpoint returned Method Not Allowed (405). Please ensure the backend server is running the updated candidates import code.';
+        }
+        throw new Error(msg);
+      }
+
+      setError('');
+      setImportPreview(data);
+    } catch (err) {
+      setError(err.message || 'Error parsing Excel file preview');
+      setImportFile(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importFile) return;
+
+    try {
+      setImporting(true);
+      setError('');
+      setSuccess('');
+      const formData = new FormData();
+      formData.append('file', importFile);
+
+      const res = await fetch(`${API_URL}/candidates/import`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        let msg = data.detail || 'Failed to import candidates';
+        if (res.status === 405 || msg === 'Method Not Allowed') {
+          msg = 'Candidate import endpoint returned Method Not Allowed (405). Please ensure the backend server is running the updated candidates import code.';
+        }
+        throw new Error(msg);
+      }
+
+      setError('');
+      setImportResult(data);
+      setSuccess(`Import completed! ${data.imported_count} candidates imported, ${data.skipped_duplicates_count} duplicates skipped.`);
+      await fetchCandidates();
+    } catch (err) {
+      setError(err.message || 'Error executing import');
+    } finally {
+      setImporting(false);
+    }
+  };
 
   // ================= FORM =================
 
@@ -587,14 +709,37 @@ export default function CandidatesPage() {
 
         </div>
 
-        <button
-          type="button"
-          className="primary-button"
-          onClick={openAddForm}
-        >
-          <Plus size={18} />
-          Add Candidate
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button
+            type="button"
+            onClick={openImportModal}
+            style={{
+              padding: '11px 18px',
+              border: '1px solid #2563eb',
+              borderRadius: '8px',
+              background: '#fff',
+              color: '#2563eb',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <FileSpreadsheet size={18} />
+            Import Excel
+          </button>
+
+          <button
+            type="button"
+            className="primary-button"
+            onClick={openAddForm}
+          >
+            <Plus size={18} />
+            Add Candidate
+          </button>
+        </div>
 
       </div>
 
@@ -1573,6 +1718,189 @@ export default function CandidatesPage() {
                   {deletingId === deletingCandidateModal.id ? 'Deleting...' : 'Delete'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= IMPORT EXCEL MODAL ================= */}
+      {showImportModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.45)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '20px',
+        }}>
+          <div style={{
+            width: '100%',
+            maxWidth: '640px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            background: '#fff',
+            borderRadius: '16px',
+            padding: '26px',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.2)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <FileSpreadsheet size={24} color="#2563eb" />
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '18px', color: '#0f172a' }}>Import Candidates from Excel</h3>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                    Upload a roster to batch-create candidates. Duplicates by email will be skipped.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeImportModal}
+                style={{
+                  border: 'none',
+                  background: '#f1f5f9',
+                  borderRadius: '8px',
+                  width: '36px',
+                  height: '36px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#475569',
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* File Selection Box */}
+            <div style={{ border: '2px dashed #cbd5e1', borderRadius: '12px', padding: '20px', textAlign: 'center', backgroundColor: '#f8fafc', marginBottom: '16px' }}>
+              <Upload size={32} color="#2563eb" style={{ marginBottom: '8px' }} />
+              <p style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>
+                {importFile ? importFile.name : 'Select or Drop Excel file (.xlsx)'}
+              </p>
+              <input type="file" accept=".xlsx,.xls" onChange={handleFileSelect} id="candidate-excel-file-input" style={{ display: 'none' }} />
+              <label htmlFor="candidate-excel-file-input" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', background: '#2563eb', color: '#fff', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '13px' }}>
+                Browse Excel File
+              </label>
+            </div>
+
+            {previewLoading && (
+              <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>
+                Parsing candidate Excel roster...
+              </div>
+            )}
+
+            {/* Preview Results Table */}
+            {importPreview && !previewLoading && (
+              <div>
+                {/* Stats Summary Bar */}
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '16px', backgroundColor: '#f1f5f9', padding: '12px 16px', borderRadius: '8px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: '#334155' }}>
+                    Total Rows: <strong>{importPreview.total_rows}</strong>
+                  </span>
+                  <span style={{ fontSize: '13px', fontWeight: '700', backgroundColor: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '4px' }}>
+                    Ready to Import: {importPreview.valid_count}
+                  </span>
+                  <span style={{ fontSize: '13px', fontWeight: '700', backgroundColor: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: '4px' }}>
+                    Duplicates Skipped: {importPreview.duplicate_count}
+                  </span>
+                  {importPreview.invalid_rows_count > 0 && (
+                    <span style={{ fontSize: '13px', fontWeight: '700', backgroundColor: '#fee2e2', color: '#b91c1c', padding: '2px 8px', borderRadius: '4px' }}>
+                      Invalid Rows: {importPreview.invalid_rows_count}
+                    </span>
+                  )}
+                </div>
+
+                {/* Preview Table */}
+                <div style={{ maxHeight: '320px', overflowY: 'auto', border: '1px solid #cbd5e1', borderRadius: '8px', marginBottom: '16px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                    <thead style={{ backgroundColor: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
+                      <tr style={{ borderBottom: '1px solid #cbd5e1', color: '#475569' }}>
+                        <th style={{ padding: '10px' }}>#</th>
+                        <th style={{ padding: '10px' }}>Candidate Name</th>
+                        <th style={{ padding: '10px' }}>Email</th>
+                        <th style={{ padding: '10px' }}>Country</th>
+                        <th style={{ padding: '10px' }}>Visa Type</th>
+                        <th style={{ padding: '10px' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.rows.map((row) => (
+                        <tr key={row.row_number} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '10px', color: '#64748b' }}>{row.row_number}</td>
+                          <td style={{ padding: '10px', fontWeight: '600', color: '#0f172a' }}>{row.full_name || '-'}</td>
+                          <td style={{ padding: '10px' }}>
+                            {row.email ? (
+                              <span>{row.email}</span>
+                            ) : (
+                              <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>No Email</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px' }}>{row.country || '-'}</td>
+                          <td style={{ padding: '10px' }}>{row.visa_type || '-'}</td>
+                          <td style={{ padding: '10px' }}>
+                            {row.status === 'Ready' && <span style={{ color: '#16a34a', fontWeight: '600' }}>✓ Ready</span>}
+                            {row.status === 'Duplicate' && <span style={{ color: '#d97706', fontWeight: '600' }} title={row.status_reason}>⚠ Duplicate (Skipped)</span>}
+                            {row.status === 'Invalid' && <span style={{ color: '#dc2626', fontWeight: '600' }} title={row.status_reason}>✕ Invalid</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Import Result Notification */}
+            {importResult && (
+              <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #86efac', color: '#15803d', padding: '14px', borderRadius: '8px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <CheckCircle2 size={24} />
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '15px' }}>{importResult.message}</div>
+                  <div style={{ fontSize: '13px', marginTop: '2px' }}>
+                    Total: {importResult.total_rows} | Imported: {importResult.imported_count} | Skipped: {importResult.skipped_duplicates_count} | Invalid: {importResult.invalid_rows_count}
+                  </div>
+                  {importResult.details && importResult.details.length > 0 && (
+                    <div style={{ marginTop: '8px', fontSize: '12px', maxHeight: '100px', overflowY: 'auto' }}>
+                      {importResult.details.map((d, i) => (
+                        <div key={i} style={{ color: d.status === 'Invalid' ? '#dc2626' : '#d97706' }}>
+                          Row {d.row_number}: {d.reason}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button type="button" onClick={closeImportModal} style={{ padding: '9px 16px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#fff', color: '#334155', fontWeight: 600, cursor: 'pointer' }}>
+                {importResult ? 'Close' : 'Cancel'}
+              </button>
+
+              {importPreview && !importResult && (
+                <button
+                  type="button"
+                  onClick={handleConfirmImport}
+                  disabled={importing || importPreview.valid_count === 0}
+                  style={{
+                    padding: '9px 16px',
+                    border: 'none',
+                    borderRadius: '8px',
+                    background: '#2563eb',
+                    color: '#fff',
+                    fontWeight: 600,
+                    cursor: importing || importPreview.valid_count === 0 ? 'not-allowed' : 'pointer',
+                    opacity: importing || importPreview.valid_count === 0 ? 0.7 : 1,
+                  }}
+                >
+                  {importing ? 'Importing Candidates...' : `Confirm & Import (${importPreview.valid_count} Candidates)`}
+                </button>
+              )}
             </div>
           </div>
         </div>
