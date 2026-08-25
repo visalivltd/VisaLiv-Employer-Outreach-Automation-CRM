@@ -66,6 +66,7 @@ export default function CandidatesPage() {
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [deletingCandidateModal, setDeletingCandidateModal] = useState(null);
+  const [updatingStatusId, setUpdatingStatusId] = useState(null);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -478,6 +479,48 @@ export default function CandidatesPage() {
 
     setSelectedFile(null);
     setShowForm(true);
+  };
+
+  // ================= TOGGLE STATUS =================
+
+  const handleToggleStatus = async (candidate) => {
+    if (!candidate || updatingStatusId === candidate.id) return;
+
+    const newStatus = !candidate.is_active;
+
+    try {
+      setUpdatingStatusId(candidate.id);
+      setError('');
+      setSuccess('');
+
+      const response = await fetch(`${API_URL}/candidates/${candidate.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          is_active: newStatus,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to update candidate status');
+      }
+
+      setCandidates((prevCandidates) =>
+        prevCandidates.map((c) =>
+          c.id === candidate.id ? { ...c, is_active: data.is_active } : c
+        )
+      );
+
+      setSuccess(`Candidate "${candidate.full_name}" is now ${data.is_active ? 'Active' : 'Inactive'}.`);
+    } catch (err) {
+      setError(err.message || 'Failed to update candidate status');
+    } finally {
+      setUpdatingStatusId(null);
+    }
   };
 
   // ================= DELETE =================
@@ -1189,21 +1232,27 @@ export default function CandidatesPage() {
 
                     <td>
 
-                      <span
+                      <button
+                        type="button"
                         className={
                           candidate.is_active
-                            ? 'status-badge active'
-                            : 'status-badge inactive'
+                            ? 'status-badge active clickable'
+                            : 'status-badge inactive clickable'
                         }
+                        onClick={() => handleToggleStatus(candidate)}
+                        disabled={updatingStatusId === candidate.id}
+                        title={`Click to set as ${candidate.is_active ? 'Inactive' : 'Active'}`}
                       >
 
                         <span className="status-dot"></span>
 
-                        {candidate.is_active
+                        {updatingStatusId === candidate.id
+                          ? 'Updating...'
+                          : candidate.is_active
                           ? 'Active'
                           : 'Inactive'}
 
-                      </span>
+                      </button>
 
                     </td>
 

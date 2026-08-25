@@ -1079,6 +1079,31 @@ body {
   border: 1px solid #ffedd5;
 }
 
+.status-badge.clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease-in-out;
+  outline: none;
+  font-family: inherit;
+}
+
+.status-badge.clickable:hover {
+  transform: translateY(-1px);
+  filter: brightness(0.95);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.status-badge.clickable:active {
+  transform: translateY(0);
+}
+
+.status-badge.clickable:disabled {
+  cursor: wait;
+  opacity: 0.65;
+  transform: none;
+  box-shadow: none;
+}
+
 .status-dot {
   width: 6px;
   height: 6px;

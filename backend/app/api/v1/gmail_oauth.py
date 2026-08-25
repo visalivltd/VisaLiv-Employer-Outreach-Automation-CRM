@@ -1,10 +1,6 @@
 import os
-import base64
-import hashlib
-import hmac
-import json
 import secrets
-import time
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
@@ -17,6 +13,7 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.candidate import Candidate
 from app.models.gmail_account import GmailAccount
+from app.models.oauth_state import OAuthState
 
 
 router = APIRouter(
@@ -69,86 +66,68 @@ def create_flow(
 
 
 def create_state(
+    db: Session,
     candidate_id: int,
     code_verifier: str,
 ) -> str:
-    payload = {
-        "candidate_id": candidate_id,
-        "code_verifier": code_verifier,
-        "timestamp": int(time.time()),
-        "nonce": secrets.token_urlsafe(16),
-    }
+    now = datetime.now(timezone.utc)
 
-    payload_bytes = json.dumps(
-        payload,
-        separators=(",", ":"),
-    ).encode()
+    # Cleanup expired states to maintain optimal table performance
+    db.query(OAuthState).filter(OAuthState.expires_at < now).delete(synchronize_session=False)
 
-    encoded_payload = base64.urlsafe_b64encode(
-        payload_bytes
-    ).decode().rstrip("=")
+    state_token = secrets.token_urlsafe(32)
+    expires_at = now + timedelta(seconds=STATE_EXPIRY_SECONDS)
 
-    signature = hmac.new(
-        settings.JWT_SECRET_KEY.encode(),
-        encoded_payload.encode(),
-        hashlib.sha256,
-    ).hexdigest()
+    oauth_state = OAuthState(
+        state=state_token,
+        candidate_id=candidate_id,
+        code_verifier=code_verifier,
+        expires_at=expires_at,
+        created_at=now,
+    )
+    db.add(oauth_state)
+    db.commit()
 
-    return f"{encoded_payload}.{signature}"
+    return state_token
 
 
 def verify_state(
+    db: Session,
     state: str,
 ) -> tuple[int, str]:
-    try:
-        encoded_payload, signature = state.split(
-            ".",
-            1,
-        )
-
-        expected_signature = hmac.new(
-            settings.JWT_SECRET_KEY.encode(),
-            encoded_payload.encode(),
-            hashlib.sha256,
-        ).hexdigest()
-
-        if not hmac.compare_digest(
-            signature,
-            expected_signature,
-        ):
-            raise ValueError(
-                "Invalid state signature"
-            )
-
-        padding = "=" * (
-            -len(encoded_payload) % 4
-        )
-
-        payload = json.loads(
-            base64.urlsafe_b64decode(
-                encoded_payload + padding
-            ).decode()
-        )
-
-        if (
-            time.time()
-            - payload["timestamp"]
-            > STATE_EXPIRY_SECONDS
-        ):
-            raise ValueError(
-                "OAuth state expired"
-            )
-
-        return (
-            int(payload["candidate_id"]),
-            payload["code_verifier"],
-        )
-
-    except Exception as exc:
+    if not state:
         raise HTTPException(
             status_code=400,
             detail="Invalid or expired OAuth state",
-        ) from exc
+        )
+
+    oauth_state = db.get(OAuthState, state)
+
+    if oauth_state is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or expired OAuth state",
+        )
+
+    candidate_id = oauth_state.candidate_id
+    code_verifier = oauth_state.code_verifier
+    expires_at = oauth_state.expires_at
+
+    # Delete state immediately from DB to enforce single-use CSRF protection
+    db.delete(oauth_state)
+    db.commit()
+
+    now = datetime.now(timezone.utc)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if now > expires_at:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or expired OAuth state",
+        )
+
+    return candidate_id, code_verifier
 
 
 @router.get("/connect/{candidate_id}")
@@ -175,6 +154,7 @@ def connect_gmail(
     )
 
     state = create_state(
+        db=db,
         candidate_id=candidate_id,
         code_verifier=code_verifier,
     )
@@ -226,7 +206,8 @@ def gmail_callback(
         )
 
     candidate_id, code_verifier = verify_state(
-        state
+        db=db,
+        state=state,
     )
 
     candidate = db.get(
