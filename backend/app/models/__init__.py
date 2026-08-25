@@ -7,6 +7,7 @@ from app.models.scheduler_job import SchedulerJob
 from app.models.email_draft import EmailDraft
 from app.models.notification import Notification
 from app.models.real_candidate import RealCandidate
+from app.models.oauth_state import OAuthState
 
 __all__ = [
     "Admin",
@@ -18,4 +19,5 @@ __all__ = [
     "EmailDraft",
     "Notification",
     "RealCandidate",
+    "OAuthState",
 ]
