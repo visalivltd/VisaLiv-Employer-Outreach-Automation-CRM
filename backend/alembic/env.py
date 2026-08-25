@@ -16,6 +16,7 @@ from app.models import (
     EmailLog,
     SchedulerJob,
     RealCandidate,
+    OAuthState,
 )
 
 # this is the Alembic Config object, which provides

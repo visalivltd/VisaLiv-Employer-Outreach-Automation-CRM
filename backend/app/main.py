@@ -42,6 +42,14 @@ async def periodic_gmail_sync():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.db.base import Base
+    from app.db.session import engine
+    # Ensure missing database tables (like oauth_states) are created
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        print(f"[STARTUP TABLE CREATE WARNING] {exc}", flush=True)
+
     # Start background polling task on server startup
     sync_task = asyncio.create_task(periodic_gmail_sync())
     yield
