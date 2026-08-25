@@ -15,16 +15,19 @@ from app.db.session import get_db
 from app.schemas.candidate import (
     CandidateAssignDraft,
     CandidateCreate,
+    CandidateImportPreviewResponse,
+    CandidateImportResultResponse,
     CandidateResponse,
     CandidateUpdate,
 )
-from app.services import candidate_service
+from app.services import candidate_import_service, candidate_service
 
 
 router = APIRouter(
     prefix="/candidates",
     tags=["Candidates"],
 )
+
 
 
 # Project root /uploads directory
@@ -75,6 +78,52 @@ async def upload_cv(
         "filename": filename,
         "file_path": f"uploads/{filename}",
     }
+
+
+@router.post(
+    "/preview-import",
+    response_model=CandidateImportPreviewResponse,
+)
+async def preview_candidate_import(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only Excel files (.xlsx) are allowed.",
+        )
+    contents = await file.read()
+    try:
+        return candidate_import_service.preview_candidate_import(db, contents)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/import",
+    response_model=CandidateImportResultResponse,
+)
+async def execute_candidate_import(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only Excel files (.xlsx) are allowed.",
+        )
+    contents = await file.read()
+    try:
+        return candidate_import_service.execute_candidate_import(db, contents)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post(

@@ -13,7 +13,20 @@ import {
   HelpCircle,
 } from 'lucide-react';
 
-const rawApiUrl = import.meta.env.VITE_API_URL || 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+const getApiUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || !host.includes('run.app')) {
+      return `${window.location.protocol}//${host}:8000`;
+    }
+  }
+  return 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+};
+
+const rawApiUrl = getApiUrl();
 const API_URL = rawApiUrl.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
 
 const emptyForm = {
