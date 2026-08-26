@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   UserCheck,
   Plus,
@@ -17,8 +17,43 @@ import {
 const rawApiUrl = import.meta.env.VITE_API_URL || 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
 const API_URL = rawApiUrl.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
 
+const getErrorMessage = (error, fallback = "Something went wrong.") => {
+  const detail = error?.response?.data?.detail ?? error?.detail;
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    try {
+      return detail
+        .map((item) => (typeof item === "string" ? item : item.msg || item.message || JSON.stringify(item)))
+        .join(", ");
+    } catch {
+      return fallback;
+    }
+  }
+
+  if (detail && typeof detail === "object") {
+    if (typeof detail.message === "string") {
+      return detail.message;
+    }
+
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return fallback;
+    }
+  }
+
+  if (typeof error?.message === "string") {
+    return error.message;
+  }
+
+  return fallback;
+};
+
 const emptyForm = {
-  real_candidate_id: '',
   name: '',
   email: '',
   candidate_ids: [],
@@ -50,11 +85,20 @@ export default function RealCandidatesPage() {
   const [success, setSuccess] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Row Selection & Batch Outreach State
+  const [selectedRealCandIds, setSelectedRealCandIds] = useState(new Set());
+  const [sendingOutreach, setSendingOutreach] = useState(false);
+
   // Modals state
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingRealCand, setEditingRealCand] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+
+  // Linked CRM Candidates search & paste state
+  const [crmSearchQuery, setCrmSearchQuery] = useState('');
+  const [crmPasteText, setCrmPasteText] = useState('');
+  const [crmPasteFeedback, setCrmPasteFeedback] = useState('');
 
   const [previewData, setPreviewData] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -63,6 +107,8 @@ export default function RealCandidatesPage() {
   const [deleting, setDeleting] = useState(false);
 
   const [sendingSummaries, setSendingSummaries] = useState(false);
+
+  const headerCheckboxRef = useRef(null);
 
   const fetchRealCandidates = async () => {
     try {
@@ -157,6 +203,9 @@ export default function RealCandidatesPage() {
     fetchGmailAccounts();
     setEditingRealCand(null);
     setForm(emptyForm);
+    setCrmSearchQuery('');
+    setCrmPasteText('');
+    setCrmPasteFeedback('');
     setError('');
     setSuccess('');
     setShowFormModal(true);
@@ -167,7 +216,6 @@ export default function RealCandidatesPage() {
     fetchGmailAccounts();
     setEditingRealCand(rc);
     setForm({
-      real_candidate_id: rc.real_candidate_id || '',
       name: rc.name || '',
       email: rc.email || '',
       candidate_ids: rc.linked_candidate_ids || [],
@@ -175,6 +223,9 @@ export default function RealCandidatesPage() {
       summary_template_subject: rc.summary_template_subject || 'Application Update',
       summary_template_body: rc.summary_template_body || emptyForm.summary_template_body,
     });
+    setCrmSearchQuery('');
+    setCrmPasteText('');
+    setCrmPasteFeedback('');
     setError('');
     setSuccess('');
     setShowFormModal(true);
@@ -199,6 +250,54 @@ export default function RealCandidatesPage() {
     });
   };
 
+  const removeCandidateSelection = (candId) => {
+    setForm((prev) => ({
+      ...prev,
+      candidate_ids: prev.candidate_ids.filter((id) => id !== candId),
+    }));
+  };
+
+  const handlePasteAddCrmCandidates = () => {
+    if (!crmPasteText.trim()) return;
+    const rawEmails = crmPasteText
+      .split(/[,;\s\n\r]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+
+    if (rawEmails.length === 0) return;
+
+    const currentSet = new Set(form.candidate_ids);
+    let newlyAdded = 0;
+    const notFound = [];
+
+    rawEmails.forEach((emailStr) => {
+      const match = crmCandidates.find(
+        (cand) =>
+          (cand.email || '').toLowerCase() === emailStr ||
+          (cand.gmail_email || '').toLowerCase() === emailStr
+      );
+      if (match) {
+        if (!currentSet.has(match.id)) {
+          currentSet.add(match.id);
+          newlyAdded++;
+        }
+      } else {
+        if (!notFound.includes(emailStr)) {
+          notFound.push(emailStr);
+        }
+      }
+    });
+
+    setForm((prev) => ({ ...prev, candidate_ids: Array.from(currentSet) }));
+    setCrmPasteText('');
+
+    if (notFound.length > 0) {
+      setCrmPasteFeedback(`Added ${newlyAdded} candidate(s). Not found: ${notFound.join(', ')}`);
+    } else {
+      setCrmPasteFeedback(`Added ${newlyAdded} candidate(s).`);
+    }
+  };
+
   const appendTagToBody = (tag) => {
     setForm((prev) => ({
       ...prev,
@@ -208,8 +307,8 @@ export default function RealCandidatesPage() {
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-    if (!form.real_candidate_id.trim() || !form.name.trim() || !form.email.trim()) {
-      setError('Real Candidate ID, Name, and Email are required.');
+    if (!form.name.trim() || !form.email.trim()) {
+      setError('Name and Email are required.');
       return;
     }
 
@@ -224,7 +323,6 @@ export default function RealCandidatesPage() {
         : `${API_URL}/real-candidates`;
 
       const payload = {
-        real_candidate_id: form.real_candidate_id.trim(),
         name: form.name.trim(),
         email: form.email.trim().toLowerCase(),
         candidate_ids: form.candidate_ids,
@@ -241,14 +339,15 @@ export default function RealCandidatesPage() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to save Real Candidate');
+        const errorMsg = getErrorMessage({ detail: data.detail }, 'Failed to save Real Candidate');
+        throw new Error(errorMsg);
       }
 
       setSuccess(isEditing ? 'Real Candidate updated successfully.' : 'Real Candidate created successfully.');
       closeFormModal();
       fetchRealCandidates();
     } catch (err) {
-      setError(err.message || 'Error saving Real Candidate');
+      setError(getErrorMessage(err, 'Error saving Real Candidate'));
     } finally {
       setSaving(false);
     }
@@ -329,14 +428,138 @@ export default function RealCandidatesPage() {
     }
   };
 
+  // Outreach Batch Send for Selected Real Candidates
+  const handleSendOutreachForSelected = async () => {
+    if (selectedRealCandIds.size === 0) {
+      setError('Please select at least one Real Candidate.');
+      return;
+    }
+
+    const selectedRCs = realCandidates.filter((rc) => selectedRealCandIds.has(rc.id));
+    // DEDUPLICATE all linked CRM candidate IDs
+    const candidateIds = Array.from(
+      new Set(selectedRCs.flatMap((rc) => rc.linked_candidate_ids || []))
+    );
+
+    if (candidateIds.length === 0) {
+      setError('The selected Real Candidate(s) do not have any linked CRM candidate accounts.');
+      return;
+    }
+
+    try {
+      setSendingOutreach(true);
+      setError('');
+      setSuccess('');
+
+      const allPreviewItems = [];
+      for (const candId of candidateIds) {
+        const res = await fetch(`${API_URL}/outreach/preview?candidate_id=${candId}&page_size=500`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.items) {
+            allPreviewItems.push(...data.items);
+          }
+        }
+      }
+
+      // Keep eligible items and deduplicate candidate-employer pairing keys
+      const eligibleItems = [];
+      const seenKeys = new Set();
+      for (const item of allPreviewItems) {
+        if (item.eligible) {
+          const key = `${item.candidate_id}_${item.employer_id}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            eligibleItems.push(item);
+          }
+        }
+      }
+
+      if (eligibleItems.length === 0) {
+        setError('No eligible candidate-employer outreach pairings found for the selected Real Candidate(s).');
+        return;
+      }
+
+      const res = await fetch(`${API_URL}/outreach/batch-send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(eligibleItems),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Outreach batch send failed');
+      }
+
+      const sentCount = data.sent_count ?? data.sent ?? 0;
+      const failedCount = data.failed_count ?? data.failed ?? 0;
+      const skippedCount = data.skipped_count ?? data.skipped ?? 0;
+
+      setSuccess(`Outreach Sent Successfully: ${sentCount} email(s) sent${failedCount > 0 ? `, ${failedCount} failed` : ''}${skippedCount > 0 ? `, ${skippedCount} skipped` : ''}.`);
+      setSelectedRealCandIds(new Set());
+      fetchRealCandidates();
+    } catch (err) {
+      setError(err.message || 'Error sending outreach for selected real candidates');
+    } finally {
+      setSendingOutreach(false);
+    }
+  };
+
   const filteredRealCandidates = realCandidates.filter((rc) => {
     const q = searchQuery.toLowerCase();
     return (
       rc.name.toLowerCase().includes(q) ||
-      rc.real_candidate_id.toLowerCase().includes(q) ||
+      (rc.real_candidate_id || '').toLowerCase().includes(q) ||
       rc.email.toLowerCase().includes(q)
     );
   });
+
+  const isAllSelected =
+    filteredRealCandidates.length > 0 &&
+    filteredRealCandidates.every((rc) => selectedRealCandIds.has(rc.id));
+
+  const isSomeSelected =
+    selectedRealCandIds.size > 0 && !isAllSelected;
+
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = isSomeSelected;
+    }
+  }, [isSomeSelected]);
+
+  const handleToggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedRealCandIds(new Set());
+    } else {
+      const nextSet = new Set(selectedRealCandIds);
+      filteredRealCandidates.forEach((rc) => nextSet.add(rc.id));
+      setSelectedRealCandIds(nextSet);
+    }
+  };
+
+  const handleToggleRow = (rcId) => {
+    const nextSet = new Set(selectedRealCandIds);
+    if (nextSet.has(rcId)) {
+      nextSet.delete(rcId);
+    } else {
+      nextSet.add(rcId);
+    }
+    setSelectedRealCandIds(nextSet);
+  };
+
+  // Filtered CRM Candidates for Modal Search
+  const filteredCrmCandidates = crmCandidates.filter((cand) => {
+    if (!crmSearchQuery.trim()) return true;
+    const q = crmSearchQuery.toLowerCase();
+    const name = (cand.full_name || '').toLowerCase();
+    const email = (cand.email || '').toLowerCase();
+    const gmail = (cand.gmail_email || '').toLowerCase();
+    return name.includes(q) || email.includes(q) || gmail.includes(q);
+  });
+
+  const selectedCrmCandidatesList = crmCandidates.filter((c) =>
+    form.candidate_ids.includes(c.id)
+  );
 
   return (
     <div style={{ padding: '24px', maxWidth: '1280px', margin: '0 auto' }}>
@@ -351,27 +574,28 @@ export default function RealCandidatesPage() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          {/* Send Outreach Button for Selected Real Candidates */}
           <button
-            onClick={handleTriggerDailySummaries}
-            disabled={sendingSummaries}
+            onClick={handleSendOutreachForSelected}
+            disabled={sendingOutreach || selectedRealCandIds.size === 0}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              backgroundColor: '#0284c7',
+              backgroundColor: selectedRealCandIds.size > 0 ? '#16a34a' : '#cbd5e1',
               color: '#ffffff',
               padding: '10px 16px',
               borderRadius: '8px',
               border: 'none',
               fontWeight: '600',
-              cursor: sendingSummaries ? 'not-allowed' : 'pointer',
+              cursor: selectedRealCandIds.size > 0 && !sendingOutreach ? 'pointer' : 'not-allowed',
               fontSize: '14px',
-              opacity: sendingSummaries ? 0.7 : 1,
+              opacity: sendingOutreach ? 0.7 : 1,
             }}
           >
             <Send size={18} />
-            {sendingSummaries ? 'Sending Summaries...' : 'Send Daily Summaries Now'}
+            {sendingOutreach ? 'Sending Outreach...' : `Send Outreach (${selectedRealCandIds.size})`}
           </button>
 
           <button
@@ -482,24 +706,32 @@ export default function RealCandidatesPage() {
         </div>
       </div>
 
-      {/* Search Filter */}
-      <div style={{ marginBottom: '20px', position: 'relative', maxWidth: '400px' }}>
-        <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-        <input
-          type="text"
-          placeholder="Search by Real Candidate ID, Name, Email..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '10px 14px 10px 40px',
-            borderRadius: '8px',
-            border: '1px solid #cbd5e1',
-            fontSize: '14px',
-            outline: 'none',
-            boxSizing: 'border-box',
-          }}
-        />
+      {/* Search Filter & Selected Counter */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
+          <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+          <input
+            type="text"
+            placeholder="Search by Name or Email..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '10px 14px 10px 40px',
+              borderRadius: '8px',
+              border: '1px solid #cbd5e1',
+              fontSize: '14px',
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
+
+        {selectedRealCandIds.size > 0 && (
+          <span style={{ fontSize: '13px', fontWeight: '700', color: '#16a34a', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', padding: '6px 14px', borderRadius: '6px' }}>
+            Selected: {selectedRealCandIds.size} Real Candidate{selectedRealCandIds.size !== 1 ? 's' : ''}
+          </span>
+        )}
       </div>
 
       {/* Data Table */}
@@ -507,6 +739,16 @@ export default function RealCandidatesPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
           <thead>
             <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontWeight: '600' }}>
+              <th style={{ width: '40px', textAlign: 'center', padding: '14px 10px' }}>
+                <input
+                  type="checkbox"
+                  ref={headerCheckboxRef}
+                  checked={isAllSelected}
+                  onChange={handleToggleSelectAll}
+                  disabled={filteredRealCandidates.length === 0}
+                  style={{ cursor: 'pointer' }}
+                />
+              </th>
               <th style={{ padding: '14px 16px' }}>DB ID</th>
               <th style={{ padding: '14px 16px' }}>Name</th>
               <th style={{ padding: '14px 16px' }}>Email</th>
@@ -517,61 +759,72 @@ export default function RealCandidatesPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>Loading real candidates...</td>
+                <td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>Loading real candidates...</td>
               </tr>
             ) : filteredRealCandidates.length === 0 ? (
               <tr>
-                <td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
+                <td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
                   No real candidates found. Click "+ Add Real Candidate" to create one.
                 </td>
               </tr>
             ) : (
-              filteredRealCandidates.map((rc) => (
-                <tr key={rc.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '14px 16px', color: '#64748b', fontWeight: '500' }}>#{rc.id}</td>
-                  <td style={{ padding: '14px 16px', fontWeight: '600', color: '#0f172a' }}>{rc.name}</td>
-                  <td style={{ padding: '14px 16px', color: '#334155' }}>{rc.email}</td>
-                  <td style={{ padding: '14px 16px' }}>
-                    {rc.linked_candidates && rc.linked_candidates.length > 0 ? (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                        {rc.linked_candidates.map((c) => (
-                          <span key={c.id} style={{ backgroundColor: '#f1f5f9', color: '#334155', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', border: '1px solid #cbd5e1' }}>
-                            {c.full_name} (#{c.id})
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '13px' }}>Unlinked</span>
-                    )}
-                  </td>
+              filteredRealCandidates.map((rc) => {
+                const isSelected = selectedRealCandIds.has(rc.id);
+                return (
+                  <tr key={rc.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: isSelected ? '#f0f9ff' : 'transparent' }}>
+                    <td style={{ textAlign: 'center', padding: '14px 10px' }}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => handleToggleRow(rc.id)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </td>
+                    <td style={{ padding: '14px 16px', color: '#64748b', fontWeight: '500' }}>#{rc.id}</td>
+                    <td style={{ padding: '14px 16px', fontWeight: '600', color: '#0f172a' }}>{rc.name}</td>
+                    <td style={{ padding: '14px 16px', color: '#334155' }}>{rc.email}</td>
+                    <td style={{ padding: '14px 16px' }}>
+                      {rc.linked_candidates && rc.linked_candidates.length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          {rc.linked_candidates.map((c) => (
+                            <span key={c.id} style={{ backgroundColor: '#f1f5f9', color: '#334155', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', border: '1px solid #cbd5e1' }}>
+                              {c.full_name} (#{c.id})
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '13px' }}>Unlinked</span>
+                      )}
+                    </td>
 
-                  <td style={{ padding: '14px 16px' }}>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button
-                        onClick={() => handlePreviewSummary(rc)}
-                        title="Preview Summary"
-                        style={{ background: 'none', border: '1px solid #cbd5e1', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#0284c7', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
-                      >
-                        <Eye size={15} /> Preview
-                      </button>
-                      <button
-                        onClick={() => openEditModal(rc)}
-                        title="Edit Real Candidate"
-                        style={{ background: 'none', border: '1px solid #cbd5e1', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#334155', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
-                      >
-                        <Edit2 size={15} /> Edit
-                      </button>
-                      <button
-                        onClick={() => setDeletingRealCand(rc)}
-                        title="Delete Real Candidate"
-                        style={{ background: 'none', border: '1px solid #fca5a5', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
-                      >
-                        <Trash2 size={15} /> Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                    <td style={{ padding: '14px 16px' }}>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          onClick={() => handlePreviewSummary(rc)}
+                          title="Preview Summary"
+                          style={{ background: 'none', border: '1px solid #cbd5e1', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#0284c7', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
+                        >
+                          <Eye size={15} /> Preview
+                        </button>
+                        <button
+                          onClick={() => openEditModal(rc)}
+                          title="Edit Real Candidate"
+                          style={{ background: 'none', border: '1px solid #cbd5e1', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#334155', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
+                        >
+                          <Edit2 size={15} /> Edit
+                        </button>
+                        <button
+                          onClick={() => setDeletingRealCand(rc)}
+                          title="Delete Real Candidate"
+                          style={{ background: 'none', border: '1px solid #fca5a5', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
+                        >
+                          <Trash2 size={15} /> Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -594,20 +847,6 @@ export default function RealCandidatesPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
-                    Real Candidate ID <span style={{ color: '#dc2626' }}>*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. RC-1001 or 10052"
-                    value={form.real_candidate_id}
-                    onChange={(e) => setForm((prev) => ({ ...prev, real_candidate_id: e.target.value }))}
-                    required
-                    style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
                     Name <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   <input
@@ -619,20 +858,20 @@ export default function RealCandidatesPage() {
                     style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
                   />
                 </div>
-              </div>
 
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
-                  Real Candidate Personal Email <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
-                  type="email"
-                  placeholder="e.g. solace@example.com"
-                  value={form.email}
-                  onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
-                  required
-                  style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
-                />
+                <div>
+                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
+                    Real Candidate Personal Email <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="e.g. solace@example.com"
+                    value={form.email}
+                    onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+                    required
+                    style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
               </div>
 
               {/* Linked CRM Candidates */}
@@ -640,31 +879,113 @@ export default function RealCandidatesPage() {
                 <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
                   Linked CRM Candidate Accounts
                 </label>
-                <div style={{ border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px', maxHeight: '140px', overflowY: 'auto', backgroundColor: '#f8fafc' }}>
-                  {crmCandidates.length === 0 ? (
-                    <span style={{ fontSize: '13px', color: '#94a3b8' }}>No CRM Candidates created yet.</span>
-                  ) : (
-                    crmCandidates.map((cand) => {
-                      const isChecked = form.candidate_ids.includes(cand.id);
-                      return (
-                        <label key={cand.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0', fontSize: '13px', color: '#1e293b', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => toggleCandidateSelection(cand.id)}
-                            style={{ cursor: 'pointer' }}
-                          />
-                          <span>
-                            <strong>{cand.full_name}</strong> ({cand.email}) — ID #{cand.id}
-                          </span>
-                        </label>
-                      );
-                    })
+
+                {/* Instant Search Input */}
+                <div style={{ position: 'relative', marginBottom: '8px' }}>
+                  <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input
+                    type="text"
+                    placeholder="Search CRM candidates by name or email..."
+                    value={crmSearchQuery}
+                    onChange={(e) => setCrmSearchQuery(e.target.value)}
+                    style={{ width: '100%', padding: '7px 10px 7px 32px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                {/* Manual Email Paste Textarea & Add Button */}
+                <div style={{ marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <textarea
+                      placeholder="Enter or paste candidate emails (comma, semicolon, newline, or space separated)..."
+                      value={crmPasteText}
+                      onChange={(e) => setCrmPasteText(e.target.value)}
+                      rows={2}
+                      style={{ flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px', outline: 'none', fontFamily: 'sans-serif', boxSizing: 'border-box' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handlePasteAddCrmCandidates}
+                      style={{ padding: '0 12px', backgroundColor: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: 600, fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      Add Emails
+                    </button>
+                  </div>
+                  {crmPasteFeedback && (
+                    <div style={{ fontSize: '11px', marginTop: '4px', color: crmPasteFeedback.includes('Not found') ? '#b91c1c' : '#047857', fontWeight: 500 }}>
+                      {crmPasteFeedback}
+                    </div>
                   )}
                 </div>
+
+                {/* Search Results Dropdown List (Fast Cap 20) */}
+                {crmSearchQuery.trim() && (
+                  <div style={{ border: '1px solid #cbd5e1', borderRadius: '6px', maxHeight: '130px', overflowY: 'auto', backgroundColor: '#ffffff', marginBottom: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+                    {filteredCrmCandidates.length === 0 ? (
+                      <div style={{ padding: '8px 10px', fontSize: '12px', color: '#94a3b8' }}>No matching CRM candidates found.</div>
+                    ) : (
+                      filteredCrmCandidates.slice(0, 20).map((cand) => {
+                        const isChecked = form.candidate_ids.includes(cand.id);
+                        return (
+                          <div
+                            key={cand.id}
+                            onClick={() => toggleCandidateSelection(cand.id)}
+                            style={{ padding: '6px 10px', cursor: 'pointer', fontSize: '12.5px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: isChecked ? '#f0f9ff' : 'transparent' }}
+                          >
+                            <span>
+                              <strong>{cand.full_name}</strong> — <span style={{ color: '#64748b' }}>{cand.email}</span>
+                            </span>
+                            {isChecked && (
+                              <span style={{ color: '#0284c7', fontWeight: 700, fontSize: '11px' }}>✓ Selected</span>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+
+                {/* Selected CRM Candidates Compact Chips */}
+                {selectedCrmCandidatesList.length > 0 ? (
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
+                      Selected Candidates ({selectedCrmCandidatesList.length}):
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '90px', overflowY: 'auto' }}>
+                      {selectedCrmCandidatesList.map((cand) => (
+                        <span
+                          key={cand.id}
+                          style={{
+                            backgroundColor: '#eff6ff',
+                            color: '#1d4ed8',
+                            border: '1px solid #bfdbfe',
+                            borderRadius: '6px',
+                            padding: '3px 8px',
+                            fontSize: '12px',
+                            fontWeight: 500,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <span>✓ <strong>{cand.full_name}</strong> ({cand.email})</span>
+                          <button
+                            type="button"
+                            onClick={() => removeCandidateSelection(cand.id)}
+                            style={{ background: 'none', border: 'none', color: '#1d4ed8', cursor: 'pointer', padding: 0, display: 'flex' }}
+                            title="Remove candidate"
+                          >
+                            <X size={14} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
+                    No CRM candidates linked yet. Search or paste emails above.
+                  </div>
+                )}
               </div>
-
-
 
               {/* Daily Application Summary Template Config */}
               <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px', marginBottom: '16px' }}>
@@ -704,7 +1025,17 @@ export default function RealCandidatesPage() {
                         key={tag}
                         type="button"
                         onClick={() => appendTagToBody(tag)}
-                        style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}
+                        style={{
+                          backgroundColor: '#f1f5f9',
+                          color: '#334155',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '4px',
+                          padding: '3px 8px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                        }}
+                        title={`Click to insert ${tag}`}
                       >
                         + {tag}
                       </button>
@@ -715,25 +1046,26 @@ export default function RealCandidatesPage() {
                     rows={8}
                     value={form.summary_template_body}
                     onChange={(e) => setForm((prev) => ({ ...prev, summary_template_body: e.target.value }))}
-                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' }}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none', boxSizing: 'border-box', fontFamily: 'monospace' }}
                   />
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
                 <button
                   type="button"
                   onClick={closeFormModal}
-                  style={{ padding: '10px 16px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#475569', cursor: 'pointer', fontWeight: '600' }}
+                  disabled={saving}
+                  style={{ padding: '10px 18px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#334155', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', backgroundColor: '#2563eb', color: '#ffffff', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600' }}
+                  style={{ padding: '10px 18px', borderRadius: '6px', border: 'none', backgroundColor: '#2563eb', color: '#ffffff', fontWeight: '600', cursor: saving ? 'not-allowed' : 'pointer', fontSize: '14px', opacity: saving ? 0.7 : 1 }}
                 >
-                  {saving ? 'Saving...' : 'Save Real Candidate'}
+                  {saving ? 'Saving...' : editingRealCand ? 'Update Real Candidate' : 'Create Real Candidate'}
                 </button>
               </div>
             </form>
@@ -745,25 +1077,27 @@ export default function RealCandidatesPage() {
       {deletingRealCand && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
           <div style={{ backgroundColor: '#ffffff', borderRadius: '12px', width: '100%', maxWidth: '450px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-            <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: '0 0 12px 0' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', marginTop: 0, marginBottom: '8px' }}>
               Delete Real Candidate?
             </h3>
-            <p style={{ fontSize: '14px', color: '#475569', lineHeight: '1.5', margin: '0 0 20px 0' }}>
-              Are you sure you want to delete <strong>{deletingRealCand.name}</strong> ({deletingRealCand.real_candidate_id})?
-              <br /><br />
-              <em>Note: Linked CRM Candidates will be safely unlinked. CRM Candidates, Gmail accounts, email drafts, employers, and email logs will NOT be deleted.</em>
+            <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px' }}>
+              Are you sure you want to delete <strong>{deletingRealCand.name}</strong> (#{deletingRealCand.id})? This will unlink their CRM candidate accounts, but will NOT delete the underlying candidates.
             </p>
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
               <button
+                type="button"
                 onClick={() => setDeletingRealCand(null)}
-                style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#475569', cursor: 'pointer', fontWeight: '600' }}
+                disabled={deleting}
+                style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#334155', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleDeleteConfirm}
                 disabled={deleting}
-                style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: '#dc2626', color: '#ffffff', cursor: deleting ? 'not-allowed' : 'pointer', fontWeight: '600' }}
+                style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: '#dc2626', color: '#ffffff', fontWeight: '600', cursor: deleting ? 'not-allowed' : 'pointer', fontSize: '13px', opacity: deleting ? 0.7 : 1 }}
               >
                 {deleting ? 'Deleting...' : 'Confirm Delete'}
               </button>
@@ -772,52 +1106,48 @@ export default function RealCandidatesPage() {
         </div>
       )}
 
-      {/* Preview Summary Modal */}
+      {/* Summary Preview Modal */}
       {previewData && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div style={{ backgroundColor: '#ffffff', borderRadius: '12px', width: '100%', maxWidth: '650px', maxHeight: '85vh', overflowY: 'auto', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+          <div style={{ backgroundColor: '#ffffff', borderRadius: '12px', width: '100%', maxWidth: '650px', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', padding: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Eye size={20} color="#0284c7" /> Live Daily Summary Preview — {previewData.realCandName} ({previewData.realCandId})
-              </h3>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0 }}>
+                  Daily Summary Preview
+                </h3>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>
+                  {previewData.realCandName} ({previewData.realCandId})
+                </span>
+              </div>
               <button onClick={() => setPreviewData(null)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>
                 <X size={20} />
               </button>
             </div>
 
-            <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
-              <div style={{ marginBottom: '8px', fontSize: '13px', color: '#334155' }}>
-                <strong>To:</strong> {previewData.recipient_email}
-              </div>
-              <div style={{ marginBottom: '8px', fontSize: '13px', color: '#334155' }}>
-                <strong>Subject:</strong> {previewData.subject}
-              </div>
-              <div style={{ fontSize: '13px', color: '#334155' }}>
-                <strong>Applications Count:</strong> {previewData.applications_count} employer(s)
-              </div>
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>To:</div>
+              <div style={{ fontSize: '14px', color: '#0f172a', fontWeight: '600' }}>{previewData.recipient_email}</div>
             </div>
 
             <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#475569', marginBottom: '6px' }}>
-                Rendered Email Content Preview (VisaLiv HTML):
-              </label>
-              <iframe
-                srcDoc={previewData.body}
-                title="Daily Summary HTML Email Preview"
-                style={{
-                  width: '100%',
-                  height: '450px',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '8px',
-                  backgroundColor: '#f1f5f9',
-                }}
-              />
+              <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>Subject:</div>
+              <div style={{ fontSize: '14px', color: '#0f172a', fontWeight: '600', backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                {previewData.subject}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>Body Preview:</div>
+              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'sans-serif', fontSize: '13px', color: '#334155', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', margin: 0, lineHeight: '1.5' }}>
+                {previewData.body}
+              </pre>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
+                type="button"
                 onClick={() => setPreviewData(null)}
-                style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: '#2563eb', color: '#ffffff', cursor: 'pointer', fontWeight: '600' }}
+                style={{ padding: '8px 18px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#334155', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}
               >
                 Close Preview
               </button>

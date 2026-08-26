@@ -3,7 +3,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 class RealCandidateCreate(BaseModel):
-    real_candidate_id: str
+    real_candidate_id: str | None = None
     name: str
     email: EmailStr | str
     candidate_ids: list[int] | None = []
