@@ -1,3 +1,4 @@
+import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -43,10 +44,14 @@ def get_real_candidate_by_code(db: Session, real_candidate_id: str) -> RealCandi
 
 
 def create_real_candidate(db: Session, data: RealCandidateCreate) -> RealCandidate:
-    code = data.real_candidate_id.strip()
+    code = (data.real_candidate_id or "").strip()
+    if not code:
+        code = f"RC-{uuid.uuid4().hex[:8].upper()}"
     existing = get_real_candidate_by_code(db, code)
     if existing:
-        raise ValueError(f"Real Candidate ID '{code}' already exists")
+        if data.real_candidate_id:
+            raise ValueError(f"Real Candidate ID '{code}' already exists")
+        code = f"RC-{uuid.uuid4().hex[:8].upper()}"
 
     real_cand = RealCandidate(
         real_candidate_id=code,
