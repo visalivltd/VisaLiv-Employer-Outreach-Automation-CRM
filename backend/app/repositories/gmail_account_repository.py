@@ -55,6 +55,7 @@ def get_gmail_accounts(
     active_only: bool = True,
 ) -> list[GmailAccount]:
     statement = select(GmailAccount).options(selectinload(GmailAccount.candidate))
+    statement = statement.where(GmailAccount.account_type == "outreach")
     if active_only:
         statement = statement.where(GmailAccount.is_active.is_(True))
     statement = statement.order_by(GmailAccount.id)

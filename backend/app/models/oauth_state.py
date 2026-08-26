@@ -15,9 +15,15 @@ class OAuthState(Base):
         index=True,
     )
 
-    candidate_id: Mapped[int] = mapped_column(
-        Integer,
+    purpose: Mapped[str] = mapped_column(
+        String(50),
+        default="candidate_gmail",
         nullable=False,
+    )
+
+    candidate_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
     )
 
     code_verifier: Mapped[str] = mapped_column(

@@ -86,6 +86,39 @@ def check_account_read_scope(account) -> bool:
 
 
 @router.get(
+    "/system",
+    response_model=GmailAccountResponse | None,
+)
+def get_system_gmail_account(
+    db: Session = Depends(get_db),
+):
+    from app.models.gmail_account import GmailAccount
+    from sqlalchemy import func, or_
+
+    account = (
+        db.query(GmailAccount)
+        .filter(
+            or_(
+                GmailAccount.account_type == "system",
+                func.lower(GmailAccount.gmail_email) == "support@visaliv.com",
+            )
+        )
+        .first()
+    )
+
+    if account is None:
+        return None
+
+    has_send = check_account_send_scope(account)
+    has_read = check_account_read_scope(account)
+    resp = GmailAccountResponse.model_validate(account)
+    resp.has_send_scope = has_send
+    resp.has_read_scope = has_read
+    resp.requires_reauthorization = not (has_send and has_read)
+    return resp
+
+
+@router.get(
     "",
     response_model=list[GmailAccountResponse],
 )
