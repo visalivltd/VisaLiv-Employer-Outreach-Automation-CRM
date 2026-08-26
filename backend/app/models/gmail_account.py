@@ -14,10 +14,10 @@ class GmailAccount(Base):
         index=True,
     )
 
-    candidate_id: Mapped[int] = mapped_column(
+    candidate_id: Mapped[int | None] = mapped_column(
         ForeignKey("candidates.id"),
         unique=True,
-        nullable=False,
+        nullable=True,
     )
 
     gmail_email: Mapped[str] = mapped_column(
@@ -25,6 +25,13 @@ class GmailAccount(Base):
         unique=True,
         nullable=False,
         index=True,
+    )
+
+    account_type: Mapped[str] = mapped_column(
+        String(50),
+        default="outreach",
+        server_default="outreach",
+        nullable=False,
     )
 
     refresh_token: Mapped[str] = mapped_column(

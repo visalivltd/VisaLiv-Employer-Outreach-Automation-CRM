@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2 } from 'lucide-react';
+import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User } from 'lucide-react';
 
 const API_BASE_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
 
@@ -12,7 +12,14 @@ export default function OutreachPage() {
   const [previewData, setPreviewData] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [startingBatch, setStartingBatch] = useState(false);
-  const [selectedKeys, setSelectedKeys] = useState(new Set());
+  
+  // Pagination & Filter States
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [selectedCandidateFilter, setSelectedCandidateFilter] = useState(null);
+
+  // Selected items stored as a Map (key -> item) across pages
+  const [selectedItemsMap, setSelectedItemsMap] = useState(new Map());
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const [candidateId, setCandidateId] = useState('');
@@ -57,16 +64,20 @@ export default function OutreachPage() {
     loadData();
   }, []);
 
-  const loadPreview = async () => {
+  const loadPreview = async (targetPage = page, targetCandId = selectedCandidateFilter) => {
     try {
       setLoadingPreview(true);
       setError('');
-      const res = await fetch(`${API_BASE_URL}/outreach/preview`);
+      let url = `${API_BASE_URL}/outreach/preview?page=${targetPage}&page_size=${pageSize}`;
+      if (targetCandId) {
+        url += `&candidate_id=${targetCandId}`;
+      }
+
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to fetch outreach preview');
       const data = await res.json();
       setPreviewData(data);
-      // Selection is 100% manual — start with empty selection
-      setSelectedKeys(new Set());
+      setPage(targetPage);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -74,12 +85,27 @@ export default function OutreachPage() {
     }
   };
 
-  // Helper: Count selected items for a specific candidate
-  const getCandidateSelectedCount = (candId, currentSelectedKeys = selectedKeys) => {
-    if (!previewData || !previewData.items) return 0;
-    return previewData.items.filter(
-      (i) => i.candidate_id === candId && currentSelectedKeys.has(getItemKey(i))
-    ).length;
+  const handlePageChange = (newPage) => {
+    const totalPages = Math.ceil((previewData?.total || 0) / pageSize) || 1;
+    if (newPage >= 1 && newPage <= totalPages) {
+      loadPreview(newPage, selectedCandidateFilter);
+    }
+  };
+
+  const handleCandidateFilter = (candId) => {
+    const nextFilter = selectedCandidateFilter === candId ? null : candId;
+    setSelectedCandidateFilter(nextFilter);
+    setPage(1);
+    loadPreview(1, nextFilter);
+  };
+
+  // Helper: Count selected items for a candidate in local selection map
+  const getCandidateSelectedCount = (candId) => {
+    let count = 0;
+    for (const item of selectedItemsMap.values()) {
+      if (item.candidate_id === candId) count++;
+    }
+    return count;
   };
 
   // Toggle individual row selection
@@ -87,70 +113,69 @@ export default function OutreachPage() {
     if (!item.eligible) return;
 
     const key = getItemKey(item);
-    const nextKeys = new Set(selectedKeys);
+    const nextMap = new Map(selectedItemsMap);
 
-    if (nextKeys.has(key)) {
-      nextKeys.delete(key);
+    if (nextMap.has(key)) {
+      nextMap.delete(key);
       setError('');
     } else {
-      const currentCandCount = getCandidateSelectedCount(item.candidate_id, nextKeys);
+      const currentCandCount = getCandidateSelectedCount(item.candidate_id);
       if (currentCandCount >= 5) {
         setError(`Daily limit reached — maximum 5 employers per candidate/day. (${item.candidate_name} already has 5 selected)`);
         return;
       }
       setError('');
-      nextKeys.add(key);
+      nextMap.set(key, item);
     }
-    setSelectedKeys(nextKeys);
+    setSelectedItemsMap(nextMap);
   };
 
-  // Select all eligible items (up to 5 per candidate limit)
-  const eligibleItems = previewData ? previewData.items.filter((i) => i.eligible) : [];
+  // Select all eligible items on current page
+  const pageEligibleItems = previewData ? previewData.items.filter((i) => i.eligible) : [];
 
-  const getMaxSelectableKeys = () => {
-    const maxKeys = new Set();
-    const candCounts = {};
-    eligibleItems.forEach((item) => {
-      const count = candCounts[item.candidate_id] || 0;
-      if (count < 5) {
-        maxKeys.add(getItemKey(item));
-        candCounts[item.candidate_id] = count + 1;
-      }
-    });
-    return maxKeys;
-  };
+  const isAllPageSelected =
+    pageEligibleItems.length > 0 &&
+    pageEligibleItems.every((item) => selectedItemsMap.has(getItemKey(item)));
 
-  const maxSelectableKeys = getMaxSelectableKeys();
-
-  const isAllSelected =
-    eligibleItems.length > 0 &&
-    maxSelectableKeys.size > 0 &&
-    Array.from(maxSelectableKeys).every((k) => selectedKeys.has(k));
-
-  const isSomeSelected = selectedKeys.size > 0 && !isAllSelected;
+  const isSomePageSelected =
+    pageEligibleItems.some((item) => selectedItemsMap.has(getItemKey(item))) &&
+    !isAllPageSelected;
 
   useEffect(() => {
     if (headerCheckboxRef.current) {
-      headerCheckboxRef.current.indeterminate = isSomeSelected;
+      headerCheckboxRef.current.indeterminate = isSomePageSelected;
     }
-  }, [isSomeSelected]);
+  }, [isSomePageSelected]);
 
-  const handleToggleSelectAll = () => {
+  const handleToggleSelectAllPage = () => {
     setError('');
-    if (isAllSelected) {
-      setSelectedKeys(new Set());
+    const nextMap = new Map(selectedItemsMap);
+    if (isAllPageSelected) {
+      pageEligibleItems.forEach((item) => nextMap.delete(getItemKey(item)));
     } else {
-      setSelectedKeys(maxSelectableKeys);
+      const candCounts = {};
+      for (const item of nextMap.values()) {
+        candCounts[item.candidate_id] = (candCounts[item.candidate_id] || 0) + 1;
+      }
+      pageEligibleItems.forEach((item) => {
+        const key = getItemKey(item);
+        const count = candCounts[item.candidate_id] || 0;
+        if (count < 5 && !nextMap.has(key)) {
+          nextMap.set(key, item);
+          candCounts[item.candidate_id] = count + 1;
+        }
+      });
     }
+    setSelectedItemsMap(nextMap);
   };
 
   const handleClearSelection = () => {
-    setSelectedKeys(new Set());
+    setSelectedItemsMap(new Map());
     setError('');
   };
 
   const handleOpenConfirmModal = () => {
-    if (selectedKeys.size === 0) {
+    if (selectedItemsMap.size === 0) {
       setError('Please select at least one eligible outreach email to send.');
       return;
     }
@@ -159,11 +184,7 @@ export default function OutreachPage() {
   };
 
   const handleConfirmBatchOutreach = async () => {
-    if (!previewData || !previewData.items) return;
-
-    const selectedItems = previewData.items.filter((item) =>
-      selectedKeys.has(getItemKey(item))
-    );
+    const selectedItems = Array.from(selectedItemsMap.values());
 
     if (selectedItems.length === 0) {
       setError('No eligible candidate-employer pairings selected.');
@@ -206,11 +227,11 @@ export default function OutreachPage() {
         setMessage(`Batch Outreach Complete: 0 sent, ${skippedCount} skipped.`);
       }
 
-      setSelectedKeys(new Set());
+      setSelectedItemsMap(new Map());
       setShowConfirmModal(false);
 
       await loadData();
-      await loadPreview();
+      await loadPreview(page, selectedCandidateFilter);
     } catch (err) {
       if (err.name === 'TypeError' || (err.message && err.message.includes('fetch'))) {
         setError('Failed to fetch: Network or server unreachable.');
@@ -290,17 +311,15 @@ export default function OutreachPage() {
   };
 
   // Details for Confirmation Modal
-  const selectedItemsList = previewData
-    ? previewData.items.filter((item) => selectedKeys.has(getItemKey(item)))
-    : [];
+  const selectedItemsList = Array.from(selectedItemsMap.values());
+  const uniqueCandidates = Array.from(new Set(selectedItemsList.map((i) => i.candidate_name)));
+  const uniqueEmployers = Array.from(new Set(selectedItemsList.map((i) => i.employer_name)));
 
-  const uniqueCandidates = Array.from(
-    new Set(selectedItemsList.map((i) => i.candidate_name))
-  );
-
-  const uniqueEmployers = Array.from(
-    new Set(selectedItemsList.map((i) => i.employer_name))
-  );
+  // Pagination metadata
+  const totalCount = previewData?.total || 0;
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
+  const startIdx = totalCount > 0 ? (page - 1) * pageSize + 1 : 0;
+  const endIdx = Math.min(page * pageSize, totalCount);
 
   return (
     <div className="content-container full-width-page">
@@ -325,7 +344,7 @@ export default function OutreachPage() {
             <div>
               <div style={{ fontSize: '13px', color: '#64748b' }}>Eligible Today</div>
               <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>
-                {previewData ? previewData.eligible_today : '—'}
+                {previewData ? (previewData.total_eligible ?? previewData.eligible_today).toLocaleString() : '—'}
               </div>
             </div>
           </div>
@@ -340,7 +359,7 @@ export default function OutreachPage() {
             <div>
               <div style={{ fontSize: '13px', color: '#64748b' }}>Emails Sent Today</div>
               <div style={{ fontSize: '24px', fontWeight: 700, color: '#16a34a' }}>
-                {dashboardStats?.emailsSentToday ?? 0}
+                {dashboardStats?.emailsSentToday ?? previewData?.emails_sent_today ?? 0}
               </div>
             </div>
           </div>
@@ -355,7 +374,7 @@ export default function OutreachPage() {
             <div>
               <div style={{ fontSize: '13px', color: '#64748b' }}>Skipped / Ineligible</div>
               <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>
-                {previewData ? previewData.skipped_count : '—'}
+                {previewData ? (previewData.total_skipped ?? previewData.skipped_count).toLocaleString() : '—'}
               </div>
             </div>
           </div>
@@ -377,20 +396,20 @@ export default function OutreachPage() {
           </div>
 
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            {selectedKeys.size > 0 && (
+            {selectedItemsMap.size > 0 && (
               <button
                 type="button"
                 onClick={handleClearSelection}
                 className="secondary-button"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#dc2626', borderColor: '#fecaca' }}
               >
-                <Trash2 size={15} /> Clear Selection ({selectedKeys.size})
+                <Trash2 size={15} /> Clear Selection ({selectedItemsMap.size})
               </button>
             )}
 
             <button
               type="button"
-              onClick={loadPreview}
+              onClick={() => loadPreview(page, selectedCandidateFilter)}
               disabled={loadingPreview}
               className="secondary-button"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
@@ -403,12 +422,12 @@ export default function OutreachPage() {
               <button
                 type="button"
                 onClick={handleOpenConfirmModal}
-                disabled={startingBatch || selectedKeys.size === 0}
+                disabled={startingBatch || selectedItemsMap.size === 0}
                 className="primary-button"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: selectedKeys.size > 0 ? '#16a34a' : '#cbd5e1' }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: selectedItemsMap.size > 0 ? '#16a34a' : '#cbd5e1' }}
               >
                 <Play size={15} />
-                {startingBatch ? 'Executing Batch...' : `Start Outreach (${selectedKeys.size})`}
+                {startingBatch ? 'Executing Batch...' : `Start Outreach (${selectedItemsMap.size})`}
               </button>
             )}
           </div>
@@ -418,28 +437,96 @@ export default function OutreachPage() {
           <div>
             <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ padding: '6px 12px', borderRadius: '6px', backgroundColor: '#eff6ff', color: '#1d4ed8', fontSize: '13px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '6px', border: '1px solid #bfdbfe' }}>
-                <CheckCircle2 size={14} /> Selected: {selectedKeys.size}
+                <CheckCircle2 size={14} /> Selected: {selectedItemsMap.size}
               </span>
               <span style={{ padding: '6px 12px', borderRadius: '6px', backgroundColor: '#ecfdf5', color: '#047857', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <Target size={14} /> Eligible: {previewData.eligible_today}
+                <Target size={14} /> Eligible: {(previewData.total_eligible ?? previewData.eligible_today).toLocaleString()}
               </span>
               <span style={{ padding: '6px 12px', borderRadius: '6px', backgroundColor: '#fef2f2', color: '#b91c1c', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <XCircle size={14} /> Skipped: {previewData.skipped_count}
+                <XCircle size={14} /> Skipped: {(previewData.total_skipped ?? previewData.skipped_count).toLocaleString()}
               </span>
             </div>
 
+            {/* CANDIDATE SUMMARY CHIPS */}
             {previewData.candidate_summaries && previewData.candidate_summaries.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>Filter Candidate:</span>
+                <button
+                  type="button"
+                  onClick={() => handleCandidateFilter(null)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    backgroundColor: selectedCandidateFilter === null ? '#4f46e5' : '#ffffff',
+                    color: selectedCandidateFilter === null ? '#ffffff' : '#334155',
+                    border: '1px solid',
+                    borderColor: selectedCandidateFilter === null ? '#4f46e5' : '#cbd5e1',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  All Candidates
+                </button>
                 {previewData.candidate_summaries.map((s, idx) => {
                   const currentSelectedCount = getCandidateSelectedCount(s.candidate_id);
+                  const isSelectedFilter = selectedCandidateFilter === s.candidate_id;
                   return (
-                    <span key={idx} style={{ padding: '4px 10px', borderRadius: '6px', backgroundColor: '#ffffff', border: '1px solid #cbd5e1', color: '#334155', fontSize: '12px', fontWeight: '500' }}>
-                      👤 {s.candidate_name} — <strong>{currentSelectedCount}</strong> selected / {s.eligible_count} eligible
-                    </span>
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleCandidateFilter(s.candidate_id)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        backgroundColor: isSelectedFilter ? '#4f46e5' : '#ffffff',
+                        color: isSelectedFilter ? '#ffffff' : '#334155',
+                        border: '1px solid',
+                        borderColor: isSelectedFilter ? '#4f46e5' : '#cbd5e1',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <User size={13} /> {s.candidate_name} — <strong>{currentSelectedCount}</strong> selected / {s.eligible_count} eligible
+                    </button>
                   );
                 })}
               </div>
             )}
+
+            {/* TOP PAGINATION CONTROLS */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', padding: '8px 12px', backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: '13px', color: '#475569', fontWeight: 500 }}>
+                Showing <strong>{startIdx.toLocaleString()}–{endIdx.toLocaleString()}</strong> of <strong>{totalCount.toLocaleString()}</strong> records
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => handlePageChange(page - 1)}
+                  disabled={page <= 1 || loadingPreview}
+                  className="secondary-button"
+                  style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <ChevronLeft size={16} /> Previous
+                </button>
+                <span style={{ fontSize: '13px', color: '#64748b', padding: '0 4px' }}>
+                  Page <strong>{page}</strong> of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handlePageChange(page + 1)}
+                  disabled={page >= totalPages || loadingPreview}
+                  className="secondary-button"
+                  style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                >
+                  Next <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
 
             <div className="outreach-table-wrapper">
               <table className="outreach-table">
@@ -449,11 +536,11 @@ export default function OutreachPage() {
                       <input
                         type="checkbox"
                         ref={headerCheckboxRef}
-                        checked={isAllSelected}
-                        onChange={handleToggleSelectAll}
-                        disabled={!previewData || eligibleItems.length === 0}
-                        title={isAllSelected ? 'Deselect All' : 'Select All Eligible (Max 5 per candidate)'}
-                        style={{ cursor: eligibleItems.length > 0 ? 'pointer' : 'not-allowed' }}
+                        checked={isAllPageSelected}
+                        onChange={handleToggleSelectAllPage}
+                        disabled={!previewData || pageEligibleItems.length === 0}
+                        title={isAllPageSelected ? 'Deselect Page' : 'Select Eligible on this Page'}
+                        style={{ cursor: pageEligibleItems.length > 0 ? 'pointer' : 'not-allowed' }}
                       />
                     </th>
                     <th style={{ width: '18%' }}>Candidate</th>
@@ -466,7 +553,7 @@ export default function OutreachPage() {
                 <tbody>
                   {previewData.items.map((item, idx) => {
                     const key = getItemKey(item);
-                    const isSelected = selectedKeys.has(key);
+                    const isSelected = selectedItemsMap.has(key);
 
                     return (
                       <tr
@@ -544,6 +631,36 @@ export default function OutreachPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* BOTTOM PAGINATION CONTROLS */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', padding: '12px', backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: '13px', color: '#475569', fontWeight: 500 }}>
+                Showing <strong>{startIdx.toLocaleString()}–{endIdx.toLocaleString()}</strong> of <strong>{totalCount.toLocaleString()}</strong> records
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => handlePageChange(page - 1)}
+                  disabled={page <= 1 || loadingPreview}
+                  className="secondary-button"
+                  style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <ChevronLeft size={16} /> Previous
+                </button>
+                <span style={{ fontSize: '13px', color: '#64748b', padding: '0 4px' }}>
+                  Page <strong>{page}</strong> of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handlePageChange(page + 1)}
+                  disabled={page >= totalPages || loadingPreview}
+                  className="secondary-button"
+                  style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                >
+                  Next <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
           </div>
         ) : (
           <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
@@ -579,7 +696,7 @@ export default function OutreachPage() {
               Confirm Outreach Campaign
             </h3>
             <p style={{ margin: '0 0 20px', color: '#64748b', fontSize: '14px' }}>
-              Send <strong>{selectedKeys.size}</strong> selected outreach email{selectedKeys.size !== 1 ? 's' : ''}?
+              Send <strong>{selectedItemsMap.size}</strong> selected outreach email{selectedItemsMap.size !== 1 ? 's' : ''}?
             </p>
 
             <div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', marginBottom: '24px' }}>
@@ -593,7 +710,7 @@ export default function OutreachPage() {
               </div>
               <div style={{ fontSize: '13px' }}>
                 <span style={{ color: '#64748b', display: 'block', marginBottom: '2px' }}>Total Emails to Send:</span>
-                <strong style={{ color: '#16a34a', fontSize: '15px' }}>{selectedKeys.size} Emails</strong>
+                <strong style={{ color: '#16a34a', fontSize: '15px' }}>{selectedItemsMap.size} Emails</strong>
               </div>
             </div>
 

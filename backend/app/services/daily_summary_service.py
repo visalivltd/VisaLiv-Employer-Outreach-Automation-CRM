@@ -1,5 +1,5 @@
 from datetime import date, datetime, time, timezone, timedelta
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
 
 from app.models.candidate import Candidate
@@ -7,6 +7,7 @@ from app.models.email_log import EmailLog
 from app.models.employer import Employer
 from app.models.gmail_account import GmailAccount
 from app.models.real_candidate import RealCandidate
+from app.models.system_gmail_account import SystemGmailAccount
 from app.repositories import real_candidate_repository
 from app.services.gmail_service import GmailService
 
@@ -254,43 +255,35 @@ def generate_summary_content(
 
 def resolve_summary_gmail_sender(
     db: Session,
-    real_candidate: RealCandidate,
-) -> GmailAccount:
-    """Safe Gmail sender resolution:
-    1. Explicit summary_sender_gmail_account_id first.
-    2. Automatic fallback ONLY when exactly ONE active Gmail account exists.
-    3. Otherwise require explicit selection; do not guess between multiple accounts.
+    real_candidate: RealCandidate | None = None,
+) -> SystemGmailAccount:
+    """Finds the designated System/Support Gmail account (support@visaliv.com) for sending daily summaries.
+    Queries SystemGmailAccount where is_active == True.
+    If support@visaliv.com is missing or inactive, raises a clear backend error.
     """
-    # Priority 1: Explicit selection
-    if real_candidate.summary_sender_gmail_account_id:
-        explicit_acc = db.get(GmailAccount, real_candidate.summary_sender_gmail_account_id)
-        if explicit_acc and explicit_acc.is_active:
-            return explicit_acc
-
-    # Collect active Gmail accounts from linked candidates
-    active_accounts = []
-    if real_candidate.candidates:
-        for c in real_candidate.candidates:
-            if c.gmail_account and c.gmail_account.is_active:
-                if c.gmail_account not in active_accounts:
-                    active_accounts.append(c.gmail_account)
-
-    # Fallback to all active Gmail accounts in CRM if linked candidates have none
-    if not active_accounts:
-        all_active = db.scalars(select(GmailAccount).where(GmailAccount.is_active.is_(True))).all()
-        active_accounts = list(all_active)
-
-    if len(active_accounts) == 1:
-        return active_accounts[0]
-    elif len(active_accounts) > 1:
-        raise ValueError(
-            f"Multiple active Gmail accounts exist ({len(active_accounts)} found). "
-            f"Please explicitly select a Summary Sender Gmail Account for Real Candidate '{real_candidate.name}'."
+    system_acc = db.scalars(
+        select(SystemGmailAccount).where(
+            func.lower(SystemGmailAccount.gmail_email) == "support@visaliv.com",
+            SystemGmailAccount.is_active.is_(True)
         )
-    else:
+    ).first()
+
+    if not system_acc:
+        # Fallback to any active SystemGmailAccount if email varies slightly
+        system_acc = db.scalars(
+            select(SystemGmailAccount).where(
+                SystemGmailAccount.is_active.is_(True)
+            )
+        ).first()
+
+    if not system_acc:
+        cand_name_str = f" for Real Candidate '{real_candidate.name}'" if real_candidate and real_candidate.name else ""
         raise ValueError(
-            f"No connected active Gmail account found for sending daily summary to Real Candidate '{real_candidate.name}'."
+            f"System/Support Gmail account (support@visaliv.com) is not connected or not active{cand_name_str}. "
+            f"Please connect the System/Support Gmail account to send daily summaries."
         )
+
+    return system_acc
 
 
 def is_summary_already_sent_today(

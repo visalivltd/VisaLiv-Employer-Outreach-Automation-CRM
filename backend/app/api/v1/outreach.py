@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -19,9 +19,17 @@ router = APIRouter(
     "/preview",
 )
 def get_outreach_preview(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    candidate_id: int | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    return OutreachService.get_outreach_preview(db)
+    return OutreachService.get_outreach_preview(
+        db=db,
+        page=page,
+        page_size=page_size,
+        candidate_id=candidate_id,
+    )
 
 
 @router.post(

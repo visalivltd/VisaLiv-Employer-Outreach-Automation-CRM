@@ -22,18 +22,22 @@ from app.api.v1.real_candidate import router as real_candidate_router
 import asyncio
 from contextlib import asynccontextmanager
 
-async def periodic_gmail_sync():
-    """Background polling loop that syncs incoming Gmail emails every 60 seconds."""
+def _run_sync():
     from app.db.session import SessionLocal
     from app.services.gmail_sync_service import sync_incoming_replies
+    db = SessionLocal()
+    try:
+        sync_incoming_replies(db)
+    finally:
+        db.close()
 
+
+async def periodic_gmail_sync():
+    """Background polling loop that syncs incoming Gmail emails every 60 seconds."""
+    await asyncio.sleep(60)
     while True:
         try:
-            db = SessionLocal()
-            try:
-                sync_incoming_replies(db)
-            finally:
-                db.close()
+            await asyncio.to_thread(_run_sync)
         except Exception as exc:
             print(f"[BACKGROUND GMAIL SYNC ERROR] {exc}", flush=True)
 
@@ -92,11 +96,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(candidate_router)
-app.include_router(candidate_router, prefix="/api/v1")
-app.include_router(candidate_router, prefix="/api")
 app.include_router(employer_router)
-app.include_router(employer_router, prefix="/api/v1")
-app.include_router(employer_router, prefix="/api")
 app.include_router(gmail_account_router)
 app.include_router(gmail_oauth_router)
 app.include_router(outreach_router)

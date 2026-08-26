@@ -8,6 +8,7 @@ from app.models.email_draft import EmailDraft
 from app.models.notification import Notification
 from app.models.real_candidate import RealCandidate
 from app.models.oauth_state import OAuthState
+from app.models.system_gmail_account import SystemGmailAccount
 
 __all__ = [
     "Admin",
@@ -20,4 +21,5 @@ __all__ = [
     "Notification",
     "RealCandidate",
     "OAuthState",
+    "SystemGmailAccount",
 ]

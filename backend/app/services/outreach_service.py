@@ -92,26 +92,34 @@ class OutreachService:
         return True, None
 
     @staticmethod
-    def get_outreach_preview(db: Session) -> dict:
+    def get_outreach_preview(
+        db: Session,
+        page: int = 1,
+        page_size: int = 50,
+        candidate_id: int | None = None,
+    ) -> dict:
+        # 1. Fetch active candidates
+        candidate_stmt = select(Candidate).where(Candidate.is_active.is_(True)).order_by(Candidate.id)
+        if candidate_id is not None:
+            candidate_stmt = candidate_stmt.where(Candidate.id == candidate_id)
+        active_candidates = db.scalars(candidate_stmt).all()
 
-        active_candidates = db.scalars(
-            select(Candidate)
-            .where(Candidate.is_active.is_(True))
-            .order_by(Candidate.id)
-        ).all()
-
+        # 2. Fetch active employers
         active_employers = db.scalars(
             select(Employer)
             .where(Employer.is_active.is_(True))
             .order_by(Employer.id)
         ).all()
 
-        # Count emails sent today from email_logs
+        # 3. Timezone & Today calculations
         india_timezone = timezone(timedelta(hours=5, minutes=30))
+        now_utc = datetime.now(timezone.utc)
+        cooldown_start = now_utc - timedelta(days=3)
         start_of_today = datetime.now(india_timezone).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
 
+        # Total emails sent today globally
         emails_sent_today = db.scalar(
             select(func.count(EmailLog.id)).where(
                 EmailLog.status == "sent",
@@ -119,24 +127,85 @@ class OutreachService:
             )
         ) or 0
 
-        preview_items = []
+        # 4. Batch query duplicate sent pairs: (candidate_id, employer_id)
+        sent_pairs = set(
+            db.execute(
+                select(EmailLog.candidate_id, EmailLog.employer_id).where(
+                    EmailLog.status == "sent"
+                )
+            ).all()
+        )
+
+        # 5. Batch query employers currently in 3-day cooldown
+        cooldown_employer_ids = set(
+            db.scalars(
+                select(EmailLog.employer_id).where(
+                    EmailLog.status == "sent",
+                    EmailLog.sent_at >= cooldown_start,
+                )
+            ).all()
+        )
+
+        # 6. Batch query emails sent today per candidate
+        sent_today_rows = db.execute(
+            select(EmailLog.candidate_id, func.count(EmailLog.id)).where(
+                EmailLog.status == "sent",
+                EmailLog.sent_at >= start_of_today,
+            ).group_by(EmailLog.candidate_id)
+        ).all()
+        sent_today_per_candidate = {row[0]: row[1] for row in sent_today_rows}
+
+        all_items = []
         candidate_summaries = []
-        total_eligible_pairs = 0
-        total_skipped_pairs = 0
+        total_eligible = 0
+        total_skipped = 0
 
         for candidate in active_candidates:
             cand_draft_name = candidate.email_draft_name or (
                 candidate.email_draft.draft_name if candidate.email_draft else None
             )
 
+            # Candidate readiness checks
+            cand_error = None
+            if not candidate.is_active:
+                cand_error = "Candidate is inactive"
+            elif not candidate.gmail_account:
+                cand_error = "Gmail account not connected"
+            elif not candidate.email_draft_id or not candidate.email_draft:
+                cand_error = "Email draft not assigned to candidate"
+            elif (sent_today_per_candidate.get(candidate.id, 0) >= 5):
+                cand_error = "Daily limit reached — maximum 5 employers per candidate/day"
+
             cand_eligible_count = 0
 
             for employer in active_employers:
-                can_send, reason = OutreachService.can_send(
-                    db, candidate.id, employer.id
-                )
+                emp_email = (employer.email or "").strip()
+                if cand_error:
+                    can_send = False
+                    reason = cand_error
+                elif not employer.is_active:
+                    can_send = False
+                    reason = "Employer is inactive"
+                elif not emp_email or not EMAIL_REGEX.match(emp_email):
+                    can_send = False
+                    reason = "Invalid employer email address"
+                elif (candidate.id, employer.id) in sent_pairs:
+                    can_send = False
+                    reason = "Already contacted by this candidate"
+                elif employer.id in cooldown_employer_ids:
+                    can_send = False
+                    reason = "Employer in 3-day cooldown"
+                else:
+                    can_send = True
+                    reason = "Ready"
 
-                item = {
+                if can_send:
+                    total_eligible += 1
+                    cand_eligible_count += 1
+                else:
+                    total_skipped += 1
+
+                all_items.append({
                     "candidate_id": candidate.id,
                     "candidate_name": candidate.full_name,
                     "candidate_email": candidate.email,
@@ -152,16 +221,8 @@ class OutreachService:
                     "employer_email": employer.email,
                     "eligible": can_send,
                     "selected": False,
-                    "reason": reason or "Ready",
-                }
-
-                if can_send:
-                    total_eligible_pairs += 1
-                    cand_eligible_count += 1
-                else:
-                    total_skipped_pairs += 1
-
-                preview_items.append(item)
+                    "reason": reason,
+                })
 
             candidate_summaries.append({
                 "candidate_id": candidate.id,
@@ -169,22 +230,23 @@ class OutreachService:
                 "eligible_count": cand_eligible_count,
             })
 
-        # Deduplicate preview_items by (candidate_id, employer_id)
-        seen_pairs = set()
-        unique_items = []
-        for item in preview_items:
-            pair_key = (item["candidate_id"], item["employer_id"])
-            if pair_key not in seen_pairs:
-                seen_pairs.add(pair_key)
-                unique_items.append(item)
+        # Paginate items
+        total_items = len(all_items)
+        offset = (page - 1) * page_size
+        paginated_items = all_items[offset : offset + page_size]
 
         return {
-            "eligible_today": total_eligible_pairs,
-            "ready_count": total_eligible_pairs,
+            "total_eligible": total_eligible,
+            "total_skipped": total_skipped,
+            "total": total_items,
+            "eligible_today": total_eligible,
+            "ready_count": total_eligible,
             "emails_sent_today": emails_sent_today,
-            "skipped_count": total_skipped_pairs,
+            "skipped_count": total_skipped,
+            "page": page,
+            "page_size": page_size,
             "candidate_summaries": candidate_summaries,
-            "items": unique_items,
+            "items": paginated_items,
         }
 
     @staticmethod

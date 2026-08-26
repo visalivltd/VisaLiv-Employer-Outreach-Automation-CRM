@@ -10,7 +10,8 @@ import {
   AlertCircle,
   CheckCircle2,
   X,
-  FileText
+  FileText,
+  Mail
 } from 'lucide-react';
 
 const rawApiUrl = import.meta.env.VITE_API_URL || 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
@@ -112,15 +113,39 @@ export default function RealCandidatesPage() {
     }
   };
 
+  const [systemAccount, setSystemAccount] = useState(null);
+
+  const fetchSystemAccount = async () => {
+    try {
+      const res = await fetch(`${API_URL}/gmail-oauth/system-account`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.connected) {
+          setSystemAccount(data);
+        } else {
+          setSystemAccount(null);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const connectSystemGmail = () => {
+    window.location.href = `${API_URL}/gmail-oauth/connect-system`;
+  };
+
   useEffect(() => {
     fetchRealCandidates();
     fetchCrmCandidates();
     fetchGmailAccounts();
+    fetchSystemAccount();
 
     const handleFocus = () => {
       fetchRealCandidates();
       fetchCrmCandidates();
       fetchGmailAccounts();
+      fetchSystemAccount();
     };
 
     window.addEventListener('focus', handleFocus);
@@ -385,6 +410,78 @@ export default function RealCandidatesPage() {
         </div>
       )}
 
+      {/* Daily Summary Sender Card */}
+      <div
+        style={{
+          backgroundColor: '#ffffff',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0',
+          padding: '20px 24px',
+          marginBottom: '24px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}
+      >
+        <div>
+          <h2 style={{ fontSize: '16px', fontWeight: '700', color: '#0f172a', margin: '0 0 6px 0' }}>
+            Daily Summary Sender
+          </h2>
+          {systemAccount ? (
+            <div>
+              <div style={{ fontSize: '15px', fontWeight: '700', color: '#0f172a', marginBottom: '4px' }}>
+                {systemAccount.gmail_email}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {systemAccount.connected !== false ? (
+                  <span style={{ color: '#16a34a', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    ● Connected
+                  </span>
+                ) : (
+                  <span style={{ color: '#d97706', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    ● Reauthorization Required
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize: '14px', color: '#64748b', fontWeight: '500', marginBottom: '4px' }}>
+                No sender account connected
+              </div>
+            </div>
+          )}
+          <p style={{ fontSize: '12px', color: '#64748b', margin: '6px 0 0 0' }}>
+            Single global system account used for all Real Candidate daily application summaries.
+          </p>
+        </div>
+
+        <div>
+          <button
+            type="button"
+            onClick={connectSystemGmail}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              border: systemAccount ? '1px solid #cbd5e1' : 'none',
+              backgroundColor: systemAccount ? '#ffffff' : '#2563eb',
+              color: systemAccount ? '#2563eb' : '#ffffff',
+              fontWeight: '600',
+              fontSize: '13px',
+              cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+            }}
+          >
+            <Mail size={15} />
+            {systemAccount ? 'Reconnect Gmail' : 'Connect Gmail'}
+          </button>
+        </div>
+      </div>
+
       {/* Search Filter */}
       <div style={{ marginBottom: '20px', position: 'relative', maxWidth: '400px' }}>
         <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
@@ -411,22 +508,20 @@ export default function RealCandidatesPage() {
           <thead>
             <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontWeight: '600' }}>
               <th style={{ padding: '14px 16px' }}>DB ID</th>
-              <th style={{ padding: '14px 16px' }}>Real Candidate ID</th>
               <th style={{ padding: '14px 16px' }}>Name</th>
               <th style={{ padding: '14px 16px' }}>Email</th>
               <th style={{ padding: '14px 16px' }}>Linked CRM Candidates</th>
-              <th style={{ padding: '14px 16px' }}>Summary Sender Gmail</th>
               <th style={{ padding: '14px 16px' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>Loading real candidates...</td>
+                <td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>Loading real candidates...</td>
               </tr>
             ) : filteredRealCandidates.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
+                <td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
                   No real candidates found. Click "+ Add Real Candidate" to create one.
                 </td>
               </tr>
@@ -434,11 +529,6 @@ export default function RealCandidatesPage() {
               filteredRealCandidates.map((rc) => (
                 <tr key={rc.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <td style={{ padding: '14px 16px', color: '#64748b', fontWeight: '500' }}>#{rc.id}</td>
-                  <td style={{ padding: '14px 16px', fontWeight: '700', color: '#1e293b' }}>
-                    <span style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '4px 8px', borderRadius: '6px', fontSize: '13px' }}>
-                      {rc.real_candidate_id}
-                    </span>
-                  </td>
                   <td style={{ padding: '14px 16px', fontWeight: '600', color: '#0f172a' }}>{rc.name}</td>
                   <td style={{ padding: '14px 16px', color: '#334155' }}>{rc.email}</td>
                   <td style={{ padding: '14px 16px' }}>
@@ -454,13 +544,7 @@ export default function RealCandidatesPage() {
                       <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '13px' }}>Unlinked</span>
                     )}
                   </td>
-                  <td style={{ padding: '14px 16px', color: '#475569', fontSize: '13px' }}>
-                    {rc.summary_sender_gmail_email ? (
-                      <span style={{ color: '#0369a1', fontWeight: '500' }}>{rc.summary_sender_gmail_email}</span>
-                    ) : (
-                      <span style={{ color: '#64748b', fontStyle: 'italic' }}>Auto / Default</span>
-                    )}
-                  </td>
+
                   <td style={{ padding: '14px 16px' }}>
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button
@@ -580,24 +664,7 @@ export default function RealCandidatesPage() {
                 </div>
               </div>
 
-              {/* Summary Sender Gmail Account */}
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
-                  Summary Sender Gmail Account
-                </label>
-                <select
-                  value={form.summary_sender_gmail_account_id}
-                  onChange={(e) => setForm((prev) => ({ ...prev, summary_sender_gmail_account_id: e.target.value }))}
-                  style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none', backgroundColor: '#ffffff' }}
-                >
-                  <option value="">Auto-resolve (Automatic fallback if exactly 1 Gmail account exists)</option>
-                  {gmailAccounts.map((acc) => (
-                    <option key={acc.id} value={acc.id}>
-                      {acc.gmail_email} (Account #{acc.id})
-                    </option>
-                  ))}
-                </select>
-              </div>
+
 
               {/* Daily Application Summary Template Config */}
               <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px', marginBottom: '16px' }}>
