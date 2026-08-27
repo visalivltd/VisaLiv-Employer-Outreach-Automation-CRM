@@ -9,10 +9,45 @@ from app.services.gmail_account_service import (
 from app.services.outreach_service import OutreachService
 
 
+from app.schemas.outreach_settings import (
+    OutreachSettingsResponse,
+    OutreachSettingsUpdate,
+)
+from app.repositories.outreach_settings_repository import (
+    get_outreach_settings,
+    update_outreach_settings,
+)
+
 router = APIRouter(
     prefix="/outreach",
     tags=["Outreach"],
 )
+
+
+@router.get(
+    "/settings",
+    response_model=OutreachSettingsResponse,
+)
+def fetch_outreach_settings(
+    db: Session = Depends(get_db),
+):
+    return get_outreach_settings(db)
+
+
+@router.put(
+    "/settings",
+    response_model=OutreachSettingsResponse,
+)
+def modify_outreach_settings(
+    payload: OutreachSettingsUpdate,
+    db: Session = Depends(get_db),
+):
+    return update_outreach_settings(
+        db=db,
+        max_emails_per_candidate_per_day=payload.max_emails_per_candidate_per_day,
+        min_gap_minutes=payload.min_gap_minutes,
+        enabled=payload.enabled,
+    )
 
 
 @router.get(

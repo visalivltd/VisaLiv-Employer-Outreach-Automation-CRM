@@ -8,6 +8,7 @@ from app.models.candidate import Candidate
 from app.models.email_log import EmailLog
 from app.models.employer import Employer
 from app.models.gmail_account import GmailAccount
+from app.repositories.outreach_settings_repository import get_outreach_settings
 from app.services.email_draft_service import extract_draft_content
 from app.services.email_service import EmailService
 
@@ -22,7 +23,12 @@ class OutreachService:
         candidate_id: int,
         employer_id: int,
     ) -> tuple[bool, str | None]:
-        # 1. Candidate check
+        # 1. Outreach Settings check
+        settings = get_outreach_settings(db)
+        if not settings.enabled:
+            return False, "Automated outreach sending is currently disabled in settings"
+
+        # 2. Candidate check
         candidate = db.get(Candidate, candidate_id)
         if candidate is None:
             return False, "Candidate does not exist"
@@ -33,7 +39,7 @@ class OutreachService:
         if not candidate.email_draft_id or not candidate.email_draft:
             return False, "Email draft not assigned to candidate"
 
-        # 2. Employer check
+        # 3. Employer check
         employer = db.get(Employer, employer_id)
         if employer is None:
             return False, "Employer does not exist"
@@ -44,35 +50,35 @@ class OutreachService:
         if not emp_email or not EMAIL_REGEX.match(emp_email):
             return False, "Invalid employer email address"
 
-        # 3. Permanent Candidate -> Employer Duplicate Rule
+        # 4. Permanent Candidate -> Employer Duplicate Rule
         previous_email = db.scalar(
             select(EmailLog).where(
                 EmailLog.candidate_id == candidate_id,
                 EmailLog.employer_id == employer_id,
-                EmailLog.status == "sent",
+                EmailLog.status.in_(["sent", "pending", "sending"]),
             )
         )
 
         if previous_email:
             return False, "Already contacted by this candidate"
 
-        # 4. Employer-Level 3-Day Cooldown Rule
+        # 5. Employer-Level 3-Day Cooldown Rule
         cooldown_start = datetime.now(timezone.utc) - timedelta(days=3)
 
         recent_employer_email = db.scalar(
             select(EmailLog)
             .where(
                 EmailLog.employer_id == employer_id,
-                EmailLog.status == "sent",
-                EmailLog.sent_at >= cooldown_start,
+                EmailLog.status.in_(["sent", "pending", "sending"]),
+                EmailLog.created_at >= cooldown_start,
             )
-            .order_by(EmailLog.sent_at.desc())
+            .order_by(EmailLog.created_at.desc())
         )
 
         if recent_employer_email:
             return False, "Employer in 3-day cooldown"
 
-        # 5. Rule 1: Max 5 Employers per Candidate per Day
+        # 6. Per-Candidate Configurable Daily Limit Rule
         india_timezone = timezone(timedelta(hours=5, minutes=30))
         start_of_today = datetime.now(india_timezone).replace(
             hour=0, minute=0, second=0, microsecond=0
@@ -81,13 +87,35 @@ class OutreachService:
         sent_today_count = db.scalar(
             select(func.count(EmailLog.id)).where(
                 EmailLog.candidate_id == candidate_id,
-                EmailLog.status == "sent",
-                EmailLog.sent_at >= start_of_today,
+                EmailLog.status.in_(["sent", "pending", "sending"]),
+                EmailLog.created_at >= start_of_today,
             )
         ) or 0
 
-        if sent_today_count >= 5:
-            return False, "Daily limit reached — maximum 5 employers per candidate/day"
+        if sent_today_count >= settings.max_emails_per_candidate_per_day:
+            return False, f"Daily limit reached — maximum {settings.max_emails_per_candidate_per_day} emails/day per candidate"
+
+        # 7. Per-Candidate Minimum Gap Interval Rule
+        latest_log = db.scalar(
+            select(EmailLog)
+            .where(
+                EmailLog.candidate_id == candidate_id,
+                EmailLog.status.in_(["sent", "pending", "sending"]),
+            )
+            .order_by(EmailLog.created_at.desc())
+        )
+
+        if latest_log:
+            last_time = latest_log.sent_at or latest_log.created_at
+            if last_time:
+                now_utc = datetime.now(timezone.utc)
+                if last_time.tzinfo is None:
+                    last_time = last_time.replace(tzinfo=timezone.utc)
+                elapsed_minutes = (now_utc - last_time).total_seconds() / 60.0
+
+                if elapsed_minutes < settings.min_gap_minutes:
+                    next_eligible = last_time + timedelta(minutes=settings.min_gap_minutes)
+                    return False, f"Minimum gap of {settings.min_gap_minutes}m between candidate emails not elapsed. Next eligible send time: {next_eligible.strftime('%H:%M:%S UTC')}"
 
         return True, None
 
@@ -98,6 +126,8 @@ class OutreachService:
         page_size: int = 50,
         candidate_id: int | None = None,
     ) -> dict:
+        settings = get_outreach_settings(db)
+
         # 1. Fetch active candidates
         candidate_stmt = select(Candidate).where(Candidate.is_active.is_(True)).order_by(Candidate.id)
         if candidate_id is not None:
@@ -131,7 +161,7 @@ class OutreachService:
         sent_pairs = set(
             db.execute(
                 select(EmailLog.candidate_id, EmailLog.employer_id).where(
-                    EmailLog.status == "sent"
+                    EmailLog.status.in_(["sent", "pending", "sending"])
                 )
             ).all()
         )
@@ -140,8 +170,8 @@ class OutreachService:
         cooldown_employer_ids = set(
             db.scalars(
                 select(EmailLog.employer_id).where(
-                    EmailLog.status == "sent",
-                    EmailLog.sent_at >= cooldown_start,
+                    EmailLog.status.in_(["sent", "pending", "sending"]),
+                    EmailLog.created_at >= cooldown_start,
                 )
             ).all()
         )
@@ -149,11 +179,19 @@ class OutreachService:
         # 6. Batch query emails sent today per candidate
         sent_today_rows = db.execute(
             select(EmailLog.candidate_id, func.count(EmailLog.id)).where(
-                EmailLog.status == "sent",
-                EmailLog.sent_at >= start_of_today,
+                EmailLog.status.in_(["sent", "pending", "sending"]),
+                EmailLog.created_at >= start_of_today,
             ).group_by(EmailLog.candidate_id)
         ).all()
         sent_today_per_candidate = {row[0]: row[1] for row in sent_today_rows}
+
+        # 7. Query latest email per candidate for minimum gap rule
+        latest_sent_rows = db.execute(
+            select(EmailLog.candidate_id, func.max(EmailLog.created_at)).where(
+                EmailLog.status.in_(["sent", "pending", "sending"])
+            ).group_by(EmailLog.candidate_id)
+        ).all()
+        latest_sent_per_candidate = {row[0]: row[1] for row in latest_sent_rows}
 
         all_items = []
         candidate_summaries = []
@@ -165,16 +203,31 @@ class OutreachService:
                 candidate.email_draft.draft_name if candidate.email_draft else None
             )
 
+            cand_sent_today = sent_today_per_candidate.get(candidate.id, 0)
+            cand_last_time = latest_sent_per_candidate.get(candidate.id)
+            cand_next_eligible = None
+
+            if cand_last_time:
+                if cand_last_time.tzinfo is None:
+                    cand_last_time = cand_last_time.replace(tzinfo=timezone.utc)
+                cand_next_eligible = cand_last_time + timedelta(minutes=settings.min_gap_minutes)
+
             # Candidate readiness checks
             cand_error = None
-            if not candidate.is_active:
+            if not settings.enabled:
+                cand_error = "Automated outreach sending is currently disabled in settings"
+            elif not candidate.is_active:
                 cand_error = "Candidate is inactive"
             elif not candidate.gmail_account:
                 cand_error = "Gmail account not connected"
             elif not candidate.email_draft_id or not candidate.email_draft:
                 cand_error = "Email draft not assigned to candidate"
-            elif (sent_today_per_candidate.get(candidate.id, 0) >= 5):
-                cand_error = "Daily limit reached — maximum 5 employers per candidate/day"
+            elif cand_sent_today >= settings.max_emails_per_candidate_per_day:
+                cand_error = f"Daily limit reached — maximum {settings.max_emails_per_candidate_per_day} emails/day per candidate"
+            elif cand_last_time:
+                elapsed_minutes = (now_utc - cand_last_time).total_seconds() / 60.0
+                if elapsed_minutes < settings.min_gap_minutes:
+                    cand_error = f"Minimum gap of {settings.min_gap_minutes}m between candidate emails not elapsed. Next eligible send time: {cand_next_eligible.strftime('%H:%M:%S UTC')}"
 
             cand_eligible_count = 0
 
@@ -209,18 +262,13 @@ class OutreachService:
                     "candidate_id": candidate.id,
                     "candidate_name": candidate.full_name,
                     "candidate_email": candidate.email,
-                    "gmail_account": (
-                        candidate.gmail_account.gmail_email
-                        if candidate.gmail_account
-                        else None
-                    ),
+                    "gmail_account": candidate.gmail_account.gmail_email if candidate.gmail_account else None,
                     "email_draft": cand_draft_name,
                     "cv_file_path": candidate.cv_file_path,
                     "employer_id": employer.id,
-                    "employer_name": employer.service_name or "Employer",
-                    "employer_email": employer.email,
+                    "employer_name": employer.service_name or employer.company_name or "Employer",
+                    "employer_email": emp_email,
                     "eligible": can_send,
-                    "selected": False,
                     "reason": reason,
                 })
 
@@ -228,25 +276,35 @@ class OutreachService:
                 "candidate_id": candidate.id,
                 "candidate_name": candidate.full_name,
                 "eligible_count": cand_eligible_count,
+                "sent_today_count": cand_sent_today,
+                "daily_limit": settings.max_emails_per_candidate_per_day,
+                "min_gap_minutes": settings.min_gap_minutes,
+                "last_sent_at": cand_last_time.isoformat() if cand_last_time else None,
+                "next_eligible_at": cand_next_eligible.isoformat() if cand_next_eligible else None,
             })
 
-        # Paginate items
+        # Pagination
         total_items = len(all_items)
-        offset = (page - 1) * page_size
-        paginated_items = all_items[offset : offset + page_size]
+        start_offset = (page - 1) * page_size
+        end_offset = start_offset + page_size
+        paginated_items = all_items[start_offset:end_offset]
 
         return {
-            "total_eligible": total_eligible,
-            "total_skipped": total_skipped,
+            "items": paginated_items,
             "total": total_items,
-            "eligible_today": total_eligible,
-            "ready_count": total_eligible,
-            "emails_sent_today": emails_sent_today,
-            "skipped_count": total_skipped,
             "page": page,
             "page_size": page_size,
+            "total_eligible": total_eligible,
+            "total_skipped": total_skipped,
+            "eligible_today": total_eligible,
+            "skipped_count": total_skipped,
+            "emails_sent_today": emails_sent_today,
             "candidate_summaries": candidate_summaries,
-            "items": paginated_items,
+            "settings": {
+                "max_emails_per_candidate_per_day": settings.max_emails_per_candidate_per_day,
+                "min_gap_minutes": settings.min_gap_minutes,
+                "enabled": settings.enabled,
+            },
         }
 
     @staticmethod
@@ -259,23 +317,22 @@ class OutreachService:
         body: str,
         draft_id: int | None = None,
     ) -> EmailLog:
-
-        employer = db.get(Employer, employer_id)
-
-        if employer is None:
-            raise ValueError("Employer not found")
-
-        can_send, reason = OutreachService.can_send(
-            db=db,
-            candidate_id=candidate_id,
-            employer_id=employer_id,
+        # Atomic Concurrency-Safe Reservation using row locking
+        # Row lock on Candidate record to serialize concurrent requests for the same candidate
+        candidate = db.scalar(
+            select(Candidate).where(Candidate.id == candidate_id).with_for_update()
         )
+        if candidate is None:
+            raise ValueError("Candidate does not exist")
 
+        can_send, reason = OutreachService.can_send(db, candidate_id, employer_id)
         if not can_send:
             raise ValueError(reason)
 
-        candidate = db.get(Candidate, candidate_id)
-        
+        employer = db.get(Employer, employer_id)
+        if employer is None:
+            raise ValueError("Employer does not exist")
+
         # Extract draft subject & body if explicit subject/body not provided
         draft_subj, draft_body = extract_draft_content(
             candidate.email_draft if candidate else None,
@@ -284,11 +341,12 @@ class OutreachService:
         final_subject = subject.strip() if subject and subject.strip() else draft_subj
         final_body = body.strip() if body and body.strip() else draft_body
 
-        # Attach ONLY the candidate CV (never attach the email draft docx itself)
         attachment_paths = []
         if candidate and candidate.cv_file_path:
             attachment_paths.append(candidate.cv_file_path)
 
+        # EmailService.send_and_log creates EmailLog with status="pending" inside a short transaction,
+        # performs network send outside transaction, and updates status to "sent" or "failed".
         return EmailService.send_and_log(
             db=db,
             candidate_id=candidate_id,
@@ -318,17 +376,6 @@ class OutreachService:
                 skipped_count += 1
                 continue
 
-            can_send, reason = OutreachService.can_send(db, candidate_id, employer_id)
-            if not can_send:
-                skipped_count += 1
-                results.append({
-                    "candidate_id": candidate_id,
-                    "employer_id": employer_id,
-                    "status": "skipped",
-                    "reason": reason,
-                })
-                continue
-
             candidate = db.get(Candidate, candidate_id)
             employer = db.get(Employer, employer_id)
 
@@ -336,45 +383,17 @@ class OutreachService:
                 skipped_count += 1
                 continue
 
-            draft = candidate.email_draft
-            draft_subj, draft_body = extract_draft_content(
-                draft,
-                candidate.full_name
-            )
-
-            subject = item.get("subject").strip() if item.get("subject") and item.get("subject").strip() else draft_subj
-            body = item.get("body").strip() if item.get("body") and item.get("body").strip() else draft_body
-
-            # Attach ONLY candidate's CV (never attach the email draft docx)
-            attachment_paths = []
-            if candidate.cv_file_path:
-                attachment_paths.append(candidate.cv_file_path)
-
-            print("=" * 60, flush=True)
-            print("OUTREACH PAIRING PROCESSING:", flush=True)
-            print(f"  Candidate: {candidate.full_name} ({candidate.email})", flush=True)
-            print(f"  Employer: {employer.service_name or 'Employer'} ({employer.email})", flush=True)
-            print(f"  Gmail account: {candidate.gmail_account.gmail_email}", flush=True)
-            print(f"  Draft: {draft.draft_name if draft else 'No draft'}", flush=True)
-            print(f"  Subject: {subject}", flush=True)
-            print(f"  Attachments: {attachment_paths}", flush=True)
-
             try:
-                log = EmailService.send_and_log(
+                log = OutreachService.send_outreach(
                     db=db,
                     candidate_id=candidate_id,
                     employer_id=employer_id,
                     gmail_account=candidate.gmail_account,
-                    to_email=employer.email,
-                    subject=subject,
-                    body=body,
-                    attachment_paths=attachment_paths if attachment_paths else None,
+                    subject=item.get("subject", ""),
+                    body=item.get("body", ""),
                 )
                 if log.status == "sent":
                     sent_count += 1
-                    print("  Result: SUCCESS", flush=True)
-                    print("  Failure reason: None", flush=True)
-                    print("=" * 60, flush=True)
                     results.append({
                         "candidate_id": candidate_id,
                         "employer_id": employer_id,
@@ -383,9 +402,6 @@ class OutreachService:
                     })
                 else:
                     failed_count += 1
-                    print("  Result: FAILED", flush=True)
-                    print(f"  Failure reason: {log.error_message}", flush=True)
-                    print("=" * 60, flush=True)
                     results.append({
                         "candidate_id": candidate_id,
                         "employer_id": employer_id,
@@ -393,17 +409,23 @@ class OutreachService:
                         "error": log.error_message,
                     })
             except Exception as e:
-                failed_count += 1
                 err_msg = str(e)
-                print("  Result: FAILED", flush=True)
-                print(f"  Failure reason: {err_msg}", flush=True)
-                print("=" * 60, flush=True)
-                results.append({
-                    "candidate_id": candidate_id,
-                    "employer_id": employer_id,
-                    "status": "failed",
-                    "error": err_msg,
-                })
+                if "limit" in err_msg.lower() or "gap" in err_msg.lower() or "cooldown" in err_msg.lower() or "already" in err_msg.lower():
+                    skipped_count += 1
+                    results.append({
+                        "candidate_id": candidate_id,
+                        "employer_id": employer_id,
+                        "status": "skipped",
+                        "reason": err_msg,
+                    })
+                else:
+                    failed_count += 1
+                    results.append({
+                        "candidate_id": candidate_id,
+                        "employer_id": employer_id,
+                        "status": "failed",
+                        "error": err_msg,
+                    })
 
         return {
             "sent": sent_count,
@@ -413,10 +435,3 @@ class OutreachService:
             "skipped_count": skipped_count,
             "details": results,
         }
-
-    @staticmethod
-    def batch_send_outreach(
-        db: Session,
-        items: list[dict],
-    ) -> dict:
-        return OutreachService.batch_outreach(db, items)

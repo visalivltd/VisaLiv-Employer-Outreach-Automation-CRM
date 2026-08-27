@@ -21,6 +21,7 @@ from app.schemas.candidate import (
     CandidateUpdate,
 )
 from app.services import candidate_import_service, candidate_service
+from app.services.storage_service import storage_service
 
 
 router = APIRouter(
@@ -68,15 +69,15 @@ async def upload_cv(
 
     # Generate a unique filename so existing CVs are never overwritten.
     filename = f"{uuid4().hex}{extension}"
+    rel_path = f"uploads/{filename}"
 
-    file_path = UPLOAD_DIR / filename
-    file_path.write_bytes(file_content)
+    storage_service.upload_file(rel_path, file_content, content_type=file.content_type)
 
     return {
         "success": True,
         "message": "CV uploaded successfully",
         "filename": filename,
-        "file_path": f"uploads/{filename}",
+        "file_path": rel_path,
     }
 
 

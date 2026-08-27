@@ -9,6 +9,7 @@ from app.models.notification import Notification
 from app.models.real_candidate import RealCandidate
 from app.models.oauth_state import OAuthState
 from app.models.system_gmail_account import SystemGmailAccount
+from app.models.outreach_settings import OutreachSettings
 
 __all__ = [
     "Admin",
@@ -22,4 +23,5 @@ __all__ = [
     "RealCandidate",
     "OAuthState",
     "SystemGmailAccount",
+    "OutreachSettings",
 ]

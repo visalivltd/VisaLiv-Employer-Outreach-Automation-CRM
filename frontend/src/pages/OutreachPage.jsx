@@ -1,7 +1,34 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User } from 'lucide-react';
+import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User, Sliders } from 'lucide-react';
 
-const API_BASE_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+const getApiUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || !host.includes('run.app')) {
+      return `${window.location.protocol}//${host}:8000`;
+    }
+  }
+  return 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+};
+
+const getErrorMessage = (error, fallback = "Something went wrong.") => {
+  const detail = error?.response?.data?.detail ?? error?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    try {
+      return detail.map((item) => (typeof item === "string" ? item : item.msg || item.message || JSON.stringify(item))).join(", ");
+    } catch {
+      return fallback;
+    }
+  }
+  if (detail && typeof detail === "object") {
+    return detail.message || JSON.stringify(detail);
+  }
+  return error?.message || fallback;
+};
 
 export default function OutreachPage() {
   const [candidates, setCandidates] = useState([]);
@@ -12,6 +39,16 @@ export default function OutreachPage() {
   const [previewData, setPreviewData] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [startingBatch, setStartingBatch] = useState(false);
+
+  // Outreach Settings State
+  const [settings, setSettings] = useState({
+    max_emails_per_candidate_per_day: 5,
+    min_gap_minutes: 60,
+    enabled: true,
+  });
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsSuccess, setSettingsSuccess] = useState('');
+  const [settingsError, setSettingsError] = useState('');
   
   // Pagination & Filter States
   const [page, setPage] = useState(1);
@@ -38,14 +75,67 @@ export default function OutreachPage() {
 
   const getItemKey = (item) => `${item.candidate_id}_${item.employer_id}`;
 
+  const loadSettings = async () => {
+    try {
+      setSettingsError('');
+      const res = await fetch(`${getApiUrl()}/outreach/settings`);
+      if (res.ok) {
+        const data = await res.json();
+        setSettings(data);
+        setSettingsError('');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setSettingsError(getErrorMessage(data, 'Failed to load outreach settings from backend'));
+      }
+    } catch (err) {
+      console.error('Failed to load outreach settings:', err);
+      setSettingsError(err.message || 'Failed to connect to backend server');
+    }
+  };
+
+  const handleSaveSettings = async (e) => {
+    e.preventDefault();
+    setSavingSettings(true);
+    setSettingsSuccess('');
+    setSettingsError('');
+
+    try {
+      const res = await fetch(`${getApiUrl()}/outreach/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          max_emails_per_candidate_per_day: Number(settings.max_emails_per_candidate_per_day),
+          min_gap_minutes: Number(settings.min_gap_minutes),
+          enabled: Boolean(settings.enabled),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(getErrorMessage(data, 'Failed to update outreach settings'));
+
+      setSettings(data);
+      setSettingsSuccess('Outreach sending settings saved successfully!');
+      setTimeout(() => setSettingsSuccess(''), 4000);
+
+      if (previewData) {
+        loadPreview(page, selectedCandidateFilter);
+      }
+    } catch (err) {
+      setSettingsError(err.message || 'Failed to save settings');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   const loadData = async () => {
     try {
       setLoadingData(true);
       const [candRes, empRes, draftRes, dashRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/candidates`),
-        fetch(`${API_BASE_URL}/employers`),
-        fetch(`${API_BASE_URL}/email-drafts`),
-        fetch(`${API_BASE_URL}/dashboard`),
+        fetch(`${getApiUrl()}/candidates`),
+        fetch(`${getApiUrl()}/employers`),
+        fetch(`${getApiUrl()}/email-drafts`),
+        fetch(`${getApiUrl()}/dashboard`),
+        loadSettings(),
       ]);
 
       if (candRes.ok) setCandidates(await candRes.json());
@@ -68,7 +158,7 @@ export default function OutreachPage() {
     try {
       setLoadingPreview(true);
       setError('');
-      let url = `${API_BASE_URL}/outreach/preview?page=${targetPage}&page_size=${pageSize}`;
+      let url = `${getApiUrl()}/outreach/preview?page=${targetPage}&page_size=${pageSize}`;
       if (targetCandId) {
         url += `&candidate_id=${targetCandId}`;
       }
@@ -197,7 +287,7 @@ export default function OutreachPage() {
       setError('');
       setMessage('');
 
-      const res = await fetch(`${API_BASE_URL}/outreach/batch-send`, {
+      const res = await fetch(`${getApiUrl()}/outreach/batch-send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(selectedItems),
@@ -279,7 +369,7 @@ export default function OutreachPage() {
     setSending(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/outreach/send`, {
+      const response = await fetch(`${getApiUrl()}/outreach/send`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -384,6 +474,121 @@ export default function OutreachPage() {
 
       {error && <div className="outreach-error" style={{ marginBottom: '20px' }}>{error}</div>}
       {message && <div className="outreach-success" style={{ marginBottom: '20px' }}>{message}</div>}
+
+      {/* OUTREACH SENDING SETTINGS CARD */}
+      <div className="outreach-card" style={{ marginBottom: '28px' }}>
+        <div className="outreach-card-header">
+          <div>
+            <h2 className="outreach-card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Sliders size={20} style={{ color: '#4f46e5' }} /> Outreach Sending Settings
+            </h2>
+            <p className="outreach-card-subtitle">
+              Configure per-candidate daily email sending limits, minimum gap intervals, and automated outreach status.
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{
+              padding: '6px 12px',
+              borderRadius: '20px',
+              backgroundColor: settings.enabled ? '#ecfdf5' : '#fef2f2',
+              color: settings.enabled ? '#047857' : '#b91c1c',
+              fontSize: '12px',
+              fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              border: `1px solid ${settings.enabled ? '#a7f3d0' : '#fecaca'}`,
+            }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: settings.enabled ? '#10b981' : '#ef4444' }} />
+              {settings.enabled ? 'Automation Enabled' : 'Automation Disabled'}
+            </span>
+          </div>
+        </div>
+
+        {settingsError && <div className="outreach-error" style={{ marginBottom: '16px' }}>{settingsError}</div>}
+        {settingsSuccess && <div className="outreach-success" style={{ marginBottom: '16px' }}>{settingsSuccess}</div>}
+
+        <form onSubmit={handleSaveSettings}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px', marginBottom: '20px' }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label style={{ fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                Emails per Candidate / Day
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={settings.max_emails_per_candidate_per_day}
+                onChange={(e) => setSettings({ ...settings, max_emails_per_candidate_per_day: e.target.value })}
+                required
+                style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+              />
+              <span style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                Default: 5 (Min 1, Max 20)
+              </span>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label style={{ fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                Minimum Gap Between Emails
+              </label>
+              <select
+                value={settings.min_gap_minutes}
+                onChange={(e) => setSettings({ ...settings, min_gap_minutes: Number(e.target.value) })}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+              >
+                <option value={15}>15 Minutes</option>
+                <option value={30}>30 Minutes</option>
+                <option value={60}>1 Hour (60 mins)</option>
+                <option value={120}>2 Hours (120 mins)</option>
+                <option value={240}>4 Hours (240 mins)</option>
+                <option value={360}>6 Hours (360 mins)</option>
+              </select>
+              <span style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                Spacing between emails for the same candidate
+              </span>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              <label style={{ fontWeight: 600, color: '#334155', display: 'block', marginBottom: '8px' }}>
+                Automated Outreach Status
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                <input
+                  type="checkbox"
+                  checked={settings.enabled}
+                  onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })}
+                  style={{ width: '18px', height: '18px', accentColor: '#4f46e5', cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: '14px', fontWeight: 500, color: settings.enabled ? '#0f172a' : '#64748b' }}>
+                  {settings.enabled ? 'Enabled (Outreach active)' : 'Disabled (Sending paused)'}
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <span style={{ fontSize: '12.5px', color: '#475569', backgroundColor: '#f8fafc', padding: '4px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                ⚡ {settings.max_emails_per_candidate_per_day} emails/day limit per candidate
+              </span>
+              <span style={{ fontSize: '12.5px', color: '#475569', backgroundColor: '#f8fafc', padding: '4px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                ⏱️ {settings.min_gap_minutes}m ({settings.min_gap_minutes >= 60 ? `${settings.min_gap_minutes / 60}h` : `${settings.min_gap_minutes}m`}) gap interval
+              </span>
+            </div>
+
+            <button
+              type="submit"
+              disabled={savingSettings}
+              className="primary-button"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 18px' }}
+            >
+              <Sliders size={15} />
+              {savingSettings ? 'Saving Settings...' : 'Save Settings'}
+            </button>
+          </div>
+        </form>
+      </div>
 
       {/* AUTOMATED OUTREACH CAMPAIGN CARD */}
       <div className="outreach-card" style={{ marginBottom: '28px' }}>
@@ -491,7 +696,7 @@ export default function OutreachPage() {
                         gap: '6px',
                       }}
                     >
-                      <User size={13} /> {s.candidate_name} — <strong>{currentSelectedCount}</strong> selected / {s.eligible_count} eligible
+                      <User size={13} /> {s.candidate_name} — <strong>{s.sent_today_count ?? 0}/{s.daily_limit ?? settings.max_emails_per_candidate_per_day} sent today</strong> | <strong>{currentSelectedCount}</strong> selected / {s.eligible_count} eligible
                     </button>
                   );
                 })}
