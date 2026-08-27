@@ -11,6 +11,7 @@ from app.schemas.email_draft import (
     EmailDraftUpdate,
 )
 from app.services import email_draft_service
+from app.services.storage_service import storage_service
 
 
 router = APIRouter(
@@ -54,15 +55,15 @@ async def upload_draft_attachment(
         )
 
     saved_filename = f"{uuid4().hex}{extension}"
-    file_path = DRAFT_UPLOAD_DIR / saved_filename
-    file_path.write_bytes(file_content)
+    rel_path = f"uploads/drafts/{saved_filename}"
+    storage_service.upload_file(rel_path, file_content, content_type=file.content_type)
 
     return {
         "success": True,
         "message": "Attachment uploaded successfully",
         "original_filename": file.filename,
         "attachment_filename": file.filename,
-        "attachment_path": f"uploads/drafts/{saved_filename}",
+        "attachment_path": rel_path,
     }
 
 

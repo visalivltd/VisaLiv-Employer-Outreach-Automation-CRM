@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str
     GOOGLE_REDIRECT_URI: str
     FRONTEND_URL: str = "http://localhost:3000"
+    GCS_BUCKET_NAME: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

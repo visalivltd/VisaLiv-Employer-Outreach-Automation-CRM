@@ -9,6 +9,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 from app.core.config import settings
+from app.services.storage_service import storage_service
 
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
@@ -126,35 +127,36 @@ class GmailService:
             if not item:
                 continue
 
-            if isinstance(item, (tuple, list)):
+            file_data = None
+            path_str = None
+            display_name = None
+
+            if isinstance(item, dict):
+                path_str = item.get("path")
+                display_name = item.get("filename")
+                file_data = item.get("data")
+            elif isinstance(item, (tuple, list)):
                 path_str, display_name = item[0], item[1]
             else:
                 path_str, display_name = item, None
 
-            file_path = Path(path_str)
-            if not file_path.is_absolute():
-                candidate_backend = PROJECT_ROOT / path_str
-                candidate_workspace = PROJECT_ROOT.parent / path_str
-                if candidate_backend.exists():
-                    file_path = candidate_backend
-                elif candidate_workspace.exists():
-                    file_path = candidate_workspace
-                else:
-                    file_path = candidate_backend
+            if not file_data and path_str:
+                file_data = storage_service.get_file_bytes(path_str)
 
-            if not file_path.exists() or not file_path.is_file():
-                raise FileNotFoundError(f"Attachment file not found: {path_str}")
+            if not file_data:
+                raise FileNotFoundError(f"Attachment file not found: {path_str or item}")
 
-            content_type, _ = mimetypes.guess_type(str(file_path))
+            filename_for_header = display_name or (Path(path_str).name if path_str else "attachment.pdf")
+            content_type, _ = mimetypes.guess_type(filename_for_header)
             if content_type is None:
                 content_type = "application/octet-stream"
             main_type, sub_type = content_type.split("/", 1)
-            file_data = file_path.read_bytes()
+
             message.add_attachment(
                 file_data,
                 maintype=main_type,
                 subtype=sub_type,
-                filename=display_name or file_path.name,
+                filename=filename_for_header,
             )
 
         encoded_message = base64.urlsafe_b64encode(

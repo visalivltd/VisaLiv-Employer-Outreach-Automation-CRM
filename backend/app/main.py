@@ -66,14 +66,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+import mimetypes
+from fastapi import HTTPException, Response, status
+from app.services.storage_service import storage_service
+
 UPLOAD_DIR = Path(__file__).resolve().parents[2] / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-app.mount(
-    "/uploads",
-    StaticFiles(directory=UPLOAD_DIR),
-    name="uploads",
-)
+
+@app.get("/uploads/{file_path:path}")
+def serve_upload_file(file_path: str):
+    clean_rel = f"uploads/{file_path.strip().lstrip('/')}"
+    try:
+        data = storage_service.get_file_bytes(clean_rel)
+        media_type, _ = mimetypes.guess_type(clean_rel)
+        return Response(content=data, media_type=media_type or "application/octet-stream")
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File not found: {file_path}",
+        ) from exc
 
 app.add_middleware(
     CORSMiddleware,
