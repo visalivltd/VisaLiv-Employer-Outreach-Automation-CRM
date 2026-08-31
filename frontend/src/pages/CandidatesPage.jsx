@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   Users,
   Plus,
@@ -13,6 +13,9 @@ import {
   Upload,
   FileSpreadsheet,
   CheckCircle2,
+  Search,
+  Filter,
+  RotateCcw,
 } from 'lucide-react';
 
 const getApiUrl = () => {
@@ -54,8 +57,7 @@ export default function CandidatesPage() {
   const [selectedDraftId, setSelectedDraftId] = useState('');
   const [assigning, setAssigning] = useState(false);
 
-  const [previewingDraftCandidate, setPreviewingDraftCandidate] = useState(null);
-
+  const formRef = useRef(null);
   const [showForm, setShowForm] = useState(false);
   const [editingCandidate, setEditingCandidate] = useState(null);
 
@@ -64,12 +66,121 @@ export default function CandidatesPage() {
 
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadingDraft, setUploadingDraft] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [deletingCandidateModal, setDeletingCandidateModal] = useState(null);
   const [updatingStatusId, setUpdatingStatusId] = useState(null);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Filter States
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [countryFilter, setCountryFilter] = useState('all');
+  const [visaTypeFilter, setVisaTypeFilter] = useState('all');
+  const [gmailFilter, setGmailFilter] = useState('all');
+  const [draftFilter, setDraftFilter] = useState('all');
+  const [cvFilter, setCvFilter] = useState('all');
+
+  // Dynamic Countries & Visa Types derived from candidate data
+  const uniqueCountries = useMemo(() => {
+    const set = new Set();
+    candidates.forEach((c) => {
+      if (c.country && c.country.trim()) {
+        set.add(c.country.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [candidates]);
+
+  const uniqueVisaTypes = useMemo(() => {
+    const set = new Set();
+    candidates.forEach((c) => {
+      if (c.visa_type && c.visa_type.trim()) {
+        set.add(c.visa_type.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [candidates]);
+
+  // Combined Filtered Candidates
+  const filteredCandidates = useMemo(() => {
+    return candidates.filter((candidate) => {
+      // 1. Search Query (name or email)
+      if (searchTerm.trim()) {
+        const query = searchTerm.trim().toLowerCase();
+        const nameMatch = candidate.full_name?.toLowerCase().includes(query);
+        const emailMatch = candidate.email?.toLowerCase().includes(query);
+        if (!nameMatch && !emailMatch) {
+          return false;
+        }
+      }
+
+      // 2. Status Filter
+      if (statusFilter === 'active' && !candidate.is_active) return false;
+      if (statusFilter === 'inactive' && candidate.is_active) return false;
+
+      // 3. Country Filter
+      if (countryFilter !== 'all') {
+        if ((candidate.country || '').trim().toLowerCase() !== countryFilter.toLowerCase()) {
+          return false;
+        }
+      }
+
+      // 4. Visa Type Filter
+      if (visaTypeFilter !== 'all') {
+        if ((candidate.visa_type || '').trim().toLowerCase() !== visaTypeFilter.toLowerCase()) {
+          return false;
+        }
+      }
+
+      // 5. Gmail Account Filter
+      const hasGmail = Boolean(candidate.gmail_email || candidate.gmail_account?.gmail_email);
+      if (gmailFilter === 'connected' && !hasGmail) return false;
+      if (gmailFilter === 'not_connected' && hasGmail) return false;
+
+      // 6. Email Draft Filter
+      const hasDraft = Boolean(candidate.email_draft_id || candidate.email_draft?.id);
+      if (draftFilter === 'assigned' && !hasDraft) return false;
+      if (draftFilter === 'no_draft' && hasDraft) return false;
+
+      // 7. CV Filter
+      const hasCv = Boolean(candidate.cv_file_path && candidate.cv_file_path.trim());
+      if (cvFilter === 'uploaded' && !hasCv) return false;
+      if (cvFilter === 'no_cv' && hasCv) return false;
+
+      return true;
+    });
+  }, [
+    candidates,
+    searchTerm,
+    statusFilter,
+    countryFilter,
+    visaTypeFilter,
+    gmailFilter,
+    draftFilter,
+    cvFilter,
+  ]);
+
+  const hasActiveFilters =
+    Boolean(searchTerm.trim()) ||
+    statusFilter !== 'all' ||
+    countryFilter !== 'all' ||
+    visaTypeFilter !== 'all' ||
+    gmailFilter !== 'all' ||
+    draftFilter !== 'all' ||
+    cvFilter !== 'all';
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setCountryFilter('all');
+    setVisaTypeFilter('all');
+    setGmailFilter('all');
+    setDraftFilter('all');
+    setCvFilter('all');
+  };
 
   // Import Excel Modal state
   const [showImportModal, setShowImportModal] = useState(false);
@@ -244,10 +355,11 @@ export default function CandidatesPage() {
     setForm({ ...emptyForm });
     setSelectedFile(null);
     setShowForm(true);
+    scrollToForm();
   };
 
   const closeForm = () => {
-    if (saving || uploading) return;
+    if (saving || uploading || uploadingDraft) return;
 
     setShowForm(false);
     setEditingCandidate(null);
@@ -362,6 +474,105 @@ export default function CandidatesPage() {
       return data.file_path;
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleDraftFileChange = async (event) => {
+    const file = event.target.files?.[0];
+
+    setError('');
+    setSuccess('');
+
+    if (!file) return;
+
+    const extension = `.${file.name.split('.').pop().toLowerCase()}`;
+
+    if (!ALLOWED_FILE_TYPES.includes(extension)) {
+      event.target.value = '';
+      setError('Invalid draft format. Only PDF, DOC, and DOCX files are allowed.');
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      event.target.value = '';
+      setError('Draft attachment file must be 10 MB or smaller.');
+      return;
+    }
+
+    try {
+      setUploadingDraft(true);
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const uploadRes = await fetch(`${API_URL}/email-drafts/upload-attachment`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const uploadData = await uploadRes.json();
+
+      if (!uploadRes.ok) {
+        throw new Error(uploadData.detail || 'Failed to upload draft attachment');
+      }
+
+      let targetDraftId = form.email_draft_id ? parseInt(form.email_draft_id, 10) : null;
+      let newDraftId = targetDraftId;
+
+      if (targetDraftId) {
+        const draftRes = await fetch(`${API_URL}/email-drafts/${targetDraftId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            attachment_filename: uploadData.attachment_filename,
+            attachment_path: uploadData.attachment_path,
+            remove_attachment: false,
+          }),
+        });
+
+        if (!draftRes.ok) {
+          const dData = await draftRes.json();
+          throw new Error(dData.detail || 'Failed to update email draft attachment');
+        }
+      } else {
+        const draftRes = await fetch(`${API_URL}/email-drafts`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            attachment_filename: uploadData.attachment_filename,
+            attachment_path: uploadData.attachment_path,
+            candidate_id: editingCandidate ? editingCandidate.id : null,
+          }),
+        });
+
+        const dData = await draftRes.json();
+
+        if (!draftRes.ok) {
+          throw new Error(dData.detail || 'Failed to create email draft');
+        }
+
+        newDraftId = dData.id;
+      }
+
+      await fetchDrafts();
+
+      setForm((prev) => ({
+        ...prev,
+        email_draft_id: String(newDraftId),
+      }));
+
+      setSuccess('Email draft uploaded and assigned successfully.');
+    } catch (err) {
+      setError(err.message || 'Failed to upload email draft');
+    } finally {
+      setUploadingDraft(false);
+      if (event.target) {
+        event.target.value = '';
+      }
     }
   };
 
@@ -615,116 +826,67 @@ export default function CandidatesPage() {
     return null;
   };
 
-  const openAssignDraftModal = (candidate) => {
-    setAssigningDraftCandidate(candidate);
+  const getCvFilePath = (candidate) => {
+    if (!candidate || !candidate.cv_file_path) return null;
+    const path = candidate.cv_file_path;
+    if (typeof path === 'string' && path.trim() && path.trim().toLowerCase() !== 'none' && path.trim().toLowerCase() !== 'null') {
+      return path.trim();
+    }
+    return null;
+  };
+
+  const hasValidCV = (candidate) => {
+    return Boolean(getCvFilePath(candidate));
+  };
+
+  const getDraftFilePath = (candidate) => {
+    if (!candidate) return null;
+    const isVal = (v) => v && typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'none' && v.trim().toLowerCase() !== 'null';
+
+    if (isVal(candidate.email_draft?.attachment_path)) {
+      return candidate.email_draft.attachment_path.trim();
+    }
     const draftId = candidate.email_draft_id || candidate.email_draft?.id;
-    setSelectedDraftId(draftId ? String(draftId) : '');
-    setError('');
-    setSuccess('');
-  };
-
-  const handleAssignDraftSubmit = async (e) => {
-    e.preventDefault();
-    if (!assigningDraftCandidate) return;
-
-    try {
-      setAssigning(true);
-      setError('');
-      setSuccess('');
-
-      const draftId = selectedDraftId ? parseInt(selectedDraftId, 10) : null;
-
-      const response = await fetch(
-        `${API_URL}/candidates/${assigningDraftCandidate.id}/email-draft`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            email_draft_id: draftId,
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        let msg = 'Failed to assign email draft';
-        if (typeof data.detail === 'string') {
-          msg = data.detail;
-        }
-        throw new Error(msg);
+    if (draftId) {
+      const match = availableDrafts.find((d) => String(d.id) === String(draftId));
+      if (match && isVal(match.attachment_path)) {
+        return match.attachment_path.trim();
       }
-
-      setCandidates((prev) =>
-        prev.map((c) => (c.id === data.id ? data : c))
-      );
-
-      setSuccess('Email draft assigned successfully.');
-      setAssigningDraftCandidate(null);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setAssigning(false);
     }
+    return null;
   };
 
-  const handleRemoveDraftSubmit = async () => {
-    if (!assigningDraftCandidate) return;
+  // ================= FILE SERVING / OPENING =================
 
-    try {
-      setAssigning(true);
-      setError('');
-      setSuccess('');
-
-      const response = await fetch(
-        `${API_URL}/candidates/${assigningDraftCandidate.id}/email-draft`,
-        {
-          method: 'DELETE',
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        let msg = 'Failed to remove email draft';
-        if (typeof data.detail === 'string') {
-          msg = data.detail;
-        }
-        throw new Error(msg);
-      }
-
-      setCandidates((prev) =>
-        prev.map((c) => (c.id === data.id ? data : c))
-      );
-
-      setSuccess('Email draft removed successfully.');
-      setAssigningDraftCandidate(null);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setAssigning(false);
-    }
-  };
-
-  // ================= CV VIEW =================
-
-  const openCV = (cvFilePath) => {
-    if (!cvFilePath) {
+  const openCV = (filePath) => {
+    if (!filePath || typeof filePath !== 'string' || !filePath.trim()) {
       return;
     }
 
-    const cvUrl = cvFilePath.startsWith('http')
-      ? cvFilePath
-      : `${API_URL}/${cvFilePath.replace(/^\/+/, '')}`;
+    const cleanPath = filePath.trim().replace(/^\/+/, '');
+    const finalPath = cleanPath.startsWith('uploads/') || cleanPath.startsWith('http://') || cleanPath.startsWith('https://')
+      ? cleanPath
+      : `uploads/${cleanPath}`;
 
-    window.open(
-      cvUrl,
-      '_blank',
-      'noopener,noreferrer'
-    );
+    const url = finalPath.startsWith('http://') || finalPath.startsWith('https://')
+      ? finalPath
+      : `${API_URL}/${finalPath}`;
+
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
+
+  const selectedDraft =
+    availableDrafts.find((d) => String(d.id) === String(form.email_draft_id)) ||
+    (editingCandidate?.email_draft?.id && String(editingCandidate.email_draft.id) === String(form.email_draft_id)
+      ? editingCandidate.email_draft
+      : null);
+
+  const selectedDraftAttachmentPath = selectedDraft?.attachment_path;
+  const selectedDraftAttachmentFilename =
+    selectedDraft?.attachment_filename ||
+    selectedDraft?.draft_name ||
+    selectedDraft?.name ||
+    selectedDraft?.subject;
 
   return (
     <div className="content-container candidates-page">
@@ -801,10 +963,47 @@ export default function CandidatesPage() {
         </div>
       )}
 
-      {/* ================= ADD / EDIT FORM ================= */}
+      {/* ================= ADD / EDIT FORM MODAL OVERLAY ================= */}
 
       {showForm && (
-        <div className="candidate-form-card">
+        <div
+          className="modal-backdrop"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px',
+            overflowY: 'auto',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !saving && !uploading && !uploadingDraft) {
+              closeForm();
+            }
+          }}
+        >
+          <div
+            ref={formRef}
+            className="candidate-form-card"
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '14px',
+              width: '100%',
+              maxWidth: '820px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              margin: 'auto',
+              padding: '24px',
+            }}
+          >
 
           <div className="form-card-header">
 
@@ -838,7 +1037,7 @@ export default function CandidatesPage() {
               type="button"
               className="close-button"
               onClick={closeForm}
-              disabled={saving || uploading}
+              disabled={saving || uploading || uploadingDraft}
             >
               <X size={20} />
             </button>
@@ -952,6 +1151,65 @@ export default function CandidatesPage() {
                 </select>
               </div>
 
+              {/* EMAIL DRAFT FILE UPLOAD */}
+
+              <div className="form-field">
+                <label>
+                  Email Draft File
+                </label>
+
+                <div className="cv-upload-box">
+
+                  <label
+                    htmlFor="candidate-draft-file"
+                    className="upload-cv-button"
+                    style={{
+                      pointerEvents: uploadingDraft || saving || uploading ? 'none' : 'auto',
+                      opacity: uploadingDraft || saving || uploading ? 0.7 : 1,
+                    }}
+                  >
+                    <Upload size={17} />
+                    {uploadingDraft
+                      ? 'Uploading Draft...'
+                      : selectedDraftAttachmentPath
+                      ? 'Change Draft File'
+                      : 'Upload Draft'}
+                  </label>
+
+                  <input
+                    id="candidate-draft-file"
+                    type="file"
+                    accept=".pdf,.doc,.docx"
+                    onChange={handleDraftFileChange}
+                    hidden
+                    disabled={uploadingDraft || saving || uploading}
+                  />
+
+                  {selectedDraftAttachmentPath && (
+                    <div className="existing-cv">
+                      <FileText size={16} />
+
+                      <span>
+                        {selectedDraftAttachmentFilename || 'Existing Draft'}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => openCV(selectedDraftAttachmentPath)}
+                      >
+                        View
+                        <ExternalLink size={13} />
+                      </button>
+                    </div>
+                  )}
+
+                  <small>
+                    PDF, DOC or DOCX • Maximum 10 MB
+                  </small>
+
+                </div>
+              </div>
+
               {/* CV UPLOAD */}
 
               <div className="form-field">
@@ -1060,7 +1318,7 @@ export default function CandidatesPage() {
                 type="button"
                 className="secondary-button"
                 onClick={closeForm}
-                disabled={saving || uploading}
+                disabled={saving || uploading || uploadingDraft}
               >
                 Cancel
               </button>
@@ -1068,14 +1326,16 @@ export default function CandidatesPage() {
               <button
                 type="submit"
                 className="primary-button"
-                disabled={saving || uploading}
+                disabled={saving || uploading || uploadingDraft}
               >
 
-                {saving || uploading ? (
+                {saving || uploading || uploadingDraft ? (
                   <>
                     <span className="button-spinner"></span>
                     {uploading
                       ? 'Uploading CV...'
+                      : uploadingDraft
+                      ? 'Uploading Draft...'
                       : 'Saving...'}
                   </>
                 ) : editingCandidate ? (
@@ -1097,6 +1357,152 @@ export default function CandidatesPage() {
           </form>
 
         </div>
+      </div>
+    )}
+
+      {/* ================= FILTERS BAR ================= */}
+
+      {!loading && candidates.length > 0 && (
+        <div className="candidate-filter-card">
+
+          <div className="filter-card-header">
+
+            <div className="filter-title-row">
+              <Filter size={16} color="#2563eb" />
+              <span className="filter-title-text">Filters</span>
+              <span className="filter-count-badge">
+                {hasActiveFilters
+                  ? `Showing ${filteredCandidates.length} of ${candidates.length}`
+                  : `${candidates.length} total`}
+              </span>
+            </div>
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                className="clear-filters-btn"
+                onClick={handleClearFilters}
+                title="Reset all filters"
+              >
+                <RotateCcw size={13} />
+                Clear Filters
+              </button>
+            )}
+
+          </div>
+
+          <div className="filter-controls-grid">
+
+            {/* SEARCH */}
+
+            <div className="filter-field search-field">
+              <div className="search-input-wrapper">
+                <Search size={15} className="search-icon" />
+                <input
+                  type="text"
+                  placeholder="Search name or email..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    className="clear-search-icon-btn"
+                    onClick={() => setSearchTerm('')}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* STATUS */}
+
+            <div className="filter-field">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">Status: All</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+
+            {/* COUNTRY */}
+
+            <div className="filter-field">
+              <select
+                value={countryFilter}
+                onChange={(e) => setCountryFilter(e.target.value)}
+              >
+                <option value="all">Country: All</option>
+                {uniqueCountries.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* VISA TYPE */}
+
+            <div className="filter-field">
+              <select
+                value={visaTypeFilter}
+                onChange={(e) => setVisaTypeFilter(e.target.value)}
+              >
+                <option value="all">Visa Type: All</option>
+                {uniqueVisaTypes.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* GMAIL ACCOUNT */}
+
+            <div className="filter-field">
+              <select
+                value={gmailFilter}
+                onChange={(e) => setGmailFilter(e.target.value)}
+              >
+                <option value="all">Gmail: All</option>
+                <option value="connected">Connected</option>
+                <option value="not_connected">Not Connected</option>
+              </select>
+            </div>
+
+            {/* EMAIL DRAFT */}
+
+            <div className="filter-field">
+              <select
+                value={draftFilter}
+                onChange={(e) => setDraftFilter(e.target.value)}
+              >
+                <option value="all">Draft: All</option>
+                <option value="assigned">Draft Assigned</option>
+                <option value="no_draft">No Draft</option>
+              </select>
+            </div>
+
+            {/* CV */}
+
+            <div className="filter-field">
+              <select
+                value={cvFilter}
+                onChange={(e) => setCvFilter(e.target.value)}
+              >
+                <option value="all">CV: All</option>
+                <option value="uploaded">CV Uploaded</option>
+                <option value="no_cv">No CV</option>
+              </select>
+            </div>
+
+          </div>
+
+        </div>
       )}
 
       {/* ================= TABLE ================= */}
@@ -1109,9 +1515,9 @@ export default function CandidatesPage() {
             <h2>All Candidates</h2>
 
             <p>
-              {candidates.length} candidate
-              {candidates.length !== 1 ? 's' : ''}
-              {' '}registered
+              {hasActiveFilters
+                ? `Showing ${filteredCandidates.length} of ${candidates.length} candidates`
+                : `${candidates.length} candidate${candidates.length !== 1 ? 's' : ''} registered`}
             </p>
           </div>
 
@@ -1155,6 +1561,32 @@ export default function CandidatesPage() {
 
           </div>
 
+        ) : filteredCandidates.length === 0 ? (
+
+          <div className="table-state empty-state">
+
+            <Filter size={42} />
+
+            <h3>
+              No matching candidates found
+            </h3>
+
+            <p>
+              No candidates match your current filter criteria.
+            </p>
+
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={handleClearFilters}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <RotateCcw size={15} />
+              Clear Filters
+            </button>
+
+          </div>
+
         ) : (
 
           <div className="table-wrapper">
@@ -1178,7 +1610,7 @@ export default function CandidatesPage() {
 
               <tbody>
 
-                {candidates.map((candidate, index) => (
+                {filteredCandidates.map((candidate, index) => (
 
                   <tr key={candidate.id}>
 
@@ -1301,23 +1733,25 @@ export default function CandidatesPage() {
                           >
                             📄 {getDraftName(candidate)}
                           </span>
-                          <button
-                            type="button"
-                            className="cv-button"
-                            style={{
-                              backgroundColor: '#eff6ff',
-                              borderColor: '#bfdbfe',
-                              color: '#1d4ed8',
-                              padding: '4px 8px',
-                              fontSize: '12px',
-                              fontWeight: '600',
-                              lineHeight: '1',
-                            }}
-                            onClick={() => setPreviewingDraftCandidate(candidate)}
-                            title="View Assigned Draft"
-                          >
-                            View
-                          </button>
+                          {getDraftFilePath(candidate) && (
+                            <button
+                              type="button"
+                              className="cv-button"
+                              style={{
+                                backgroundColor: '#eff6ff',
+                                borderColor: '#bfdbfe',
+                                color: '#1d4ed8',
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                lineHeight: '1',
+                              }}
+                              onClick={() => openCV(getDraftFilePath(candidate))}
+                              title="View Assigned Draft File"
+                            >
+                              View
+                            </button>
+                          )}
                         </div>
 
                       ) : (
@@ -1330,14 +1764,14 @@ export default function CandidatesPage() {
 
                     <td>
 
-                      {candidate.cv_file_path ? (
+                      {hasValidCV(candidate) ? (
 
                         <button
                           type="button"
                           className="cv-button"
                           onClick={() =>
                             openCV(
-                              candidate.cv_file_path
+                              getCvFilePath(candidate)
                             )
                           }
                         >
@@ -1574,110 +2008,6 @@ export default function CandidatesPage() {
                 </div>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* DRAFT PREVIEW MODAL */}
-      {previewingDraftCandidate && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(15, 23, 42, 0.6)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 999,
-          padding: '20px',
-        }}>
-          <div style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '12px',
-            width: '100%',
-            maxWidth: '600px',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '18px 24px',
-              borderBottom: '1px solid #e2e8f0',
-            }}>
-              <div>
-                <span style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Assigned Email Draft
-                </span>
-                <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: '2px 0 0 0' }}>
-                  {previewingDraftCandidate.email_draft_name}
-                </h3>
-              </div>
-              <button
-                onClick={() => setPreviewingDraftCandidate(null)}
-                style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div style={{ padding: '24px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-                <div style={{ backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                  <span style={{ fontSize: '12px', color: '#64748b', display: 'block' }}>Candidate Name:</span>
-                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#0f172a' }}>{previewingDraftCandidate.full_name}</span>
-                </div>
-                <div style={{ backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                  <span style={{ fontSize: '12px', color: '#64748b', display: 'block' }}>Candidate Email:</span>
-                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#0f172a' }}>{previewingDraftCandidate.email}</span>
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '16px', backgroundColor: '#f8fafc', padding: '12px 16px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                <span style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', display: 'block', marginBottom: '2px' }}>
-                  Draft Subject:
-                </span>
-                <span style={{ fontSize: '15px', fontWeight: '600', color: '#0f172a' }}>
-                  {previewingDraftCandidate.email_draft_subject || 'No Subject'}
-                </span>
-              </div>
-
-              <div style={{
-                padding: '16px',
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0',
-                backgroundColor: '#ffffff',
-                whiteSpace: 'pre-wrap',
-                fontSize: '14px',
-                lineHeight: '1.6',
-                color: '#334155',
-                maxHeight: '300px',
-                overflowY: 'auto',
-              }}>
-                {previewingDraftCandidate.email_draft_body || 'No Body Content'}
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
-                <button
-                  onClick={() => setPreviewingDraftCandidate(null)}
-                  style={{
-                    padding: '8px 18px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    backgroundColor: '#ffffff',
-                    color: '#475569',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       )}
