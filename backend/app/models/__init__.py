@@ -10,6 +10,7 @@ from app.models.real_candidate import RealCandidate
 from app.models.oauth_state import OAuthState
 from app.models.system_gmail_account import SystemGmailAccount
 from app.models.outreach_settings import OutreachSettings
+from app.models.outreach_job import OutreachJob
 
 __all__ = [
     "Admin",
@@ -24,4 +25,5 @@ __all__ = [
     "OAuthState",
     "SystemGmailAccount",
     "OutreachSettings",
-]
+    "OutreachJob",
+]

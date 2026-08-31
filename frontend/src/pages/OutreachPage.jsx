@@ -2,8 +2,9 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User, Sliders } from 'lucide-react';
 
 const getApiUrl = () => {
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
+  let url = import.meta.env.VITE_API_URL || '';
+  if (url) {
+    return url.replace(/\/$/, '');
   }
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
@@ -78,7 +79,11 @@ export default function OutreachPage() {
   const loadSettings = async () => {
     try {
       setSettingsError('');
-      const res = await fetch(`${getApiUrl()}/outreach/settings`);
+      let baseUrl = getApiUrl();
+      let res = await fetch(`${baseUrl}/outreach/settings`);
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1/outreach/settings`);
+      }
       if (res.ok) {
         const data = await res.json();
         setSettings(data);
@@ -100,15 +105,26 @@ export default function OutreachPage() {
     setSettingsError('');
 
     try {
-      const res = await fetch(`${getApiUrl()}/outreach/settings`, {
+      const payload = {
+        max_emails_per_candidate_per_day: Number(settings.max_emails_per_candidate_per_day),
+        min_gap_minutes: Number(settings.min_gap_minutes),
+        enabled: Boolean(settings.enabled),
+      };
+
+      let baseUrl = getApiUrl();
+      let res = await fetch(`${baseUrl}/outreach/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          max_emails_per_candidate_per_day: Number(settings.max_emails_per_candidate_per_day),
-          min_gap_minutes: Number(settings.min_gap_minutes),
-          enabled: Boolean(settings.enabled),
-        }),
+        body: JSON.stringify(payload),
       });
+
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1/outreach/settings`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      }
 
       const data = await res.json();
       if (!res.ok) throw new Error(getErrorMessage(data, 'Failed to update outreach settings'));
@@ -126,6 +142,7 @@ export default function OutreachPage() {
       setSavingSettings(false);
     }
   };
+
 
   const loadData = async () => {
     try {
@@ -158,12 +175,17 @@ export default function OutreachPage() {
     try {
       setLoadingPreview(true);
       setError('');
-      let url = `${getApiUrl()}/outreach/preview?page=${targetPage}&page_size=${pageSize}`;
+      let baseUrl = getApiUrl();
+      let query = `page=${targetPage}&page_size=${pageSize}`;
       if (targetCandId) {
-        url += `&candidate_id=${targetCandId}`;
+        query += `&candidate_id=${targetCandId}`;
       }
 
-      const res = await fetch(url);
+      let res = await fetch(`${baseUrl}/outreach/preview?${query}`);
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1/outreach/preview?${query}`);
+      }
+
       if (!res.ok) throw new Error('Failed to fetch outreach preview');
       const data = await res.json();
       setPreviewData(data);
@@ -264,74 +286,71 @@ export default function OutreachPage() {
     setError('');
   };
 
-  const handleOpenConfirmModal = () => {
-    if (selectedItemsMap.size === 0) {
-      setError('Please select at least one eligible outreach email to send.');
-      return;
+  // Auto-poll queue summary when jobs are pending/processing
+  useEffect(() => {
+    const queueSum = previewData?.queue_summary;
+    if (queueSum && (queueSum.pending_count > 0 || queueSum.processing_count > 0)) {
+      const timer = setInterval(() => {
+        loadPreview(page, selectedCandidateFilter);
+      }, 8000);
+      return () => clearInterval(timer);
     }
-    setError('');
-    setShowConfirmModal(true);
-  };
+  }, [previewData?.queue_summary?.pending_count, previewData?.queue_summary?.processing_count, page, selectedCandidateFilter]);
 
-  const handleConfirmBatchOutreach = async () => {
-    const selectedItems = Array.from(selectedItemsMap.values());
-
-    if (selectedItems.length === 0) {
-      setError('No eligible candidate-employer pairings selected.');
-      setShowConfirmModal(false);
-      return;
-    }
-
+  const handleStartOutreach = async () => {
     try {
       setStartingBatch(true);
       setError('');
       setMessage('');
 
-      const res = await fetch(`${getApiUrl()}/outreach/batch-send`, {
+      let baseUrl = getApiUrl();
+      let endpoint = selectedCandidateFilter
+        ? `/outreach/start?candidate_id=${selectedCandidateFilter}`
+        : `/outreach/start`;
+
+      let res = await fetch(`${baseUrl}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(selectedItems),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Batch outreach request failed');
-
-      const sentCount = data.sent_count ?? data.sent ?? 0;
-      const failedCount = data.failed_count ?? data.failed ?? 0;
-      const skippedCount = data.skipped_count ?? data.skipped ?? 0;
-
-      const failedDetails = (data.details || []).filter((d) => d.status === 'failed');
-
-      if (failedCount > 0 && failedDetails.length > 0) {
-        const errorReasons = failedDetails
-          .map((d) => d.error || 'Unknown error')
-          .join('; ');
-        setError(`Email failed: ${errorReasons}`);
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
 
-      if (sentCount > 0) {
-        setMessage(
-          `Batch Outreach Complete: ${sentCount} sent successfully${failedCount > 0 ? `, ${failedCount} failed` : ''}${skippedCount > 0 ? `, ${skippedCount} skipped` : ''}.`
-        );
-      } else if (failedCount === 0 && skippedCount > 0) {
-        setMessage(`Batch Outreach Complete: 0 sent, ${skippedCount} skipped.`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.message || 'Failed to start automated outreach');
+
+      if (data.success) {
+        setMessage(data.message || `Outreach jobs queued successfully: ${data.queued} scheduled, ${data.skipped} skipped.`);
+      } else {
+        setError(data.message || 'Failed to queue outreach jobs');
       }
 
       setSelectedItemsMap(new Map());
       setShowConfirmModal(false);
-
       await loadData();
       await loadPreview(page, selectedCandidateFilter);
     } catch (err) {
-      if (err.name === 'TypeError' || (err.message && err.message.includes('fetch'))) {
-        setError('Failed to fetch: Network or server unreachable.');
-      } else {
-        setError(err.message || 'Failed to execute batch outreach');
-      }
+      setError(err.message || 'Failed to start outreach campaign');
     } finally {
       setStartingBatch(false);
     }
   };
+
+
+  const handleOpenConfirmModal = () => {
+    setError('');
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmBatchOutreach = async () => {
+    await handleStartOutreach();
+  };
+
+
 
   const handleCandidateChange = (selectedId) => {
     setCandidateId(selectedId);
@@ -627,14 +646,15 @@ export default function OutreachPage() {
               <button
                 type="button"
                 onClick={handleOpenConfirmModal}
-                disabled={startingBatch || selectedItemsMap.size === 0}
+                disabled={startingBatch || !settings.enabled}
                 className="primary-button"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: selectedItemsMap.size > 0 ? '#16a34a' : '#cbd5e1' }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: settings.enabled ? '#16a34a' : '#cbd5e1' }}
               >
                 <Play size={15} />
-                {startingBatch ? 'Executing Batch...' : `Start Outreach (${selectedItemsMap.size})`}
+                {startingBatch ? 'Queueing Jobs...' : selectedItemsMap.size > 0 ? `Start Outreach (${selectedItemsMap.size} Selected)` : 'Start Automated Outreach'}
               </button>
             )}
+
           </div>
         </div>
 
@@ -652,7 +672,38 @@ export default function OutreachPage() {
               </span>
             </div>
 
+            {/* BACKGROUND QUEUE STATUS CARD */}
+            {previewData.queue_summary && (
+              <div style={{
+                marginBottom: '16px',
+                padding: '14px 18px',
+                backgroundColor: previewData.queue_summary.pending_count > 0 ? '#eff6ff' : '#f8fafc',
+                borderRadius: '10px',
+                border: `1px solid ${previewData.queue_summary.pending_count > 0 ? '#bfdbfe' : '#e2e8f0'}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: previewData.queue_summary.pending_count > 0 ? '#1d4ed8' : '#334155' }}>
+                    ⚙️ Background Worker Queue:
+                  </span>
+                  <span style={{ fontSize: '13px', color: '#475569', fontWeight: 500 }}>
+                    <strong style={{ color: '#1d4ed8' }}>{previewData.queue_summary.pending_count}</strong> Pending | <strong style={{ color: '#16a34a' }}>{previewData.queue_summary.sent_count}</strong> Sent | <strong style={{ color: '#dc2626' }}>{previewData.queue_summary.failed_count}</strong> Failed | <strong style={{ color: '#64748b' }}>{previewData.queue_summary.skipped_count}</strong> Skipped
+                  </span>
+                </div>
+                {previewData.queue_summary.next_scheduled_at && (
+                  <span style={{ fontSize: '12.5px', color: '#1e40af', backgroundColor: '#dbeafe', padding: '4px 10px', borderRadius: '6px', fontWeight: 600 }}>
+                    Next Scheduled Send: {new Date(previewData.queue_summary.next_scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* CANDIDATE SUMMARY CHIPS */}
+
             {previewData.candidate_summaries && previewData.candidate_summaries.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', alignItems: 'center' }}>
                 <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>Filter Candidate:</span>
@@ -892,31 +943,49 @@ export default function OutreachPage() {
           <div style={{
             background: '#ffffff',
             borderRadius: '14px',
-            maxWidth: '520px',
+            maxWidth: '540px',
             width: '100%',
             padding: '28px',
             boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
           }}>
             <h3 style={{ margin: '0 0 8px', fontSize: '20px', color: '#0f172a', fontWeight: 700 }}>
-              Confirm Outreach Campaign
+              {selectedItemsMap.size > 0 ? 'Confirm Selected Outreach Batch' : 'Start Automated Outreach Campaign'}
             </h3>
             <p style={{ margin: '0 0 20px', color: '#64748b', fontSize: '14px' }}>
-              Send <strong>{selectedItemsMap.size}</strong> selected outreach email{selectedItemsMap.size !== 1 ? 's' : ''}?
+              {selectedItemsMap.size > 0
+                ? `Send ${selectedItemsMap.size} manually selected outreach email(s)?`
+                : `Queue automated outreach jobs in the database background worker for all eligible candidates?`}
             </p>
 
             <div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', marginBottom: '24px' }}>
-              <div style={{ marginBottom: '10px', fontSize: '13px' }}>
-                <span style={{ color: '#64748b', display: 'block', marginBottom: '2px' }}>Candidates Involved ({uniqueCandidates.length}):</span>
-                <strong style={{ color: '#1e293b' }}>{uniqueCandidates.join(', ')}</strong>
-              </div>
-              <div style={{ marginBottom: '10px', fontSize: '13px' }}>
-                <span style={{ color: '#64748b', display: 'block', marginBottom: '2px' }}>Unique Employers ({uniqueEmployers.length}):</span>
-                <strong style={{ color: '#1e293b' }}>{uniqueEmployers.join(', ')}</strong>
-              </div>
-              <div style={{ fontSize: '13px' }}>
-                <span style={{ color: '#64748b', display: 'block', marginBottom: '2px' }}>Total Emails to Send:</span>
-                <strong style={{ color: '#16a34a', fontSize: '15px' }}>{selectedItemsMap.size} Emails</strong>
-              </div>
+              {selectedItemsMap.size > 0 ? (
+                <>
+                  <div style={{ marginBottom: '10px', fontSize: '13px' }}>
+                    <span style={{ color: '#64748b', display: 'block', marginBottom: '2px' }}>Candidates Involved ({uniqueCandidates.length}):</span>
+                    <strong style={{ color: '#1e293b' }}>{uniqueCandidates.join(', ')}</strong>
+                  </div>
+                  <div style={{ marginBottom: '10px', fontSize: '13px' }}>
+                    <span style={{ color: '#64748b', display: 'block', marginBottom: '2px' }}>Unique Employers ({uniqueEmployers.length}):</span>
+                    <strong style={{ color: '#1e293b' }}>{uniqueEmployers.join(', ')}</strong>
+                  </div>
+                  <div style={{ fontSize: '13px' }}>
+                    <span style={{ color: '#64748b', display: 'block', marginBottom: '2px' }}>Total Selected:</span>
+                    <strong style={{ color: '#16a34a', fontSize: '15px' }}>{selectedItemsMap.size} Emails</strong>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ marginBottom: '8px', fontSize: '13px' }}>
+                    ⚡ <strong>Maximum {settings.max_emails_per_candidate_per_day} emails/day</strong> per candidate
+                  </div>
+                  <div style={{ marginBottom: '8px', fontSize: '13px' }}>
+                    ⏱️ <strong>{settings.min_gap_minutes} minutes gap</strong> between emails for the same candidate
+                  </div>
+                  <div style={{ fontSize: '13px' }}>
+                    💾 Persistent background queue — continues running if browser tab is closed
+                  </div>
+                </>
+              )}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
@@ -935,12 +1004,13 @@ export default function OutreachPage() {
                 onClick={handleConfirmBatchOutreach}
                 disabled={startingBatch}
               >
-                {startingBatch ? 'Executing Batch...' : 'Confirm & Send Outreach'}
+                {startingBatch ? 'Queueing Jobs...' : selectedItemsMap.size > 0 ? 'Confirm & Send Batch' : 'Confirm & Start Outreach'}
               </button>
             </div>
           </div>
         </div>
       )}
+
 
       {/* SINGLE MANUAL OUTREACH FORM */}
       <div className="outreach-card">

@@ -44,20 +44,45 @@ async def periodic_gmail_sync():
         await asyncio.sleep(60)
 
 
+def _run_outreach_worker_sync():
+    from app.db.session import SessionLocal
+    from app.services.outreach_service import OutreachService
+    db = SessionLocal()
+    try:
+        OutreachService.process_due_outreach_jobs(db, max_jobs=50)
+    finally:
+        db.close()
+
+
+async def periodic_outreach_worker():
+    """Background polling loop that checks for and processes due outreach jobs every 15 seconds."""
+    await asyncio.sleep(5)
+    while True:
+        try:
+            await asyncio.to_thread(_run_outreach_worker_sync)
+        except Exception as exc:
+            print(f"[BACKGROUND OUTREACH WORKER ERROR] {exc}", flush=True)
+
+        await asyncio.sleep(15)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.db.base import Base
     from app.db.session import engine
-    # Ensure missing database tables (like oauth_states) are created
+    # Ensure missing database tables (like oauth_states, outreach_jobs) are created
     try:
         Base.metadata.create_all(bind=engine)
     except Exception as exc:
         print(f"[STARTUP TABLE CREATE WARNING] {exc}", flush=True)
 
-    # Start background polling task on server startup
+    # Start background polling tasks on server startup
     sync_task = asyncio.create_task(periodic_gmail_sync())
+    outreach_task = asyncio.create_task(periodic_outreach_worker())
     yield
     sync_task.cancel()
+    outreach_task.cancel()
+
 
 
 app = FastAPI(
@@ -112,6 +137,8 @@ app.include_router(employer_router)
 app.include_router(gmail_account_router)
 app.include_router(gmail_oauth_router)
 app.include_router(outreach_router)
+app.include_router(outreach_router, prefix="/api/v1")
+
 app.include_router(email_log_router)
 app.include_router(dashboard_router)
 app.include_router(email_draft_router)
