@@ -126,15 +126,20 @@ export default function OutreachPage() {
         });
       }
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(getErrorMessage(data, 'Failed to update outreach settings'));
 
       setSettings(data);
       setSettingsSuccess('Outreach sending settings saved successfully!');
       setTimeout(() => setSettingsSuccess(''), 4000);
 
-      // Refresh outreach queue preview immediately to reflect updated gap send times
-      loadPreview(page, selectedCandidateFilter);
+      // Refresh outreach queue preview safely (do not crash if preview refresh fails)
+      try {
+        await loadPreview(page, selectedCandidateFilter);
+      } catch (previewErr) {
+        console.error('Preview refresh error after saving settings:', previewErr);
+        setError('Settings saved, but failed to refresh outreach preview: ' + (previewErr.message || 'Unknown error'));
+      }
     } catch (err) {
       setSettingsError(err.message || 'Failed to save settings');
     } finally {
@@ -154,10 +159,10 @@ export default function OutreachPage() {
         loadSettings(),
       ]);
 
-      if (candRes.ok) setCandidates(await candRes.json());
-      if (empRes.ok) setEmployers(await empRes.json());
-      if (draftRes.ok) setDrafts(await draftRes.json());
-      if (dashRes.ok) setDashboardStats(await dashRes.json());
+      if (candRes.ok) setCandidates(await candRes.json().catch(() => []));
+      if (empRes.ok) setEmployers(await empRes.json().catch(() => []));
+      if (draftRes.ok) setDrafts(await draftRes.json().catch(() => []));
+      if (dashRes.ok) setDashboardStats(await dashRes.json().catch(() => null));
     } catch (err) {
       console.error(err);
       setError('Failed to load outreach resources.');
@@ -185,18 +190,30 @@ export default function OutreachPage() {
         res = await fetch(`${baseUrl}/api/v1/outreach/preview?${query}`);
       }
 
-      if (!res.ok) throw new Error('Failed to fetch outreach preview');
-      const data = await res.json();
-      setPreviewData(data);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(getErrorMessage(data, 'Failed to fetch outreach preview'));
+      }
+
+      const safeData = {
+        ...data,
+        items: Array.isArray(data?.items) ? data.items : [],
+        candidate_summaries: Array.isArray(data?.candidate_summaries) ? data.candidate_summaries : [],
+        total: data?.total ?? 0,
+        total_eligible: data?.total_eligible ?? data?.eligible_today ?? 0,
+        total_skipped: data?.total_skipped ?? data?.skipped_count ?? 0,
+      };
+
+      setPreviewData(safeData);
       setPage(targetPage);
 
-      // Prune selectedItemsMap so it preserves ONLY currently selected row IDs that exist and are eligible in the current preview data
+      // Prune selectedItemsMap safely
       setSelectedItemsMap((prevMap) => {
-        if (prevMap.size === 0) return prevMap;
+        if (!prevMap || prevMap.size === 0) return prevMap || new Map();
         const nextMap = new Map();
         const validItemMap = new Map();
-        (data.items || []).forEach((i) => {
-          if (i.eligible) {
+        safeData.items.forEach((i) => {
+          if (i && i.eligible) {
             validItemMap.set(getItemKey(i), i);
           }
         });
@@ -209,7 +226,8 @@ export default function OutreachPage() {
         return nextMap;
       });
     } catch (err) {
-      setError(err.message);
+      console.error('loadPreview error:', err);
+      setError(err.message || 'Failed to fetch outreach preview');
     } finally {
       setLoadingPreview(false);
     }
@@ -243,6 +261,104 @@ export default function OutreachPage() {
     loadPreview(1, nextFilter);
   };
 
+  // Helper: Compute Ready, Queued, and Skipped stats & send times for currently selected items
+  const computeSelectedSchedule = () => {
+    try {
+      const selectedList = selectedItemsMap ? Array.from(selectedItemsMap.values()).filter(Boolean) : [];
+      if (selectedList.length === 0) {
+        return { readyCount: 0, queuedCount: 0, skippedCount: 0, itemStatuses: new Map() };
+      }
+
+      const candSummaries = new Map();
+      if (Array.isArray(previewData?.candidate_summaries)) {
+        previewData.candidate_summaries.forEach((s) => {
+          if (s && s.candidate_id) candSummaries.set(s.candidate_id, s);
+        });
+      }
+
+      const candItems = new Map();
+      selectedList.forEach((item) => {
+        if (!item || !item.candidate_id) return;
+        if (!candItems.has(item.candidate_id)) {
+          candItems.set(item.candidate_id, []);
+        }
+        candItems.get(item.candidate_id).push(item);
+      });
+
+      let readyCount = 0;
+      let queuedCount = 0;
+      let skippedCount = 0;
+      const itemStatuses = new Map();
+      const now = new Date();
+
+      for (const [candId, items] of candItems.entries()) {
+        const summary = candSummaries.get(candId) || {};
+        const sentToday = Number(summary.sent_today_count) || 0;
+        const dailyLimit = Number(summary.daily_limit) || Number(settings?.max_emails_per_candidate_per_day) || 5;
+        const minGap = Number(summary.min_gap_minutes) || Number(settings?.min_gap_minutes) || 15;
+
+        let nextEligible = now;
+        if (summary.next_eligible_at) {
+          const parsed = new Date(summary.next_eligible_at);
+          if (!isNaN(parsed.getTime())) {
+            nextEligible = parsed;
+          }
+        }
+
+        let currentSendTime = nextEligible > now ? nextEligible : now;
+        let candidateSentBudget = Math.max(0, dailyLimit - sentToday);
+
+        items.forEach((item, index) => {
+          const key = getItemKey(item);
+
+          if (!item.eligible) {
+            skippedCount++;
+            itemStatuses.set(key, {
+              type: 'skipped',
+              label: `Skipped — ${item.reason || 'Ineligible'}`,
+            });
+            return;
+          }
+
+          if (index >= candidateSentBudget) {
+            skippedCount++;
+            itemStatuses.set(key, {
+              type: 'skipped',
+              label: `Skipped — Daily limit of ${dailyLimit} emails/day reached`,
+            });
+            return;
+          }
+
+          const isReady = currentSendTime.getTime() <= now.getTime() + 1000;
+
+          if (isReady && index === 0 && (sentToday === 0 || !summary.next_eligible_at || nextEligible <= now)) {
+            readyCount++;
+            itemStatuses.set(key, {
+              type: 'ready',
+              label: 'Ready — Sending Now',
+              time: currentSendTime,
+            });
+            currentSendTime = new Date(currentSendTime.getTime() + minGap * 60 * 1000);
+          } else {
+            queuedCount++;
+            const formattedTime = currentSendTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            itemStatuses.set(key, {
+              type: 'queued',
+              label: `Queued — ${formattedTime}`,
+              time: currentSendTime,
+            });
+            currentSendTime = new Date(currentSendTime.getTime() + minGap * 60 * 1000);
+          }
+        });
+      }
+
+      return { readyCount, queuedCount, skippedCount, itemStatuses };
+    } catch (err) {
+      console.error('computeSelectedSchedule error:', err);
+      return { readyCount: 0, queuedCount: 0, skippedCount: 0, itemStatuses: new Map() };
+    }
+  };
+
   // Helper: Count selected items for a candidate in local selection map
   const getCandidateSelectedCount = (candId) => {
     let count = 0;
@@ -252,7 +368,7 @@ export default function OutreachPage() {
     return count;
   };
 
-  // Toggle individual row selection
+  // Toggle individual row selection (no manual selection cap)
   const handleToggleRow = (item) => {
     if (!item.eligible) return;
 
@@ -261,16 +377,10 @@ export default function OutreachPage() {
 
     if (nextMap.has(key)) {
       nextMap.delete(key);
-      setError('');
     } else {
-      const currentCandCount = getCandidateSelectedCount(item.candidate_id);
-      if (currentCandCount >= 5) {
-        setError(`Daily limit reached — maximum 5 employers per candidate/day. (${item.candidate_name} already has 5 selected)`);
-        return;
-      }
-      setError('');
       nextMap.set(key, item);
     }
+    setError('');
     setSelectedItemsMap(nextMap);
   };
 
@@ -297,16 +407,10 @@ export default function OutreachPage() {
     if (isAllPageSelected) {
       pageEligibleItems.forEach((item) => nextMap.delete(getItemKey(item)));
     } else {
-      const candCounts = {};
-      for (const item of nextMap.values()) {
-        candCounts[item.candidate_id] = (candCounts[item.candidate_id] || 0) + 1;
-      }
       pageEligibleItems.forEach((item) => {
         const key = getItemKey(item);
-        const count = candCounts[item.candidate_id] || 0;
-        if (count < 5 && !nextMap.has(key)) {
+        if (!nextMap.has(key)) {
           nextMap.set(key, item);
-          candCounts[item.candidate_id] = count + 1;
         }
       });
     }
@@ -496,7 +600,8 @@ export default function OutreachPage() {
   const totalCount = previewData?.total || 0;
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
   const startIdx = totalCount > 0 ? (page - 1) * pageSize + 1 : 0;
-  const endIdx = Math.min(page * pageSize, totalCount);
+  // Compute Ready, Queued, Skipped schedule statistics for selected items
+  const scheduleStats = computeSelectedSchedule();
 
   return (
     <div className="content-container full-width-page">
@@ -521,7 +626,7 @@ export default function OutreachPage() {
             <div>
               <div style={{ fontSize: '13px', color: '#64748b' }}>Eligible Today</div>
               <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>
-                {previewData ? (previewData.total_eligible ?? previewData.eligible_today).toLocaleString() : '—'}
+                {previewData ? (previewData.total_eligible ?? previewData.eligible_today ?? 0).toLocaleString() : '—'}
               </div>
             </div>
           </div>
@@ -551,7 +656,7 @@ export default function OutreachPage() {
             <div>
               <div style={{ fontSize: '13px', color: '#64748b' }}>Skipped / Ineligible</div>
               <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>
-                {previewData ? (previewData.total_skipped ?? previewData.skipped_count).toLocaleString() : '—'}
+                {previewData ? (previewData.total_skipped ?? previewData.skipped_count ?? 0).toLocaleString() : '—'}
               </div>
             </div>
           </div>
@@ -732,12 +837,30 @@ export default function OutreachPage() {
               <span style={{ padding: '6px 12px', borderRadius: '6px', backgroundColor: '#eff6ff', color: '#1d4ed8', fontSize: '13px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '6px', border: '1px solid #bfdbfe' }}>
                 <CheckCircle2 size={14} /> Selected: {selectedItemsMap.size}
               </span>
-              <span style={{ padding: '6px 12px', borderRadius: '6px', backgroundColor: '#ecfdf5', color: '#047857', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <Target size={14} /> Eligible: {(previewData.total_eligible ?? previewData.eligible_today).toLocaleString()}
-              </span>
-              <span style={{ padding: '6px 12px', borderRadius: '6px', backgroundColor: '#fef2f2', color: '#b91c1c', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <XCircle size={14} /> Skipped: {(previewData.total_skipped ?? previewData.skipped_count).toLocaleString()}
-              </span>
+              {selectedItemsMap.size > 0 ? (
+                <>
+                  <span style={{ padding: '6px 12px', borderRadius: '6px', backgroundColor: '#ecfdf5', color: '#047857', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px', border: '1px solid #a7f3d0' }}>
+                    ⚡ Ready: {scheduleStats.readyCount}
+                  </span>
+                  <span style={{ padding: '6px 12px', borderRadius: '6px', backgroundColor: '#fef3c7', color: '#b45309', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px', border: '1px solid #fde68a' }}>
+                    ⏱️ Queued: {scheduleStats.queuedCount}
+                  </span>
+                  {scheduleStats.skippedCount > 0 && (
+                    <span style={{ padding: '6px 12px', borderRadius: '6px', backgroundColor: '#fef2f2', color: '#b91c1c', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px', border: '1px solid #fecaca' }}>
+                      <XCircle size={14} /> Skipped: {scheduleStats.skippedCount}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span style={{ padding: '6px 12px', borderRadius: '6px', backgroundColor: '#ecfdf5', color: '#047857', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Target size={14} /> Eligible: {(previewData.total_eligible ?? previewData.eligible_today ?? 0).toLocaleString()}
+                  </span>
+                  <span style={{ padding: '6px 12px', borderRadius: '6px', backgroundColor: '#fef2f2', color: '#b91c1c', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <XCircle size={14} /> Skipped: {(previewData.total_skipped ?? previewData.skipped_count ?? 0).toLocaleString()}
+                  </span>
+                </>
+              )}
             </div>
 
             {/* BACKGROUND QUEUE STATUS CARD */}
@@ -759,20 +882,23 @@ export default function OutreachPage() {
                     ⚙️ Background Worker Queue:
                   </span>
                   <span style={{ fontSize: '13px', color: '#475569', fontWeight: 500 }}>
-                    <strong style={{ color: '#1d4ed8' }}>{previewData.queue_summary.pending_count}</strong> Pending | <strong style={{ color: '#16a34a' }}>{previewData.queue_summary.sent_count}</strong> Sent | <strong style={{ color: '#dc2626' }}>{previewData.queue_summary.failed_count}</strong> Failed | <strong style={{ color: '#64748b' }}>{previewData.queue_summary.skipped_count}</strong> Skipped
+                    <strong style={{ color: '#1d4ed8' }}>{previewData.queue_summary.pending_count ?? 0}</strong> Pending | <strong style={{ color: '#16a34a' }}>{previewData.queue_summary.sent_count ?? 0}</strong> Sent | <strong style={{ color: '#dc2626' }}>{previewData.queue_summary.failed_count ?? 0}</strong> Failed | <strong style={{ color: '#64748b' }}>{previewData.queue_summary.skipped_count ?? 0}</strong> Skipped
                   </span>
                 </div>
-                {previewData.queue_summary.next_scheduled_at && (
-                  <span style={{ fontSize: '12.5px', color: '#1e40af', backgroundColor: '#dbeafe', padding: '4px 10px', borderRadius: '6px', fontWeight: 600 }}>
-                    Next Scheduled Send: {new Date(previewData.queue_summary.next_scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </span>
-                )}
+                {previewData.queue_summary.next_scheduled_at && (() => {
+                  const d = new Date(previewData.queue_summary.next_scheduled_at);
+                  if (isNaN(d.getTime())) return null;
+                  return (
+                    <span style={{ fontSize: '12.5px', color: '#1e40af', backgroundColor: '#dbeafe', padding: '4px 10px', borderRadius: '6px', fontWeight: 600 }}>
+                      Next Scheduled Send: {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                  );
+                })()}
               </div>
             )}
 
             {/* CANDIDATE SUMMARY CHIPS */}
-
-            {previewData.candidate_summaries && previewData.candidate_summaries.length > 0 && (
+            {Array.isArray(previewData?.candidate_summaries) && previewData.candidate_summaries.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', alignItems: 'center' }}>
                 <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>Filter Candidate:</span>
                 <button
@@ -786,13 +912,14 @@ export default function OutreachPage() {
                     border: '1px solid',
                     borderColor: selectedCandidateFilter === null ? '#4f46e5' : '#cbd5e1',
                     fontSize: '12px',
-                    fontWeight: '600',
+                    fontWeight: '500',
                     cursor: 'pointer',
                   }}
                 >
                   All Candidates
                 </button>
                 {previewData.candidate_summaries.map((s, idx) => {
+                  if (!s) return null;
                   const currentSelectedCount = getCandidateSelectedCount(s.candidate_id);
                   const isSelectedFilter = selectedCandidateFilter === s.candidate_id;
                   return (
@@ -815,7 +942,7 @@ export default function OutreachPage() {
                         gap: '6px',
                       }}
                     >
-                      <User size={13} /> {s.candidate_name} — <strong>{s.sent_today_count ?? 0}/{s.daily_limit ?? settings.max_emails_per_candidate_per_day} sent today</strong> | <strong>{currentSelectedCount}</strong> selected / {s.eligible_count} eligible
+                      <User size={13} /> {s.candidate_name} — <strong>{s.sent_today_count ?? 0}/{s.daily_limit ?? settings?.max_emails_per_candidate_per_day ?? 5} sent today</strong> | <strong>{currentSelectedCount}</strong> selected / {s.eligible_count ?? 0} eligible
                     </button>
                   );
                 })}
@@ -875,7 +1002,8 @@ export default function OutreachPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {previewData.items.map((item, idx) => {
+                  {(Array.isArray(previewData?.items) ? previewData.items : []).map((item, idx) => {
+                    if (!item) return null;
                     const key = getItemKey(item);
                     const isSelected = selectedItemsMap.has(key);
 
@@ -938,16 +1066,46 @@ export default function OutreachPage() {
                           </span>
                         </td>
                         <td>
-                          {item.eligible ? (
-                            <span className="status-badge active">
-                              <span className="status-dot"></span> Ready
-                            </span>
-                          ) : (
-                            <span className="status-badge inactive" style={{ whiteSpace: 'normal', lineHeight: '1.4', display: 'inline-flex', alignItems: 'flex-start', gap: '5px', textAlign: 'left' }}>
-                              <AlertCircle size={13} style={{ flexShrink: 0, marginTop: '2px' }} />
-                              <span>{item.reason}</span>
-                            </span>
-                          )}
+                          {(() => {
+                            if (isSelected) {
+                              const statusObj = scheduleStats.itemStatuses.get(key);
+                              if (statusObj) {
+                                if (statusObj.type === 'ready') {
+                                  return (
+                                    <span className="visa-badge" style={{ backgroundColor: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', fontWeight: '600' }}>
+                                      ⚡ Ready — Sending Now
+                                    </span>
+                                  );
+                                }
+                                if (statusObj.type === 'queued') {
+                                  return (
+                                    <span className="visa-badge" style={{ backgroundColor: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', fontWeight: '600' }}>
+                                      ⏱️ {statusObj.label}
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <span style={{ color: '#b91c1c', fontSize: '12px', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                    <XCircle size={13} /> {statusObj.label}
+                                  </span>
+                                );
+                              }
+                            }
+
+                            if (item.eligible) {
+                              return (
+                                <span className="status-badge active">
+                                  <span className="status-dot"></span> Ready
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="status-badge inactive" style={{ whiteSpace: 'normal', lineHeight: '1.4', display: 'inline-flex', alignItems: 'flex-start', gap: '5px', textAlign: 'left' }}>
+                                <AlertCircle size={13} style={{ flexShrink: 0, marginTop: '2px' }} />
+                                <span>{item.reason}</span>
+                              </span>
+                            );
+                          })()}
                         </td>
                       </tr>
                     );
@@ -1036,10 +1194,25 @@ export default function OutreachPage() {
                     <span style={{ color: '#64748b', display: 'block', marginBottom: '2px' }}>Unique Employers ({uniqueEmployers.length}):</span>
                     <strong style={{ color: '#1e293b' }}>{uniqueEmployers.join(', ')}</strong>
                   </div>
-                  <div style={{ fontSize: '13px' }}>
-                    <span style={{ color: '#64748b', display: 'block', marginBottom: '2px' }}>Total Selected:</span>
-                    <strong style={{ color: '#16a34a', fontSize: '15px' }}>{selectedItemsMap.size} Emails</strong>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
+                    <div style={{ textAlign: 'center', backgroundColor: '#ffffff', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
+                      <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>Total Selected</span>
+                      <strong style={{ fontSize: '16px', color: '#1d4ed8' }}>{selectedItemsMap.size}</strong>
+                    </div>
+                    <div style={{ textAlign: 'center', backgroundColor: '#ffffff', padding: '8px', borderRadius: '6px', border: '1px solid #a7f3d0' }}>
+                      <span style={{ fontSize: '11px', color: '#047857', display: 'block' }}>Ready Now</span>
+                      <strong style={{ fontSize: '16px', color: '#047857' }}>{scheduleStats.readyCount}</strong>
+                    </div>
+                    <div style={{ textAlign: 'center', backgroundColor: '#ffffff', padding: '8px', borderRadius: '6px', border: '1px solid #fde68a' }}>
+                      <span style={{ fontSize: '11px', color: '#b45309', display: 'block' }}>Queued Later</span>
+                      <strong style={{ fontSize: '16px', color: '#b45309' }}>{scheduleStats.queuedCount}</strong>
+                    </div>
                   </div>
+                  {scheduleStats.skippedCount > 0 && (
+                    <div style={{ fontSize: '12px', color: '#b91c1c', marginTop: '8px', textAlign: 'center' }}>
+                      ⚠️ {scheduleStats.skippedCount} selected email(s) will be skipped (daily limit reached or ineligible)
+                    </div>
+                  )}
                 </>
               ) : (
                 <>

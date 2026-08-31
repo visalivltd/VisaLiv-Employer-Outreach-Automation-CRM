@@ -268,7 +268,7 @@ class OutreachService:
                     "email_draft": cand_draft_name,
                     "cv_file_path": candidate.cv_file_path,
                     "employer_id": employer.id,
-                    "employer_name": employer.service_name or employer.company_name or "Employer",
+                    "employer_name": employer.service_name or getattr(employer, "company_name", None) or "Employer",
                     "employer_email": emp_email,
                     "eligible": can_send,
                     "reason": reason,
