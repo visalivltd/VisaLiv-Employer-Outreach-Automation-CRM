@@ -168,6 +168,14 @@ class OutreachService:
             ).all()
         )
 
+        # 4b. Query active queued OutreachJobs
+        queued_jobs = db.scalars(
+            select(OutreachJob).where(
+                OutreachJob.status.in_(["pending", "processing"])
+            )
+        ).all()
+        queued_job_map = {(job.candidate_id, job.employer_id): job for job in queued_jobs}
+
         # 5. Batch query employers currently in 3-day cooldown
         cooldown_employer_ids = set(
             db.scalars(
@@ -186,6 +194,15 @@ class OutreachService:
             ).group_by(EmailLog.candidate_id)
         ).all()
         sent_today_per_candidate = {row[0]: row[1] for row in sent_today_rows}
+
+        # 6b. Batch query queued jobs today per candidate
+        queued_today_rows = db.execute(
+            select(OutreachJob.candidate_id, func.count(OutreachJob.id)).where(
+                OutreachJob.status.in_(["pending", "processing"]),
+                OutreachJob.created_at >= start_of_today,
+            ).group_by(OutreachJob.candidate_id)
+        ).all()
+        queued_today_per_candidate = {row[0]: row[1] for row in queued_today_rows}
 
         # 7. Query latest email per candidate for minimum gap rule
         latest_sent_rows = db.execute(
@@ -206,6 +223,7 @@ class OutreachService:
             )
 
             cand_sent_today = sent_today_per_candidate.get(candidate.id, 0)
+            cand_queued_today = queued_today_per_candidate.get(candidate.id, 0)
             cand_last_time = latest_sent_per_candidate.get(candidate.id)
             cand_next_eligible = None
 
@@ -224,12 +242,8 @@ class OutreachService:
                 cand_error = "Gmail account not connected"
             elif not candidate.email_draft_id or not candidate.email_draft:
                 cand_error = "Email draft not assigned to candidate"
-            elif cand_sent_today >= settings.max_emails_per_candidate_per_day:
+            elif (cand_sent_today + cand_queued_today) >= settings.max_emails_per_candidate_per_day:
                 cand_error = f"Daily limit reached — maximum {settings.max_emails_per_candidate_per_day} emails/day per candidate"
-            elif cand_last_time:
-                elapsed_minutes = (now_utc - cand_last_time).total_seconds() / 60.0
-                if elapsed_minutes < settings.min_gap_minutes:
-                    cand_error = f"Minimum gap of {settings.min_gap_minutes}m between candidate emails not elapsed. Next eligible send time: {cand_next_eligible.strftime('%H:%M:%S UTC')}"
 
             cand_eligible_count = 0
 
@@ -247,12 +261,20 @@ class OutreachService:
                 elif (candidate.id, employer.id) in sent_pairs:
                     can_send = False
                     reason = "Already contacted by this candidate"
+                elif (candidate.id, employer.id) in queued_job_map:
+                    can_send = False
+                    q_job = queued_job_map[(candidate.id, employer.id)]
+                    sched_time_str = q_job.scheduled_at.strftime("%H:%M UTC") if q_job.scheduled_at else ""
+                    reason = f"Already queued for outreach ({sched_time_str})"
                 elif employer.id in cooldown_employer_ids:
                     can_send = False
                     reason = "Employer in 3-day cooldown"
                 else:
                     can_send = True
-                    reason = "Ready"
+                    if cand_next_eligible and cand_next_eligible > now_utc:
+                        reason = f"Waiting — Next eligible send: {cand_next_eligible.strftime('%H:%M:%S UTC')}"
+                    else:
+                        reason = "Ready"
 
                 if can_send:
                     total_eligible += 1
@@ -279,6 +301,7 @@ class OutreachService:
                 "candidate_name": candidate.full_name,
                 "eligible_count": cand_eligible_count,
                 "sent_today_count": cand_sent_today,
+                "queued_today_count": cand_queued_today,
                 "daily_limit": settings.max_emails_per_candidate_per_day,
                 "min_gap_minutes": settings.min_gap_minutes,
                 "last_sent_at": cand_last_time.isoformat() if cand_last_time else None,
@@ -366,10 +389,23 @@ class OutreachService:
         db: Session,
         items: list[dict],
     ) -> dict:
+        settings = get_outreach_settings(db)
+        india_timezone = timezone(timedelta(hours=5, minutes=30))
+        now_utc = datetime.now(timezone.utc)
+        cooldown_start = now_utc - timedelta(days=3)
+        start_of_today = datetime.now(india_timezone).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+
         sent_count = 0
+        queued_count = 0
         failed_count = 0
         skipped_count = 0
         results = []
+
+        cand_next_send_dict = {}
+        cand_sent_today_dict = {}
+        cand_queued_today_dict = {}
 
         for item in items:
             candidate_id = item.get("candidate_id")
@@ -384,56 +420,183 @@ class OutreachService:
 
             if not candidate or not candidate.gmail_account or not employer:
                 skipped_count += 1
+                results.append({
+                    "candidate_id": candidate_id,
+                    "employer_id": employer_id,
+                    "status": "skipped",
+                    "reason": "Candidate/Employer missing or Gmail account not connected",
+                })
                 continue
 
-            try:
-                log = OutreachService.send_outreach(
-                    db=db,
-                    candidate_id=candidate_id,
-                    employer_id=employer_id,
-                    gmail_account=candidate.gmail_account,
-                    subject=item.get("subject", ""),
-                    body=item.get("body", ""),
+            if candidate_id not in cand_next_send_dict:
+                sent_today = db.scalar(
+                    select(func.count(EmailLog.id)).where(
+                        EmailLog.candidate_id == candidate_id,
+                        EmailLog.status.in_(["sent", "pending", "sending"]),
+                        EmailLog.created_at >= start_of_today,
+                    )
+                ) or 0
+                queued_today = db.scalar(
+                    select(func.count(OutreachJob.id)).where(
+                        OutreachJob.candidate_id == candidate_id,
+                        OutreachJob.status.in_(["pending", "processing", "sent"]),
+                        OutreachJob.created_at >= start_of_today,
+                    )
+                ) or 0
+
+                latest_log_time = db.scalar(
+                    select(func.max(EmailLog.created_at)).where(
+                        EmailLog.candidate_id == candidate_id,
+                        EmailLog.status.in_(["sent", "pending", "sending"]),
+                    )
                 )
-                if log.status == "sent":
-                    sent_count += 1
-                    results.append({
-                        "candidate_id": candidate_id,
-                        "employer_id": employer_id,
-                        "status": "sent",
-                        "log_id": log.id,
-                    })
+                latest_job_time = db.scalar(
+                    select(func.max(OutreachJob.scheduled_at)).where(
+                        OutreachJob.candidate_id == candidate_id,
+                        OutreachJob.status.in_(["pending", "processing", "sent"]),
+                    )
+                )
+
+                cand_last_time = None
+                if latest_log_time and latest_job_time:
+                    cand_last_time = max(latest_log_time, latest_job_time)
+                elif latest_log_time:
+                    cand_last_time = latest_log_time
+                elif latest_job_time:
+                    cand_last_time = latest_job_time
+
+                if cand_last_time:
+                    if cand_last_time.tzinfo is None:
+                        cand_last_time = cand_last_time.replace(tzinfo=timezone.utc)
+                    next_eligible = cand_last_time + timedelta(minutes=settings.min_gap_minutes)
+                    cand_next_send_dict[candidate_id] = max(now_utc, next_eligible)
                 else:
-                    failed_count += 1
-                    results.append({
-                        "candidate_id": candidate_id,
-                        "employer_id": employer_id,
-                        "status": "failed",
-                        "error": log.error_message,
-                    })
-            except Exception as e:
-                err_msg = str(e)
-                if "limit" in err_msg.lower() or "gap" in err_msg.lower() or "cooldown" in err_msg.lower() or "already" in err_msg.lower():
+                    cand_next_send_dict[candidate_id] = now_utc
+
+                cand_sent_today_dict[candidate_id] = sent_today
+                cand_queued_today_dict[candidate_id] = queued_today
+
+            sent_cnt = cand_sent_today_dict[candidate_id]
+            queued_cnt = cand_queued_today_dict[candidate_id]
+            if (sent_cnt + queued_cnt) >= settings.max_emails_per_candidate_per_day:
+                skipped_count += 1
+                results.append({
+                    "candidate_id": candidate_id,
+                    "employer_id": employer_id,
+                    "status": "skipped",
+                    "reason": f"Daily limit reached — maximum {settings.max_emails_per_candidate_per_day} emails/day per candidate",
+                })
+                continue
+
+            scheduled_time = cand_next_send_dict[candidate_id]
+            is_immediate = scheduled_time <= now_utc + timedelta(seconds=2)
+
+            if is_immediate:
+                cand_next_send_dict[candidate_id] = now_utc + timedelta(minutes=settings.min_gap_minutes)
+                try:
+                    log = OutreachService.send_outreach(
+                        db=db,
+                        candidate_id=candidate_id,
+                        employer_id=employer_id,
+                        gmail_account=candidate.gmail_account,
+                        subject=item.get("subject", ""),
+                        body=item.get("body", ""),
+                    )
+                    if log.status == "sent":
+                        sent_count += 1
+                        cand_sent_today_dict[candidate_id] += 1
+                        results.append({
+                            "candidate_id": candidate_id,
+                            "employer_id": employer_id,
+                            "status": "sent",
+                            "log_id": log.id,
+                        })
+                    else:
+                        failed_count += 1
+                        results.append({
+                            "candidate_id": candidate_id,
+                            "employer_id": employer_id,
+                            "status": "failed",
+                            "error": log.error_message,
+                        })
+                except Exception as e:
+                    err_msg = str(e)
+                    if "gap" in err_msg.lower():
+                        job = OutreachJob(
+                            candidate_id=candidate_id,
+                            employer_id=employer_id,
+                            gmail_account_id=candidate.gmail_account.id,
+                            scheduled_at=scheduled_time,
+                            status="pending",
+                            attempts=0,
+                        )
+                        db.add(job)
+                        db.commit()
+                        queued_count += 1
+                        cand_queued_today_dict[candidate_id] += 1
+                        results.append({
+                            "candidate_id": candidate_id,
+                            "employer_id": employer_id,
+                            "status": "queued",
+                            "job_id": job.id,
+                            "scheduled_at": scheduled_time.isoformat(),
+                        })
+                    elif "cooldown" in err_msg.lower() or "already" in err_msg.lower() or "limit" in err_msg.lower():
+                        skipped_count += 1
+                        results.append({
+                            "candidate_id": candidate_id,
+                            "employer_id": employer_id,
+                            "status": "skipped",
+                            "reason": err_msg,
+                        })
+                    else:
+                        failed_count += 1
+                        results.append({
+                            "candidate_id": candidate_id,
+                            "employer_id": employer_id,
+                            "status": "failed",
+                            "error": err_msg,
+                        })
+            else:
+                can_send, reason = OutreachService.can_send(db, candidate_id, employer_id)
+                if not can_send and reason and "minimum gap" not in reason.lower():
                     skipped_count += 1
                     results.append({
                         "candidate_id": candidate_id,
                         "employer_id": employer_id,
                         "status": "skipped",
-                        "reason": err_msg,
+                        "reason": reason,
                     })
-                else:
-                    failed_count += 1
-                    results.append({
-                        "candidate_id": candidate_id,
-                        "employer_id": employer_id,
-                        "status": "failed",
-                        "error": err_msg,
-                    })
+                    continue
+
+                job = OutreachJob(
+                    candidate_id=candidate_id,
+                    employer_id=employer_id,
+                    gmail_account_id=candidate.gmail_account.id,
+                    scheduled_at=scheduled_time,
+                    status="pending",
+                    attempts=0,
+                )
+                db.add(job)
+                db.commit()
+                queued_count += 1
+                cand_queued_today_dict[candidate_id] += 1
+                cand_next_send_dict[candidate_id] = scheduled_time + timedelta(minutes=settings.min_gap_minutes)
+                results.append({
+                    "candidate_id": candidate_id,
+                    "employer_id": employer_id,
+                    "status": "queued",
+                    "job_id": job.id,
+                    "scheduled_at": scheduled_time.isoformat(),
+                })
 
         return {
             "sent": sent_count,
+            "queued": queued_count,
             "failed": failed_count,
+            "skipped": skipped_count,
             "sent_count": sent_count,
+            "queued_count": queued_count,
             "failed_count": failed_count,
             "skipped_count": skipped_count,
             "details": results,
@@ -773,7 +936,32 @@ class OutreachService:
                     failed_cnt += 1
             except Exception as exc:
                 err_str = str(exc)
-                if "limit" in err_str.lower() or "cooldown" in err_str.lower() or "already" in err_str.lower() or "gap" in err_str.lower():
+                if "gap" in err_str.lower():
+                    # Gap restriction: reschedule job to pending for next worker poll
+                    latest_log = db.scalar(
+                        select(EmailLog)
+                        .where(
+                            EmailLog.candidate_id == job.candidate_id,
+                            EmailLog.status.in_(["sent", "pending", "sending"]),
+                        )
+                        .order_by(EmailLog.created_at.desc())
+                    )
+                    last_time = None
+                    if latest_log:
+                        last_time = latest_log.sent_at or latest_log.created_at
+                        if last_time and last_time.tzinfo is None:
+                            last_time = last_time.replace(tzinfo=timezone.utc)
+
+                    if last_time:
+                        next_eligible = last_time + timedelta(minutes=settings.min_gap_minutes)
+                        job.scheduled_at = max(now_utc, next_eligible)
+                    else:
+                        job.scheduled_at = now_utc + timedelta(minutes=settings.min_gap_minutes)
+
+                    job.status = "pending"
+                    job.error_message = err_str
+                    skipped_cnt += 1
+                elif "limit" in err_str.lower() or "cooldown" in err_str.lower() or "already" in err_str.lower():
                     job.status = "skipped"
                     job.error_message = err_str
                     skipped_cnt += 1
