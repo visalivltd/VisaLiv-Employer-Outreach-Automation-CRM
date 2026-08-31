@@ -858,20 +858,35 @@ export default function CandidatesPage() {
 
   // ================= FILE SERVING / OPENING =================
 
-  const openCV = (filePath) => {
+  const getFileUrl = (filePath) => {
     if (!filePath || typeof filePath !== 'string' || !filePath.trim()) {
-      return;
+      return '';
     }
 
-    const cleanPath = filePath.trim().replace(/^\/+/, '');
-    const finalPath = cleanPath.startsWith('uploads/') || cleanPath.startsWith('http://') || cleanPath.startsWith('https://')
+    const trimmed = filePath.trim();
+    if (trimmed.toLowerCase() === 'none' || trimmed.toLowerCase() === 'null') {
+      return '';
+    }
+
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+
+    let cleanPath = trimmed.replace(/^\/+/, '');
+    if (cleanPath.startsWith('api/v1/uploads/')) {
+      cleanPath = cleanPath.replace(/^api\/v1\//, '');
+    }
+
+    const finalPath = cleanPath.startsWith('uploads/')
       ? cleanPath
       : `uploads/${cleanPath}`;
 
-    const url = finalPath.startsWith('http://') || finalPath.startsWith('https://')
-      ? finalPath
-      : `${API_URL}/${finalPath}`;
+    return `${API_URL}/${finalPath}`;
+  };
 
+  const openCV = (filePath) => {
+    const url = getFileUrl(filePath);
+    if (!url) return;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
@@ -881,7 +896,16 @@ export default function CandidatesPage() {
       ? editingCandidate.email_draft
       : null);
 
-  const selectedDraftAttachmentPath = selectedDraft?.attachment_path;
+  const selectedDraftAttachmentPath = (
+    selectedDraft?.attachment_path &&
+    typeof selectedDraft.attachment_path === 'string' &&
+    selectedDraft.attachment_path.trim() &&
+    selectedDraft.attachment_path.trim().toLowerCase() !== 'none' &&
+    selectedDraft.attachment_path.trim().toLowerCase() !== 'null'
+  )
+    ? selectedDraft.attachment_path.trim()
+    : null;
+
   const selectedDraftAttachmentFilename =
     selectedDraft?.attachment_filename ||
     selectedDraft?.draft_name ||
