@@ -78,6 +78,41 @@ def batch_send_outreach(
 
 
 @router.post(
+    "/start",
+)
+def start_outreach(
+    candidate_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    return OutreachService.start_outreach(
+        db=db,
+        candidate_id=candidate_id,
+    )
+
+
+@router.get(
+    "/summary",
+)
+def get_outreach_summary(
+    db: Session = Depends(get_db),
+):
+    return OutreachService.get_outreach_summary(db)
+
+
+@router.post(
+    "/process-jobs",
+)
+def process_due_outreach_jobs(
+    max_jobs: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    return OutreachService.process_due_outreach_jobs(
+        db=db,
+        max_jobs=max_jobs,
+    )
+
+
+@router.post(
     "/send",
     status_code=status.HTTP_201_CREATED,
 )
@@ -118,4 +153,4 @@ def send_outreach(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-        )
+        )
