@@ -1,3 +1,4 @@
+from app.db.base import Base
 from app.models.admin import Admin
 from app.models.candidate import Candidate
 from app.models.employer import Employer

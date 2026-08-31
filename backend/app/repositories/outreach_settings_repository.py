@@ -34,10 +34,17 @@ def update_outreach_settings(
     safe_max_emails = max(1, min(20, max_emails_per_candidate_per_day))
     safe_min_gap = max(0, min_gap_minutes)
 
+    gap_changed = settings.min_gap_minutes != safe_min_gap
+
     settings.max_emails_per_candidate_per_day = safe_max_emails
     settings.min_gap_minutes = safe_min_gap
     settings.enabled = enabled
 
     db.commit()
     db.refresh(settings)
+
+    if gap_changed:
+        from app.services.outreach_service import OutreachService
+        OutreachService.reschedule_pending_jobs(db, safe_min_gap)
+
     return settings

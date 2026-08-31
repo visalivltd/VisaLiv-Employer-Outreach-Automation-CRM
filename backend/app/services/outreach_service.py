@@ -608,6 +608,59 @@ class OutreachService:
         }
 
     @staticmethod
+    def reschedule_pending_jobs(db: Session, min_gap_minutes: int | None = None) -> int:
+        if min_gap_minutes is None:
+            settings = get_outreach_settings(db)
+            min_gap_minutes = settings.min_gap_minutes
+
+        pending_jobs = db.scalars(
+            select(OutreachJob)
+            .where(OutreachJob.status == "pending")
+            .order_by(OutreachJob.candidate_id, OutreachJob.scheduled_at.asc(), OutreachJob.id.asc())
+        ).all()
+
+        if not pending_jobs:
+            return 0
+
+        from collections import defaultdict
+        cand_jobs = defaultdict(list)
+        for job in pending_jobs:
+            cand_jobs[job.candidate_id].append(job)
+
+        now_utc = datetime.now(timezone.utc)
+        updated_count = 0
+
+        for cand_id, jobs in cand_jobs.items():
+            latest_log = db.scalar(
+                select(EmailLog)
+                .where(
+                    EmailLog.candidate_id == cand_id,
+                    EmailLog.status.in_(["sent", "pending", "sending"]),
+                )
+                .order_by(EmailLog.created_at.desc())
+            )
+
+            last_time = None
+            if latest_log:
+                last_time = latest_log.sent_at or latest_log.created_at
+                if last_time and last_time.tzinfo is None:
+                    last_time = last_time.replace(tzinfo=timezone.utc)
+
+            if last_time:
+                next_eligible = last_time + timedelta(minutes=min_gap_minutes)
+                current_next_send = max(now_utc, next_eligible)
+            else:
+                current_next_send = now_utc
+
+            for job in jobs:
+                job.scheduled_at = current_next_send
+                current_next_send = current_next_send + timedelta(minutes=min_gap_minutes)
+                updated_count += 1
+
+        db.commit()
+        return updated_count
+
+    @staticmethod
     def process_due_outreach_jobs(db: Session, max_jobs: int = 50) -> dict:
         settings = get_outreach_settings(db)
         if not settings.enabled:
@@ -655,8 +708,27 @@ class OutreachService:
 
             if not can_send:
                 if reason and "minimum gap" in reason.lower():
-                    # Gap restriction: reschedule for next eligible time
-                    job.scheduled_at = now_utc + timedelta(minutes=settings.min_gap_minutes)
+                    # Gap restriction: reschedule for next eligible time based on candidate's last sent email
+                    latest_log = db.scalar(
+                        select(EmailLog)
+                        .where(
+                            EmailLog.candidate_id == job.candidate_id,
+                            EmailLog.status.in_(["sent", "pending", "sending"]),
+                        )
+                        .order_by(EmailLog.created_at.desc())
+                    )
+                    last_time = None
+                    if latest_log:
+                        last_time = latest_log.sent_at or latest_log.created_at
+                        if last_time and last_time.tzinfo is None:
+                            last_time = last_time.replace(tzinfo=timezone.utc)
+
+                    if last_time:
+                        next_eligible = last_time + timedelta(minutes=settings.min_gap_minutes)
+                        job.scheduled_at = max(now_utc, next_eligible)
+                    else:
+                        job.scheduled_at = now_utc + timedelta(minutes=settings.min_gap_minutes)
+
                     job.status = "pending"
                     job.error_message = reason
                     db.commit()
