@@ -1,3 +1,6 @@
+import os
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+
 from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
@@ -293,12 +296,58 @@ def test_get_and_put_outreach_settings_endpoints(test_db):
 
         # PUT /api/v1/outreach/settings
         resp_put2 = client.put(
-            "/api/v1/outreach/settings",
+            "/outreach/settings",
             json={"max_emails_per_candidate_per_day": 5, "min_gap_minutes": 60, "enabled": True},
         )
         assert resp_put2.status_code == 200
     finally:
         app.dependency_overrides.clear()
+
+
+def test_updating_min_gap_reschedules_pending_jobs(test_db):
+    """TEST 11: Updating min_gap_minutes from 90 to 15 updates scheduled_at on pending jobs."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=5, min_gap_minutes=90, enabled=True)
+
+    # Candidate 1 sends email 1 at time T-10 mins
+    now_utc = datetime.now(timezone.utc)
+    log_1 = EmailLog(
+        candidate_id=1,
+        employer_id=1,
+        gmail_account_id=1,
+        subject="Email 1",
+        status="sent",
+        created_at=now_utc - timedelta(minutes=10),
+        sent_at=now_utc - timedelta(minutes=10),
+    )
+    test_db.add(log_1)
+    test_db.commit()
+
+    # Start outreach: schedules next job for T-10m + 90m = T+80m
+    OutreachService.start_outreach(test_db, candidate_id=1)
+
+    pending_job = test_db.scalars(
+        select(OutreachJob).where(OutreachJob.candidate_id == 1, OutreachJob.status == "pending")
+    ).first()
+    assert pending_job is not None
+
+    sched_time_before = pending_job.scheduled_at
+    if sched_time_before.tzinfo is None:
+        sched_time_before = sched_time_before.replace(tzinfo=timezone.utc)
+    # With 90m gap, scheduled_at is around T+80m
+    assert (sched_time_before - now_utc).total_seconds() > 60 * 60
+
+    # User updates settings to 15m gap
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=5, min_gap_minutes=15, enabled=True)
+
+    test_db.refresh(pending_job)
+    sched_time_after = pending_job.scheduled_at
+    if sched_time_after.tzinfo is None:
+        sched_time_after = sched_time_after.replace(tzinfo=timezone.utc)
+
+    # With 15m gap, candidate is eligible at T-10m + 15m = T+5m (or now_utc)
+    # The new scheduled_at must be significantly earlier than the old 90m scheduled_at
+    assert (sched_time_after - now_utc).total_seconds() <= 15 * 60 + 5
+
 
 
 

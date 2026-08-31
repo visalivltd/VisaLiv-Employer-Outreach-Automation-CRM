@@ -133,9 +133,8 @@ export default function OutreachPage() {
       setSettingsSuccess('Outreach sending settings saved successfully!');
       setTimeout(() => setSettingsSuccess(''), 4000);
 
-      if (previewData) {
-        loadPreview(page, selectedCandidateFilter);
-      }
+      // Refresh outreach queue preview immediately to reflect updated gap send times
+      loadPreview(page, selectedCandidateFilter);
     } catch (err) {
       setSettingsError(err.message || 'Failed to save settings');
     } finally {
