@@ -189,6 +189,25 @@ export default function OutreachPage() {
       const data = await res.json();
       setPreviewData(data);
       setPage(targetPage);
+
+      // Prune selectedItemsMap so it preserves ONLY currently selected row IDs that exist and are eligible in the current preview data
+      setSelectedItemsMap((prevMap) => {
+        if (prevMap.size === 0) return prevMap;
+        const nextMap = new Map();
+        const validItemMap = new Map();
+        (data.items || []).forEach((i) => {
+          if (i.eligible) {
+            validItemMap.set(getItemKey(i), i);
+          }
+        });
+
+        for (const [key] of prevMap.entries()) {
+          if (validItemMap.has(key)) {
+            nextMap.set(key, validItemMap.get(key));
+          }
+        }
+        return nextMap;
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -207,6 +226,20 @@ export default function OutreachPage() {
     const nextFilter = selectedCandidateFilter === candId ? null : candId;
     setSelectedCandidateFilter(nextFilter);
     setPage(1);
+
+    // Filter selectedItemsMap so that switching candidate filter prunes items of other candidates
+    if (nextFilter !== null) {
+      setSelectedItemsMap((prevMap) => {
+        const nextMap = new Map();
+        for (const [key, item] of prevMap.entries()) {
+          if (item.candidate_id === nextFilter) {
+            nextMap.set(key, item);
+          }
+        }
+        return nextMap;
+      });
+    }
+
     loadPreview(1, nextFilter);
   };
 
@@ -303,29 +336,65 @@ export default function OutreachPage() {
       setMessage('');
 
       let baseUrl = getApiUrl();
-      let endpoint = selectedCandidateFilter
-        ? `/outreach/start?candidate_id=${selectedCandidateFilter}`
-        : `/outreach/start`;
+      const selectedList = Array.from(selectedItemsMap.values());
+      const isManualBatch = selectedList.length > 0;
 
-      let res = await fetch(`${baseUrl}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      let res;
+      if (isManualBatch) {
+        // Send exact manually selected candidate-employer pairings
+        const payload = selectedList.map((item) => ({
+          candidate_id: item.candidate_id,
+          employer_id: item.employer_id,
+          subject: '',
+          body: '',
+        }));
 
-      if (!res.ok && !baseUrl.includes('/api/v1')) {
-        res = await fetch(`${baseUrl}/api/v1${endpoint}`, {
+        res = await fetch(`${baseUrl}/outreach/batch-send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok && !baseUrl.includes('/api/v1')) {
+          res = await fetch(`${baseUrl}/api/v1/outreach/batch-send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        }
+      } else {
+        // Automated outreach start for all eligible pairings (or filtered candidate)
+        let endpoint = selectedCandidateFilter
+          ? `/outreach/start?candidate_id=${selectedCandidateFilter}`
+          : `/outreach/start`;
+
+        res = await fetch(`${baseUrl}${endpoint}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
         });
+
+        if (!res.ok && !baseUrl.includes('/api/v1')) {
+          res = await fetch(`${baseUrl}/api/v1${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
       }
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || data.message || 'Failed to start automated outreach');
+      if (!res.ok) throw new Error(data.detail || data.message || 'Failed to execute outreach campaign');
 
-      if (data.success) {
-        setMessage(data.message || `Outreach jobs queued successfully: ${data.queued} scheduled, ${data.skipped} skipped.`);
+      if (isManualBatch) {
+        const sentCount = data.sent_count ?? data.sent ?? 0;
+        const failedCount = data.failed_count ?? data.failed ?? 0;
+        const skippedCount = data.skipped_count ?? data.skipped ?? 0;
+        setMessage(`Selected outreach batch executed: ${sentCount} email(s) sent successfully${failedCount > 0 ? `, ${failedCount} failed` : ''}${skippedCount > 0 ? `, ${skippedCount} skipped` : ''}.`);
       } else {
-        setError(data.message || 'Failed to queue outreach jobs');
+        if (data.success) {
+          setMessage(data.message || `Outreach jobs queued successfully: ${data.queued} scheduled, ${data.skipped} skipped.`);
+        } else {
+          setError(data.message || 'Failed to queue outreach jobs');
+        }
       }
 
       setSelectedItemsMap(new Map());
@@ -333,7 +402,7 @@ export default function OutreachPage() {
       await loadData();
       await loadPreview(page, selectedCandidateFilter);
     } catch (err) {
-      setError(err.message || 'Failed to start outreach campaign');
+      setError(err.message || 'Failed to execute outreach campaign');
     } finally {
       setStartingBatch(false);
     }
