@@ -29,6 +29,8 @@ class EmailDraftInfo(BaseModel):
     draft_name: str | None = None
     subject: str | None = None
     has_attachment: bool = False
+    attachment_filename: str | None = None
+    attachment_path: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

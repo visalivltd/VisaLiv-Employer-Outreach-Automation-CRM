@@ -128,5 +128,7 @@ class Candidate(Base):
                 "draft_name": self.email_draft.draft_name,
                 "subject": self.email_draft.subject,
                 "has_attachment": self.email_draft.has_attachment,
+                "attachment_filename": self.email_draft.attachment_filename,
+                "attachment_path": self.email_draft.attachment_path,
             }
         return None
