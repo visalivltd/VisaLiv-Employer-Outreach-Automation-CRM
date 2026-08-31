@@ -349,5 +349,246 @@ def test_updating_min_gap_reschedules_pending_jobs(test_db):
     assert (sched_time_after - now_utc).total_seconds() <= 15 * 60 + 5
 
 
+def test_batch_outreach_queues_minimum_gap_jobs(test_db):
+    """TEST 12: Batch outreach sends 1st email immediately and queues 2nd & 3rd emails with 2m gap."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=10, min_gap_minutes=2, enabled=True)
+
+    pairings = [
+        {"candidate_id": 1, "employer_id": 1},
+        {"candidate_id": 1, "employer_id": 2},
+        {"candidate_id": 1, "employer_id": 3},
+    ]
+
+    res = OutreachService.batch_outreach(test_db, pairings)
+    assert res["queued"] == 2
+    assert (res["sent"] + res["failed"]) == 1
+    assert res["skipped"] == 0
+
+    queued_jobs = test_db.scalars(
+        select(OutreachJob)
+        .where(OutreachJob.candidate_id == 1, OutreachJob.status == "pending")
+        .order_by(OutreachJob.scheduled_at.asc())
+    ).all()
+
+    assert len(queued_jobs) == 2
+
+    now_utc = datetime.now(timezone.utc)
+    j1_time = queued_jobs[0].scheduled_at
+    if j1_time.tzinfo is None:
+        j1_time = j1_time.replace(tzinfo=timezone.utc)
+
+    j2_time = queued_jobs[1].scheduled_at
+    if j2_time.tzinfo is None:
+        j2_time = j2_time.replace(tzinfo=timezone.utc)
+
+    assert 1.8 * 60 <= (j1_time - now_utc).total_seconds() <= 2.2 * 60
+    assert 3.8 * 60 <= (j2_time - now_utc).total_seconds() <= 4.2 * 60
+
+
+def test_worker_execution_for_queued_jobs_at_scheduled_time(test_db):
+    """TEST 13: Simulate background worker execution at T+2m and T+4m for queued gap jobs."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=4, min_gap_minutes=2, enabled=True)
+
+    now_utc = datetime.now(timezone.utc)
+
+    # 1. Create 3 queued jobs with scheduled_at at T, T+2m, T+4m
+    job1 = OutreachJob(candidate_id=1, employer_id=1, gmail_account_id=1, scheduled_at=now_utc - timedelta(seconds=5), status="pending")
+    job2 = OutreachJob(candidate_id=1, employer_id=2, gmail_account_id=1, scheduled_at=now_utc + timedelta(minutes=2), status="pending")
+    job3 = OutreachJob(candidate_id=1, employer_id=3, gmail_account_id=1, scheduled_at=now_utc + timedelta(minutes=4), status="pending")
+    test_db.add_all([job1, job2, job3])
+    test_db.commit()
+
+    log1 = EmailLog(candidate_id=1, employer_id=1, gmail_account_id=1, subject="Test 1", status="sent", created_at=now_utc, sent_at=now_utc)
+    job1.status = "sent"
+    job1.email_log_id = 1
+    job1.sent_at = now_utc
+    test_db.add(log1)
+    test_db.commit()
+
+    # 2. Worker runs at T+1m (Job 2 scheduled_at is T+2m -> not due yet)
+    due_at_1m = test_db.scalars(
+        select(OutreachJob).where(OutreachJob.status == "pending", OutreachJob.scheduled_at <= now_utc + timedelta(minutes=1))
+    ).all()
+    assert len(due_at_1m) == 0
+
+    # 3. Worker runs at T+2m (Job 2 is due)
+    time_2m = now_utc + timedelta(minutes=2, seconds=1)
+    log2 = EmailLog(candidate_id=1, employer_id=2, gmail_account_id=1, subject="Test 2", status="sent", created_at=time_2m, sent_at=time_2m)
+    job2.status = "sent"
+    job2.email_log_id = 2
+    job2.sent_at = time_2m
+    test_db.add(log2)
+    test_db.commit()
+
+    test_db.refresh(job2)
+    test_db.refresh(job3)
+    assert job2.status == "sent"
+    assert job3.status == "pending"
+
+    # 4. Worker runs at T+4m (Job 3 is due)
+    time_4m = now_utc + timedelta(minutes=4, seconds=1)
+    log3 = EmailLog(candidate_id=1, employer_id=3, gmail_account_id=1, subject="Test 3", status="sent", created_at=time_4m, sent_at=time_4m)
+    job3.status = "sent"
+    job3.email_log_id = 3
+    job3.sent_at = time_4m
+    test_db.add(log3)
+    test_db.commit()
+
+    test_db.refresh(job3)
+    assert job3.status == "sent"
+
+
+def test_worker_subsecond_polling_reschedules_not_skips(test_db):
+    """TEST 14: Worker polling slightly before full gap precision reschedules job to pending, NOT skipped, and sends on next poll."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=4, min_gap_minutes=2, enabled=True)
+
+    now_utc = datetime.now(timezone.utc)
+    # Email 1 sent 1m 58s ago (1.966 minutes ago)
+    start_time = now_utc - timedelta(minutes=1, seconds=58)
+    log1 = EmailLog(
+        candidate_id=1,
+        employer_id=1,
+        gmail_account_id=1,
+        subject="Email 1",
+        status="sent",
+        created_at=start_time,
+        sent_at=start_time,
+    )
+    test_db.add(log1)
+    test_db.commit()
+
+    # Second job due 1s ago by scheduled_at, but gap is 1.966m (< 2.0m)
+    job2_time = now_utc - timedelta(seconds=1)
+    job2 = OutreachJob(
+        candidate_id=1,
+        employer_id=2,
+        gmail_account_id=1,
+        scheduled_at=job2_time,
+        status="pending",
+    )
+    test_db.add(job2)
+    test_db.commit()
+
+    # 1. Worker polls when job2 is due by scheduled_at, but gap is 1.966m
+    res_poll1 = OutreachService.process_due_outreach_jobs(test_db)
+    assert res_poll1["processed"] == 1
+
+    # 2. Verify job2 status remains PENDING and scheduled_at is updated to start_time + 2m
+    test_db.refresh(job2)
+    assert job2.status == "pending"
+    assert "minimum gap" in job2.error_message.lower()
+
+    expected_next = start_time + timedelta(minutes=2)
+    sched_tz = job2.scheduled_at.replace(tzinfo=timezone.utc) if job2.scheduled_at.tzinfo is None else job2.scheduled_at
+    assert abs((sched_tz - expected_next).total_seconds()) < 1.0
+
+
+def test_batch_outreach_counts_and_daily_limit_capacity(test_db):
+    """TEST 15: Verify batch outreach returns exact counts (sent_count, queued_count, skipped_count) and respects daily capacity."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=4, min_gap_minutes=2, enabled=True)
+
+    pairings = [
+        {"candidate_id": 1, "employer_id": 1},
+        {"candidate_id": 1, "employer_id": 2},
+        {"candidate_id": 1, "employer_id": 3},
+        {"candidate_id": 1, "employer_id": 4},
+        {"candidate_id": 1, "employer_id": 5},
+        {"candidate_id": 1, "employer_id": 6},
+    ]
+
+    res = OutreachService.batch_outreach(test_db, pairings)
+
+    assert "sent_count" in res
+    assert "queued_count" in res
+    assert "skipped_count" in res
+    assert "failed_count" in res
+
+    assert (res["sent_count"] + res["failed_count"]) == 1
+    assert res["queued_count"] == 4
+    assert res["skipped_count"] == 1
+
+
+def test_exact_real_batch_outreach_scenario_50_selected_1_sent_3_queued_46_skipped(test_db, monkeypatch):
+    """TEST 16: Exact real scenario - 50 selected, limit 4, sent today 0 -> 1 sent, 3 queued, 46 skipped."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=4, min_gap_minutes=2, enabled=True)
+
+    dummy_log = EmailLog(candidate_id=1, employer_id=1, gmail_account_id=1, subject="Test", status="sent", sent_at=datetime.now(timezone.utc))
+    dummy_log.id = 999
+    monkeypatch.setattr(OutreachService, "send_outreach", lambda *args, **kwargs: dummy_log)
+
+    pairings = [{"candidate_id": 1, "employer_id": i} for i in range(1, 51)]
+
+    res = OutreachService.batch_outreach(test_db, pairings)
+
+    assert res["sent_count"] == 1
+    assert res["queued_count"] == 3
+    assert res["skipped_count"] == 46
+    assert res["failed_count"] == 0
+
+    pending_jobs = test_db.scalars(
+        select(OutreachJob)
+        .where(OutreachJob.candidate_id == 1, OutreachJob.status == "pending")
+        .order_by(OutreachJob.scheduled_at.asc())
+    ).all()
+
+    assert len(pending_jobs) == 3
+
+
+def test_batch_outreach_scenario_daily_limit_20_sent_1_queued_18_skipped_31(test_db, monkeypatch):
+    """TEST 17: Limit 20, sent_today 1, selected 50 -> 1 sent, 18 queued, 31 skipped = 50 total."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=20, min_gap_minutes=2, enabled=True)
+
+    # Ensure 50 active employers exist in test_db
+    for i in range(1, 51):
+        if not test_db.get(Employer, i):
+            emp = Employer(id=i, service_name=f"Test Employer {i}", email=f"emp{i}@example.com", is_active=True)
+            test_db.add(emp)
+    test_db.commit()
+
+    # Simulate 1 existing sent email today for candidate 1
+    existing_log = EmailLog(
+        candidate_id=1,
+        employer_id=999,
+        gmail_account_id=1,
+        subject="Previous Email Today",
+        status="sent",
+        created_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        sent_at=datetime.now(timezone.utc) - timedelta(minutes=10)
+    )
+    test_db.add(existing_log)
+    test_db.commit()
+
+    # Mock send_outreach so item 1 sends successfully
+    dummy_log = EmailLog(candidate_id=1, employer_id=1, gmail_account_id=1, subject="Test", status="sent", sent_at=datetime.now(timezone.utc))
+    dummy_log.id = 1001
+    monkeypatch.setattr(OutreachService, "send_outreach", lambda *args, **kwargs: dummy_log)
+
+    # 50 selected items
+    pairings = [{"candidate_id": 1, "employer_id": i} for i in range(1, 51)]
+
+    res = OutreachService.batch_outreach(test_db, pairings)
+
+    assert res["sent_count"] == 1
+    assert res["queued_count"] == 18
+    assert res["skipped_count"] == 31
+    assert res["failed_count"] == 0
+
+    assert (res["sent_count"] + res["queued_count"] + res["skipped_count"] + res["failed_count"]) == 50
+
+    pending_jobs = test_db.scalars(
+        select(OutreachJob)
+        .where(OutreachJob.candidate_id == 1, OutreachJob.status == "pending")
+        .order_by(OutreachJob.scheduled_at.asc())
+    ).all()
+
+    assert len(pending_jobs) == 18
+
+
+
+
+
+
+
+
 
 

@@ -207,21 +207,19 @@ export default function OutreachPage() {
       setPreviewData(safeData);
       setPage(targetPage);
 
-      // Prune selectedItemsMap safely
+      // Reconcile selectedItemsMap safely: preserve user selections across pages and eligibility states
       setSelectedItemsMap((prevMap) => {
         if (!prevMap || prevMap.size === 0) return prevMap || new Map();
-        const nextMap = new Map();
-        const validItemMap = new Map();
-        safeData.items.forEach((i) => {
-          if (i && i.eligible) {
-            validItemMap.set(getItemKey(i), i);
+        const freshItemMap = new Map();
+        safeData.items.forEach((item) => {
+          if (item) {
+            freshItemMap.set(getItemKey(item), item);
           }
         });
 
-        for (const [key] of prevMap.entries()) {
-          if (validItemMap.has(key)) {
-            nextMap.set(key, validItemMap.get(key));
-          }
+        const nextMap = new Map();
+        for (const [key, existingItem] of prevMap.entries()) {
+          nextMap.set(key, freshItemMap.get(key) || existingItem);
         }
         return nextMap;
       });
@@ -305,10 +303,12 @@ export default function OutreachPage() {
           }
         }
 
+        const queuedToday = Number(summary.queued_today_count) || 0;
         let currentSendTime = nextEligible > now ? nextEligible : now;
-        let candidateSentBudget = Math.max(0, dailyLimit - sentToday);
+        let candidateSentBudget = Math.max(0, dailyLimit - sentToday - queuedToday);
+        let validSendableIndex = 0;
 
-        items.forEach((item, index) => {
+        items.forEach((item) => {
           const key = getItemKey(item);
 
           if (!item.eligible) {
@@ -320,7 +320,7 @@ export default function OutreachPage() {
             return;
           }
 
-          if (index >= candidateSentBudget) {
+          if (validSendableIndex >= candidateSentBudget) {
             skippedCount++;
             itemStatuses.set(key, {
               type: 'skipped',
@@ -331,7 +331,7 @@ export default function OutreachPage() {
 
           const isReady = currentSendTime.getTime() <= now.getTime() + 1000;
 
-          if (isReady && index === 0 && (sentToday === 0 || !summary.next_eligible_at || nextEligible <= now)) {
+          if (isReady && validSendableIndex === 0 && (sentToday === 0 || !summary.next_eligible_at || nextEligible <= now)) {
             readyCount++;
             itemStatuses.set(key, {
               type: 'ready',
@@ -349,6 +349,8 @@ export default function OutreachPage() {
             });
             currentSendTime = new Date(currentSendTime.getTime() + minGap * 60 * 1000);
           }
+
+          validSendableIndex++;
         });
       }
 
@@ -368,9 +370,9 @@ export default function OutreachPage() {
     return count;
   };
 
-  // Toggle individual row selection (no manual selection cap)
+  // Toggle individual row selection (unrestricted)
   const handleToggleRow = (item) => {
-    if (!item.eligible) return;
+    if (!item) return;
 
     const key = getItemKey(item);
     const nextMap = new Map(selectedItemsMap);
@@ -384,15 +386,17 @@ export default function OutreachPage() {
     setSelectedItemsMap(nextMap);
   };
 
-  // Select all eligible items on current page
-  const pageEligibleItems = previewData ? previewData.items.filter((i) => i.eligible) : [];
+  // All valid items on current page (regardless of eligibility status)
+  const pageItems = Array.isArray(previewData?.items)
+    ? previewData.items.filter(Boolean)
+    : [];
 
   const isAllPageSelected =
-    pageEligibleItems.length > 0 &&
-    pageEligibleItems.every((item) => selectedItemsMap.has(getItemKey(item)));
+    pageItems.length > 0 &&
+    pageItems.every((item) => selectedItemsMap.has(getItemKey(item)));
 
   const isSomePageSelected =
-    pageEligibleItems.some((item) => selectedItemsMap.has(getItemKey(item))) &&
+    pageItems.some((item) => selectedItemsMap.has(getItemKey(item))) &&
     !isAllPageSelected;
 
   useEffect(() => {
@@ -405,9 +409,11 @@ export default function OutreachPage() {
     setError('');
     const nextMap = new Map(selectedItemsMap);
     if (isAllPageSelected) {
-      pageEligibleItems.forEach((item) => nextMap.delete(getItemKey(item)));
+      pageItems.forEach((item) => {
+        nextMap.delete(getItemKey(item));
+      });
     } else {
-      pageEligibleItems.forEach((item) => {
+      pageItems.forEach((item) => {
         const key = getItemKey(item);
         if (!nextMap.has(key)) {
           nextMap.set(key, item);
@@ -453,6 +459,11 @@ export default function OutreachPage() {
           body: '',
         }));
 
+        console.log("=== REAL OUTREACH REQUEST ===");
+        console.log("URL:", `${baseUrl}/outreach/batch-send`);
+        console.log("SELECTED COUNT:", selectedList.length);
+        console.log("PAYLOAD:", payload);
+
         res = await fetch(`${baseUrl}/outreach/batch-send`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -467,7 +478,6 @@ export default function OutreachPage() {
           });
         }
       } else {
-        // Automated outreach start for all eligible pairings (or filtered candidate)
         let endpoint = selectedCandidateFilter
           ? `/outreach/start?candidate_id=${selectedCandidateFilter}`
           : `/outreach/start`;
@@ -486,13 +496,27 @@ export default function OutreachPage() {
       }
 
       const data = await res.json();
+      console.log("=== REAL OUTREACH RESPONSE ===");
+      console.log("HTTP STATUS:", res.status);
+      console.log("RAW RESPONSE:", data);
+      console.log("sent:", data.sent, "sent_count:", data.sent_count);
+      console.log("queued:", data.queued, "queued_count:", data.queued_count);
+      console.log("failed:", data.failed, "failed_count:", data.failed_count);
+      console.log("skipped:", data.skipped, "skipped_count:", data.skipped_count);
       if (!res.ok) throw new Error(data.detail || data.message || 'Failed to execute outreach campaign');
 
       if (isManualBatch) {
         const sentCount = data.sent_count ?? data.sent ?? 0;
+        const queuedCount = data.queued_count ?? data.queued ?? 0;
         const failedCount = data.failed_count ?? data.failed ?? 0;
         const skippedCount = data.skipped_count ?? data.skipped ?? 0;
-        setMessage(`Selected outreach batch executed: ${sentCount} email(s) sent successfully${failedCount > 0 ? `, ${failedCount} failed` : ''}${skippedCount > 0 ? `, ${skippedCount} skipped` : ''}.`);
+        setMessage(
+          `Selected outreach batch executed: ${sentCount} email(s) sent successfully${
+            queuedCount > 0 ? `, ${queuedCount} queued` : ''
+          }${failedCount > 0 ? `, ${failedCount} failed` : ''}${
+            skippedCount > 0 ? `, ${skippedCount} skipped` : ''
+          }.`
+        );
       } else {
         if (data.success) {
           setMessage(data.message || `Outreach jobs queued successfully: ${data.queued} scheduled, ${data.skipped} skipped.`);
@@ -600,6 +624,7 @@ export default function OutreachPage() {
   const totalCount = previewData?.total || 0;
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
   const startIdx = totalCount > 0 ? (page - 1) * pageSize + 1 : 0;
+  const endIdx = totalCount > 0 ? Math.min(page * pageSize, totalCount) : 0;
   // Compute Ready, Queued, Skipped schedule statistics for selected items
   const scheduleStats = computeSelectedSchedule();
 
@@ -729,6 +754,8 @@ export default function OutreachPage() {
                 onChange={(e) => setSettings({ ...settings, min_gap_minutes: Number(e.target.value) })}
                 style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
               >
+                <option value={2}>2 Minutes</option>
+                <option value={5}>5 Minutes</option>
                 <option value={15}>15 Minutes</option>
                 <option value={30}>30 Minutes</option>
                 <option value={60}>1 Hour (60 mins)</option>
@@ -989,9 +1016,9 @@ export default function OutreachPage() {
                         ref={headerCheckboxRef}
                         checked={isAllPageSelected}
                         onChange={handleToggleSelectAllPage}
-                        disabled={!previewData || pageEligibleItems.length === 0}
-                        title={isAllPageSelected ? 'Deselect Page' : 'Select Eligible on this Page'}
-                        style={{ cursor: pageEligibleItems.length > 0 ? 'pointer' : 'not-allowed' }}
+                        disabled={!previewData || pageItems.length === 0}
+                        title={isAllPageSelected ? 'Deselect Page' : 'Select All on this Page'}
+                        style={{ cursor: pageItems.length > 0 ? 'pointer' : 'not-allowed' }}
                       />
                     </th>
                     <th style={{ width: '18%' }}>Candidate</th>
@@ -1019,10 +1046,9 @@ export default function OutreachPage() {
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            disabled={!item.eligible}
                             onChange={() => handleToggleRow(item)}
-                            title={!item.eligible ? item.reason : (isSelected ? 'Selected for outreach' : 'Click to select')}
-                            style={{ cursor: item.eligible ? 'pointer' : 'not-allowed' }}
+                            title={isSelected ? 'Selected for outreach' : 'Click to select'}
+                            style={{ cursor: 'pointer' }}
                           />
                         </td>
                         <td>
