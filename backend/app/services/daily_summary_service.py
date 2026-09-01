@@ -150,18 +150,20 @@ def get_todays_applications_for_real_candidate(
     real_candidate: RealCandidate,
     target_date: date | None = None,
 ) -> list[EmailLog]:
+    india_tz = timezone(timedelta(hours=5, minutes=30))
     if target_date is None:
-        india_tz = timezone(timedelta(hours=5, minutes=30))
         target_date = datetime.now(india_tz).date()
 
-    start_dt = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
-    end_dt = datetime.combine(target_date, time.max, tzinfo=timezone.utc)
+    start_dt_ist = datetime.combine(target_date, time.min, tzinfo=india_tz)
+    start_dt = start_dt_ist.astimezone(timezone.utc)
+    end_dt_ist = datetime.combine(target_date, time.max, tzinfo=india_tz)
+    end_dt = end_dt_ist.astimezone(timezone.utc)
 
     linked_cand_ids = [c.id for c in real_candidate.candidates] if real_candidate.candidates else []
     if not linked_cand_ids:
         return []
 
-    # Query authoritative sent outgoing application logs from target date
+    # Query authoritative sent outgoing application logs from target date IST
     statement = (
         select(EmailLog)
         .where(
@@ -291,12 +293,14 @@ def is_summary_already_sent_today(
     real_candidate: RealCandidate,
     target_date: date | None = None,
 ) -> bool:
+    india_tz = timezone(timedelta(hours=5, minutes=30))
     if target_date is None:
-        india_tz = timezone(timedelta(hours=5, minutes=30))
         target_date = datetime.now(india_tz).date()
 
-    start_dt = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
-    end_dt = datetime.combine(target_date, time.max, tzinfo=timezone.utc)
+    start_dt_ist = datetime.combine(target_date, time.min, tzinfo=india_tz)
+    start_dt = start_dt_ist.astimezone(timezone.utc)
+    end_dt_ist = datetime.combine(target_date, time.max, tzinfo=india_tz)
+    end_dt = end_dt_ist.astimezone(timezone.utc)
 
     linked_cand_ids = [c.id for c in real_candidate.candidates] if real_candidate.candidates else []
 
@@ -329,8 +333,8 @@ def send_daily_summary_for_real_candidate(
     if not real_cand.email or not real_cand.email.strip():
         return {"success": False, "sent": False, "reason": "Real Candidate has no email address configured"}
 
+    india_tz = timezone(timedelta(hours=5, minutes=30))
     if target_date is None:
-        india_tz = timezone(timedelta(hours=5, minutes=30))
         target_date = datetime.now(india_tz).date()
 
     # 1. Idempotency Check
@@ -350,7 +354,7 @@ def send_daily_summary_for_real_candidate(
             "reason": f"No job applications sent today ({target_date.strftime('%Y-%m-%d')}) for {real_cand.name}",
         }
 
-    # 3. Resolve Gmail sender
+    # 3. Resolve Gmail sender (support@visaliv.com)
     sender_account = resolve_summary_gmail_sender(db, real_cand)
 
     # 4. Generate rendered content
@@ -396,15 +400,26 @@ def send_daily_summary_for_real_candidate(
     }
 
 
-def send_all_daily_summaries(db: Session, target_date: date | None = None) -> dict:
-    real_cands = real_candidate_repository.get_real_candidates(db)
+def send_all_daily_summaries(
+    db: Session,
+    target_date: date | None = None,
+    real_candidate_ids: list[int] | None = None,
+    force: bool = False,
+) -> dict:
+    all_cands = real_candidate_repository.get_real_candidates(db)
+    if real_candidate_ids:
+        target_ids = set(real_candidate_ids)
+        real_cands = [rc for rc in all_cands if rc.id in target_ids]
+    else:
+        real_cands = all_cands
+
     results = []
     sent_count = 0
     skipped_count = 0
 
     for real_cand in real_cands:
         try:
-            res = send_daily_summary_for_real_candidate(db, real_cand.id, target_date=target_date, force=False)
+            res = send_daily_summary_for_real_candidate(db, real_cand.id, target_date=target_date, force=force)
             if res.get("sent"):
                 sent_count += 1
             else:
