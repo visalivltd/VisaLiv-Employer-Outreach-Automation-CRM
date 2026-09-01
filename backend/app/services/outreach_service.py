@@ -940,6 +940,15 @@ class OutreachService:
                 db.commit()
                 skipped_cnt += 1
                 continue
+            elif eligibility.reason_code == ReasonCode.DAILY_LIMIT:
+                # Daily limit reached for today: reschedule to tomorrow's quota instead of skipping
+                start_tomorrow = OutreachService.get_start_of_today_ist() + timedelta(days=1)
+                job.scheduled_at = start_tomorrow
+                job.status = "pending"
+                job.error_message = eligibility.reason
+                db.commit()
+                skipped_cnt += 1
+                continue
             elif not eligibility.allowed:
                 # Smart Auto-Replacement: If assigned employer entered 3-day cooldown or was contacted,
                 # auto-assign next available free & eligible employer for candidate instead of wasting slot.
