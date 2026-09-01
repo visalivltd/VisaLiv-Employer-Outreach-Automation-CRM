@@ -1014,6 +1014,8 @@ class OutreachService:
 
     @staticmethod
     def get_outreach_summary(db: Session) -> dict:
+        start_of_today = OutreachService.get_start_of_today_ist()
+
         pending_cnt = db.scalar(
             select(func.count(OutreachJob.id)).where(OutreachJob.status == "pending")
         ) or 0
@@ -1023,15 +1025,24 @@ class OutreachService:
         ) or 0
 
         sent_cnt = db.scalar(
-            select(func.count(OutreachJob.id)).where(OutreachJob.status == "sent")
+            select(func.count(OutreachJob.id)).where(
+                OutreachJob.status == "sent",
+                OutreachJob.created_at >= start_of_today,
+            )
         ) or 0
 
         failed_cnt = db.scalar(
-            select(func.count(OutreachJob.id)).where(OutreachJob.status == "failed")
+            select(func.count(OutreachJob.id)).where(
+                OutreachJob.status == "failed",
+                OutreachJob.created_at >= start_of_today,
+            )
         ) or 0
 
         skipped_cnt = db.scalar(
-            select(func.count(OutreachJob.id)).where(OutreachJob.status == "skipped")
+            select(func.count(OutreachJob.id)).where(
+                OutreachJob.status == "skipped",
+                OutreachJob.created_at >= start_of_today,
+            )
         ) or 0
 
         next_job_time = db.scalars(
