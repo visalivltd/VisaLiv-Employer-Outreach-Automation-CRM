@@ -432,13 +432,26 @@ export default function OutreachPage() {
     setError('');
   };
 
-  // Auto-poll queue summary when jobs are pending/processing
+  // Auto-poll queue summary and trigger process-jobs on backend when jobs are pending/processing
   useEffect(() => {
     const queueSum = previewData?.queue_summary;
     if (queueSum && (queueSum.pending_count > 0 || queueSum.processing_count > 0)) {
-      const timer = setInterval(() => {
-        loadPreview(page, selectedCandidateFilter);
-      }, 8000);
+      const triggerProcessJobs = async () => {
+        try {
+          let baseUrl = getApiUrl();
+          let res = await fetch(`${baseUrl}/outreach/process-jobs`, { method: 'POST' });
+          if (!res.ok && !baseUrl.includes('/api/v1')) {
+            await fetch(`${baseUrl}/api/v1/outreach/process-jobs`, { method: 'POST' });
+          }
+        } catch (err) {
+          console.error('Trigger process-jobs error:', err);
+        } finally {
+          loadPreview(page, selectedCandidateFilter);
+        }
+      };
+
+      triggerProcessJobs();
+      const timer = setInterval(triggerProcessJobs, 6000);
       return () => clearInterval(timer);
     }
   }, [previewData?.queue_summary?.pending_count, previewData?.queue_summary?.processing_count, page, selectedCandidateFilter]);
