@@ -57,6 +57,7 @@ def get_outreach_preview(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
     candidate_id: int | None = Query(None),
+    only_eligible: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     return OutreachService.get_outreach_preview(
@@ -64,6 +65,7 @@ def get_outreach_preview(
         page=page,
         page_size=page_size,
         candidate_id=candidate_id,
+        only_eligible=only_eligible,
     )
 
 

@@ -265,6 +265,7 @@ class OutreachService:
         page: int = 1,
         page_size: int = 50,
         candidate_id: int | None = None,
+        only_eligible: bool = False,
     ) -> dict:
         settings = get_outreach_settings(db)
         now_utc = datetime.now(timezone.utc)
@@ -365,8 +366,26 @@ class OutreachService:
             total_eligible += cand_eligible_count
             total_skipped += cand_skipped_count
 
-            # Fast paginated evaluation for requested 50 employers
-            for employer in paginated_employers:
+            # Determine list of employers to evaluate:
+            # If only_eligible or filtering a specific candidate, skip contacted/cooldown employers automatically
+            if only_eligible or candidate_id is not None:
+                emp_stmt = (
+                    select(Employer)
+                    .where(
+                        Employer.is_active.is_(True),
+                        Employer.email.isnot(None),
+                        Employer.email != "",
+                    )
+                    .order_by(Employer.id)
+                )
+                if ineligible_set:
+                    emp_stmt = emp_stmt.where(Employer.id.notin_(ineligible_set))
+                cand_employers = db.scalars(emp_stmt.offset(start_offset).limit(page_size)).all()
+            else:
+                cand_employers = paginated_employers
+
+            # Fast paginated evaluation for requested employers
+            for employer in cand_employers:
                 emp_email = (employer.email or "").strip()
 
                 if not cand_valid:

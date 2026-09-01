@@ -388,14 +388,16 @@ export default function OutreachPage() {
     setSelectedItemsMap(nextMap);
   };
 
-  // All valid items on current page (regardless of eligibility status)
+  // All valid items on current page
   const pageItems = Array.isArray(previewData?.items)
     ? previewData.items.filter(Boolean)
     : [];
 
+  const eligiblePageItems = pageItems.filter((item) => item.eligible);
+
   const isAllPageSelected =
-    pageItems.length > 0 &&
-    pageItems.every((item) => selectedItemsMap.has(getItemKey(item)));
+    eligiblePageItems.length > 0 &&
+    eligiblePageItems.every((item) => selectedItemsMap.has(getItemKey(item)));
 
   const isSomePageSelected =
     pageItems.some((item) => selectedItemsMap.has(getItemKey(item))) &&
@@ -411,11 +413,11 @@ export default function OutreachPage() {
     setError('');
     const nextMap = new Map(selectedItemsMap);
     if (isAllPageSelected) {
-      pageItems.forEach((item) => {
+      eligiblePageItems.forEach((item) => {
         nextMap.delete(getItemKey(item));
       });
     } else {
-      pageItems.forEach((item) => {
+      eligiblePageItems.forEach((item) => {
         const key = getItemKey(item);
         if (!nextMap.has(key)) {
           nextMap.set(key, item);
