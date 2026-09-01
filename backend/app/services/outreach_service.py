@@ -271,8 +271,17 @@ class OutreachService:
             candidate_stmt = candidate_stmt.where(Candidate.id == candidate_id)
         active_candidates = db.scalars(candidate_stmt).all()
 
-        active_employers = db.scalars(
-            select(Employer).where(Employer.is_active.is_(True)).order_by(Employer.id)
+        total_employers = db.scalar(
+            select(func.count(Employer.id)).where(Employer.is_active.is_(True))
+        ) or 0
+
+        start_offset = (page - 1) * page_size
+        paginated_employers = db.scalars(
+            select(Employer)
+            .where(Employer.is_active.is_(True))
+            .order_by(Employer.id)
+            .offset(start_offset)
+            .limit(page_size)
         ).all()
 
         emails_sent_today = db.scalar(
@@ -295,7 +304,6 @@ class OutreachService:
                 cand_last_time + timedelta(minutes=settings.min_gap_minutes) if cand_last_time else None
             )
 
-            cand_eligible_count = 0
             cand_draft_name = candidate.email_draft_name or (
                 candidate.email_draft.draft_name if candidate.email_draft else None
             )
@@ -342,7 +350,19 @@ class OutreachService:
             daily_limit_reached = capacity_used >= settings.max_emails_per_candidate_per_day
             is_min_gap_waiting = cand_next_eligible and cand_next_eligible > now_utc
 
-            for employer in active_employers:
+            ineligible_set = contacted_set | queued_set | cooldown_set
+            if not cand_valid or daily_limit_reached:
+                cand_eligible_count = 0
+                cand_skipped_count = total_employers
+            else:
+                cand_skipped_count = len(ineligible_set)
+                cand_eligible_count = max(0, total_employers - cand_skipped_count)
+
+            total_eligible += cand_eligible_count
+            total_skipped += cand_skipped_count
+
+            # Fast paginated evaluation for requested 50 employers
+            for employer in paginated_employers:
                 emp_email = (employer.email or "").strip()
 
                 if not cand_valid:
@@ -365,11 +385,6 @@ class OutreachService:
                     res = EligibilityResult(True, ReasonCode.READY, "Ready", now_utc)
 
                 is_eligible = res.allowed or res.reason_code == ReasonCode.MIN_GAP_WAITING
-                if is_eligible:
-                    total_eligible += 1
-                    cand_eligible_count += 1
-                else:
-                    total_skipped += 1
 
                 all_items.append({
                     "candidate_id": candidate.id,
@@ -398,14 +413,9 @@ class OutreachService:
                 "next_eligible_at": cand_next_eligible.isoformat() if cand_next_eligible else None,
             })
 
-        total_items = len(all_items)
-        start_offset = (page - 1) * page_size
-        end_offset = start_offset + page_size
-        paginated_items = all_items[start_offset:end_offset]
-
         return {
-            "items": paginated_items,
-            "total": total_items,
+            "items": all_items,
+            "total": total_employers * len(active_candidates) if active_candidates else 0,
             "page": page,
             "page_size": page_size,
             "total_eligible": total_eligible,
