@@ -95,17 +95,23 @@ class OutreachService:
         ) or 0
 
     @staticmethod
-    def get_candidate_pending_today(db: Session, candidate_id: int, start_of_today: datetime) -> int:
+    def get_candidate_pending_today(
+        db: Session,
+        candidate_id: int,
+        start_of_today: datetime,
+        exclude_job_id: int | None = None,
+    ) -> int:
         """Count of active pending or processing OutreachJobs created today.
         Note: OutreachJobs with status=='sent' have an associated EmailLog and are NOT double-counted here.
         """
-        return db.scalar(
-            select(func.count(OutreachJob.id)).where(
-                OutreachJob.candidate_id == candidate_id,
-                OutreachJob.status.in_(["pending", "processing"]),
-                OutreachJob.created_at >= start_of_today,
-            )
-        ) or 0
+        stmt = select(func.count(OutreachJob.id)).where(
+            OutreachJob.candidate_id == candidate_id,
+            OutreachJob.status.in_(["pending", "processing"]),
+            OutreachJob.created_at >= start_of_today,
+        )
+        if exclude_job_id is not None:
+            stmt = stmt.where(OutreachJob.id != exclude_job_id)
+        return db.scalar(stmt) or 0
 
     @staticmethod
     def get_candidate_latest_activity_time(db: Session, candidate_id: int, exclude_job_id: int | None = None) -> datetime | None:
@@ -120,7 +126,11 @@ class OutreachService:
             OutreachJob.status.in_(["pending", "processing"]),
         )
         if exclude_job_id is not None:
-            job_stmt = job_stmt.where(OutreachJob.id != exclude_job_id)
+            exclude_job = db.get(OutreachJob, exclude_job_id)
+            if exclude_job and exclude_job.scheduled_at:
+                job_stmt = job_stmt.where(OutreachJob.scheduled_at < exclude_job.scheduled_at)
+            else:
+                job_stmt = job_stmt.where(OutreachJob.id != exclude_job_id)
 
         latest_job_time = db.scalar(job_stmt)
 
@@ -217,7 +227,7 @@ class OutreachService:
         else:
             start_of_today = OutreachService.get_start_of_today_ist()
             sent_today = OutreachService.get_candidate_sent_today(db, candidate_id, start_of_today)
-            pending_today = OutreachService.get_candidate_pending_today(db, candidate_id, start_of_today)
+            pending_today = OutreachService.get_candidate_pending_today(db, candidate_id, start_of_today, exclude_job_id=exclude_job_id)
             capacity_used = sent_today + pending_today
 
         if capacity_used >= settings.max_emails_per_candidate_per_day:
