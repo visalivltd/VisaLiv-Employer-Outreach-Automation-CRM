@@ -322,6 +322,7 @@ class OutreachService:
         candidate_summaries = []
         total_eligible = 0
         total_skipped = 0
+        global_preview_assigned_employers: set[int] = set()
 
         for candidate in active_candidates:
             cand_sent_today = OutreachService.get_candidate_sent_today(db, candidate.id, start_of_today)
@@ -370,7 +371,7 @@ class OutreachService:
                     )
                 ).all()
             )
-            cooldown_set = cooldown_emails | cooldown_jobs
+            cooldown_set = cooldown_emails | cooldown_jobs | global_preview_assigned_employers
 
             cand_valid = (
                 settings.enabled
@@ -382,7 +383,8 @@ class OutreachService:
             )
 
             capacity_used = cand_sent_today + cand_queued_today
-            daily_limit_reached = capacity_used >= settings.max_emails_per_candidate_per_day
+            cand_remaining_quota = max(0, settings.max_emails_per_candidate_per_day - capacity_used)
+            daily_limit_reached = cand_remaining_quota <= 0
             is_min_gap_waiting = cand_next_eligible and cand_next_eligible > now_utc
 
             ineligible_set = contacted_set | queued_set | cooldown_set
@@ -430,7 +432,7 @@ class OutreachService:
                     res = EligibilityResult(False, ReasonCode.ALREADY_QUEUED, "Already queued for outreach")
                 elif employer.id in cooldown_set:
                     res = EligibilityResult(False, ReasonCode.EMPLOYER_COOLDOWN, "Employer in 3-day cooldown")
-                elif daily_limit_reached:
+                elif cand_remaining_quota <= 0:
                     res = EligibilityResult(False, ReasonCode.DAILY_LIMIT, f"Daily limit reached — maximum {settings.max_emails_per_candidate_per_day} emails/day per candidate")
                 elif is_min_gap_waiting:
                     res = EligibilityResult(True, ReasonCode.MIN_GAP_WAITING, f"Minimum gap waiting — Next eligible send: {cand_next_eligible.strftime('%H:%M:%S UTC')}", cand_next_eligible)
@@ -438,6 +440,9 @@ class OutreachService:
                     res = EligibilityResult(True, ReasonCode.READY, "Ready", now_utc)
 
                 is_eligible = res.allowed or res.reason_code == ReasonCode.MIN_GAP_WAITING
+                if is_eligible and cand_remaining_quota > 0:
+                    cand_remaining_quota -= 1
+                    global_preview_assigned_employers.add(employer.id)
 
                 all_items.append({
                     "candidate_id": candidate.id,
