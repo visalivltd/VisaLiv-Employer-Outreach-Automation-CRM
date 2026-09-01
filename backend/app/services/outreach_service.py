@@ -296,13 +296,73 @@ class OutreachService:
             )
 
             cand_eligible_count = 0
+            cand_draft_name = candidate.email_draft_name or (
+                candidate.email_draft.draft_name if candidate.email_draft else None
+            )
+
+            # Fast set lookups to eliminate N*M database queries per request
+            contacted_set = set(
+                db.scalars(
+                    select(EmailLog.employer_id).where(
+                        EmailLog.candidate_id == candidate.id,
+                        EmailLog.status.in_(["sent", "pending", "sending"]),
+                    )
+                ).all()
+            )
+
+            queued_set = set(
+                db.scalars(
+                    select(OutreachJob.employer_id).where(
+                        OutreachJob.candidate_id == candidate.id,
+                        OutreachJob.status.in_(["pending", "processing"]),
+                    )
+                ).all()
+            )
+
+            cooldown_start = now_utc - timedelta(days=3)
+            cooldown_set = set(
+                db.scalars(
+                    select(EmailLog.employer_id).where(
+                        EmailLog.status.in_(["sent", "pending", "sending"]),
+                        EmailLog.created_at >= cooldown_start,
+                    )
+                ).all()
+            )
+
+            cand_valid = (
+                settings.enabled
+                and candidate.is_active
+                and candidate.gmail_account
+                and candidate.gmail_account.is_active
+                and candidate.email_draft_id
+                and candidate.email_draft
+            )
+
+            capacity_used = cand_sent_today + cand_queued_today
+            daily_limit_reached = capacity_used >= settings.max_emails_per_candidate_per_day
+            is_min_gap_waiting = cand_next_eligible and cand_next_eligible > now_utc
 
             for employer in active_employers:
-                res = OutreachService.check_eligibility(db, candidate.id, employer.id, now_utc=now_utc)
                 emp_email = (employer.email or "").strip()
-                cand_draft_name = candidate.email_draft_name or (
-                    candidate.email_draft.draft_name if candidate.email_draft else None
-                )
+
+                if not cand_valid:
+                    res = EligibilityResult(False, ReasonCode.CANDIDATE_MISSING, "Candidate missing, inactive, or draft/Gmail missing")
+                elif not employer.is_active:
+                    res = EligibilityResult(False, ReasonCode.EMPLOYER_INACTIVE, "Employer is inactive")
+                elif not emp_email or not EMAIL_REGEX.match(emp_email):
+                    res = EligibilityResult(False, ReasonCode.EMPLOYER_EMAIL_INVALID, "Invalid employer email address")
+                elif employer.id in contacted_set:
+                    res = EligibilityResult(False, ReasonCode.DUPLICATE, "Already contacted by this candidate")
+                elif employer.id in queued_set:
+                    res = EligibilityResult(False, ReasonCode.ALREADY_QUEUED, "Already queued for outreach")
+                elif employer.id in cooldown_set:
+                    res = EligibilityResult(False, ReasonCode.EMPLOYER_COOLDOWN, "Employer in 3-day cooldown")
+                elif daily_limit_reached:
+                    res = EligibilityResult(False, ReasonCode.DAILY_LIMIT, f"Daily limit reached — maximum {settings.max_emails_per_candidate_per_day} emails/day per candidate")
+                elif is_min_gap_waiting:
+                    res = EligibilityResult(True, ReasonCode.MIN_GAP_WAITING, f"Minimum gap waiting — Next eligible send: {cand_next_eligible.strftime('%H:%M:%S UTC')}", cand_next_eligible)
+                else:
+                    res = EligibilityResult(True, ReasonCode.READY, "Ready", now_utc)
 
                 is_eligible = res.allowed or res.reason_code == ReasonCode.MIN_GAP_WAITING
                 if is_eligible:
