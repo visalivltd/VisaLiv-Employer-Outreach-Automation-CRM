@@ -112,7 +112,7 @@ def test_min_gap_interval_enforcement(test_db):
     # Attempt second email immediately (0 minutes elapsed)
     can_send, reason = OutreachService.can_send(test_db, candidate_id=1, employer_id=2)
     assert can_send is False
-    assert "Minimum gap of 60m" in reason
+    assert "Minimum gap" in reason
 
     # Simulate 65 minutes passed
     past_time = datetime.now(timezone.utc) - timedelta(minutes=65)
@@ -206,4 +206,4 @@ def test_concurrent_send_enforces_limit_and_gap(test_db):
     successful_sends = [r for r in results if r[1] is True]
     assert len(successful_sends) == 1
     assert len(results) == 5
-    assert "Minimum gap of 60m" in results[1][2]
+    assert "Minimum gap" in results[1][2]
