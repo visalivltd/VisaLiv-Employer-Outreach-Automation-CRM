@@ -144,7 +144,8 @@ class GmailService:
                 file_data = storage_service.get_file_bytes(path_str)
 
             if not file_data:
-                raise FileNotFoundError(f"Attachment file not found: {path_str or item}")
+                filename = Path(path_str).name if path_str else "CV file"
+                raise FileNotFoundError(f"Candidate CV attachment missing on server ({filename}). Please re-upload CV file.")
 
             filename_for_header = display_name or (Path(path_str).name if path_str else "attachment.pdf")
             content_type, _ = mimetypes.guess_type(filename_for_header)

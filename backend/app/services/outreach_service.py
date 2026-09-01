@@ -7,6 +7,8 @@ from enum import Enum
 from sqlalchemy import select, func, update
 from sqlalchemy.orm import Session
 
+from pathlib import Path
+
 from app.models.candidate import Candidate
 from app.models.email_log import EmailLog
 from app.models.employer import Employer
@@ -15,6 +17,7 @@ from app.models.outreach_job import OutreachJob
 from app.repositories.outreach_settings_repository import get_outreach_settings
 from app.services.email_draft_service import extract_draft_content
 from app.services.email_service import EmailService
+from app.services.storage_service import storage_service
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +32,7 @@ class ReasonCode(str, Enum):
     CANDIDATE_INACTIVE = "CANDIDATE_INACTIVE"
     GMAIL_NOT_CONNECTED = "GMAIL_NOT_CONNECTED"
     DRAFT_MISSING = "DRAFT_MISSING"
+    CV_MISSING = "CV_MISSING"
     EMPLOYER_MISSING = "EMPLOYER_MISSING"
     EMPLOYER_INACTIVE = "EMPLOYER_INACTIVE"
     EMPLOYER_EMAIL_INVALID = "EMPLOYER_EMAIL_INVALID"
