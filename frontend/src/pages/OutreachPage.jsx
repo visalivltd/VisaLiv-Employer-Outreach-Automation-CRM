@@ -2,15 +2,15 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User, Sliders } from 'lucide-react';
 
 const getApiUrl = () => {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return `${window.location.protocol}//${host}:8000`;
+    }
+  }
   let url = import.meta.env.VITE_API_URL || '';
   if (url) {
     return url.replace(/\/$/, '');
-  }
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    if (host === 'localhost' || host === '127.0.0.1' || !host.includes('run.app')) {
-      return `${window.location.protocol}//${host}:8000`;
-    }
   }
   return 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
 };
@@ -59,6 +59,8 @@ export default function OutreachPage() {
   // Selected items stored as a Map (key -> item) across pages
   const [selectedItemsMap, setSelectedItemsMap] = useState(new Map());
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showCancelConfirmModal, setShowCancelConfirmModal] = useState(false);
+  const [cancellingJobs, setCancellingJobs] = useState(false);
 
   const [candidateId, setCandidateId] = useState('');
   const [employerId, setEmployerId] = useState('');
@@ -546,6 +548,41 @@ export default function OutreachPage() {
     await handleStartOutreach();
   };
 
+  const handleCancelPendingJobs = async () => {
+    try {
+      setCancellingJobs(true);
+      setError('');
+      const baseUrl = getApiUrl();
+      let endpoint = selectedCandidateFilter
+        ? `/outreach/cancel-jobs?candidate_id=${selectedCandidateFilter}`
+        : `/outreach/cancel-jobs`;
+
+      let res = await fetch(`${baseUrl}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.message || 'Failed to cancel pending outreach jobs');
+
+      setMessage(data.message || `Successfully cancelled ${data.cancelled_count || 0} pending outreach job(s).`);
+      setShowCancelConfirmModal(false);
+      await loadData();
+      await loadPreview(page, selectedCandidateFilter);
+    } catch (err) {
+      setError(err.message || 'Failed to cancel pending outreach jobs');
+    } finally {
+      setCancellingJobs(false);
+    }
+  };
+
 
 
   const handleCandidateChange = (selectedId) => {
@@ -912,15 +949,41 @@ export default function OutreachPage() {
                     <strong style={{ color: '#1d4ed8' }}>{previewData.queue_summary.pending_count ?? 0}</strong> Pending | <strong style={{ color: '#16a34a' }}>{previewData.queue_summary.sent_count ?? 0}</strong> Sent | <strong style={{ color: '#dc2626' }}>{previewData.queue_summary.failed_count ?? 0}</strong> Failed | <strong style={{ color: '#64748b' }}>{previewData.queue_summary.skipped_count ?? 0}</strong> Skipped
                   </span>
                 </div>
-                {previewData.queue_summary.next_scheduled_at && (() => {
-                  const d = new Date(previewData.queue_summary.next_scheduled_at);
-                  if (isNaN(d.getTime())) return null;
-                  return (
-                    <span style={{ fontSize: '12.5px', color: '#1e40af', backgroundColor: '#dbeafe', padding: '4px 10px', borderRadius: '6px', fontWeight: 600 }}>
-                      Next Scheduled Send: {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </span>
-                  );
-                })()}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  {previewData.queue_summary.next_scheduled_at && (() => {
+                    const d = new Date(previewData.queue_summary.next_scheduled_at);
+                    if (isNaN(d.getTime())) return null;
+                    return (
+                      <span style={{ fontSize: '12.5px', color: '#1e40af', backgroundColor: '#dbeafe', padding: '4px 10px', borderRadius: '6px', fontWeight: 600 }}>
+                        Next Scheduled Send: {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    );
+                  })()}
+                  {previewData.queue_summary.pending_count > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCancelConfirmModal(true)}
+                      style={{
+                        padding: '5px 12px',
+                        fontSize: '12.5px',
+                        fontWeight: 600,
+                        color: '#dc2626',
+                        backgroundColor: '#fef2f2',
+                        border: '1px solid #fca5a5',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.15s ease-in-out',
+                      }}
+                      title="Stop background outreach and cancel pending jobs"
+                    >
+                      <Trash2 size={13} />
+                      Stop Queue / Cancel Jobs ({previewData.queue_summary.pending_count})
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1373,6 +1436,57 @@ export default function OutreachPage() {
           </div>
         </form>
       </div>
+
+      {/* CANCEL PENDING JOBS CONFIRMATION MODAL */}
+      {showCancelConfirmModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.65)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999, padding: '20px', backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff', borderRadius: '16px', maxWidth: '480px', width: '100%',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden', border: '1px solid #e2e8f0'
+          }}>
+            <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: '#fef2f2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <AlertCircle size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>Stop Outreach & Cancel Queue</h3>
+                <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: '#64748b' }}>Confirm background job cancellation</p>
+              </div>
+            </div>
+            <div style={{ padding: '24px' }}>
+              <p style={{ margin: 0, fontSize: '14px', color: '#334155', lineHeight: 1.6 }}>
+                Are you sure you want to stop background outreach and cancel all <strong>{previewData?.queue_summary?.pending_count || 0}</strong> pending scheduled job(s)?
+              </p>
+              <p style={{ marginTop: '12px', fontSize: '12.5px', color: '#dc2626', backgroundColor: '#fef2f2', padding: '10px 14px', borderRadius: '8px', border: '1px solid #fca5a5' }}>
+                ⚠️ Cancelled jobs will be removed from the background worker queue and will not be delivered.
+              </p>
+            </div>
+            <div style={{ padding: '16px 24px', backgroundColor: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShowCancelConfirmModal(false)}
+                disabled={cancellingJobs}
+                style={{ padding: '9px 18px', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#475569', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelPendingJobs}
+                disabled={cancellingJobs}
+                style={{ padding: '9px 18px', borderRadius: '8px', border: 'none', backgroundColor: '#dc2626', color: '#ffffff', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                {cancellingJobs ? 'Cancelling Jobs...' : 'Yes, Stop & Clear Queue'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

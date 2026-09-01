@@ -504,8 +504,8 @@ def test_batch_outreach_counts_and_daily_limit_capacity(test_db):
     assert "failed_count" in res
 
     assert (res["sent_count"] + res["failed_count"]) == 1
-    assert res["queued_count"] == 4
-    assert res["skipped_count"] == 1
+    assert res["queued_count"] == 3
+    assert res["skipped_count"] == 2
 
 
 def test_exact_real_batch_outreach_scenario_50_selected_1_sent_3_queued_46_skipped(test_db, monkeypatch):
@@ -584,11 +584,117 @@ def test_batch_outreach_scenario_daily_limit_20_sent_1_queued_18_skipped_31(test
     assert len(pending_jobs) == 18
 
 
+def test_structured_reason_codes_returned_by_eligibility_engine(test_db):
+    """TEST: Structured reason codes returned by check_eligibility()."""
+    from app.services.outreach_service import ReasonCode, OutreachService
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=5, min_gap_minutes=60, enabled=True)
+
+    # 1. Valid ready pair
+    res_ready = OutreachService.check_eligibility(test_db, 1, 1)
+    assert res_ready.allowed is True
+    assert res_ready.reason_code == ReasonCode.READY
+
+    # 2. Inactive candidate
+    cand1 = test_db.get(Candidate, 1)
+    cand1.is_active = False
+    test_db.commit()
+    res_inact = OutreachService.check_eligibility(test_db, 1, 1)
+    assert res_inact.allowed is False
+    assert res_inact.reason_code == ReasonCode.CANDIDATE_INACTIVE
+    cand1.is_active = True
+    test_db.commit()
 
 
+def test_batch_scenario_limit_4_sent_today_1_selected_50(test_db, monkeypatch):
+    """TEST 2: limit=4, sent_today=1, selected=50 -> 1 sent, 2 queued, 47 skipped = 50 total."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=4, min_gap_minutes=2, enabled=True)
+    for i in range(1, 51):
+        if not test_db.get(Employer, i):
+            test_db.add(Employer(id=i, service_name=f"Emp {i}", email=f"emp{i}@test.com", is_active=True))
+    test_db.commit()
+
+    existing_log = EmailLog(
+        candidate_id=1, employer_id=999, gmail_account_id=1, subject="Past", status="sent",
+        created_at=datetime.now(timezone.utc) - timedelta(minutes=10), sent_at=datetime.now(timezone.utc) - timedelta(minutes=10)
+    )
+    test_db.add(existing_log)
+    test_db.commit()
+
+    dummy_log = EmailLog(candidate_id=1, employer_id=1, gmail_account_id=1, subject="Test", status="sent", sent_at=datetime.now(timezone.utc))
+    dummy_log.id = 2001
+    monkeypatch.setattr(OutreachService, "send_outreach", lambda *args, **kwargs: dummy_log)
+
+    pairings = [{"candidate_id": 1, "employer_id": i} for i in range(1, 51)]
+    res = OutreachService.batch_outreach(test_db, pairings)
+
+    assert res["sent_count"] == 1
+    assert res["queued_count"] == 2
+    assert res["skipped_count"] == 47
+    assert (res["sent_count"] + res["queued_count"] + res["skipped_count"] + res["failed_count"]) == 50
 
 
+def test_batch_scenario_limit_20_sent_today_0_selected_50(test_db, monkeypatch):
+    """TEST 4: limit=20, sent_today=0, selected=50 -> 1 sent, 19 queued, 30 skipped = 50 total."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=20, min_gap_minutes=2, enabled=True)
+    for i in range(1, 51):
+        if not test_db.get(Employer, i):
+            test_db.add(Employer(id=i, service_name=f"Emp {i}", email=f"emp{i}@test.com", is_active=True))
+    test_db.commit()
+
+    dummy_log = EmailLog(candidate_id=1, employer_id=1, gmail_account_id=1, subject="Test", status="sent", sent_at=datetime.now(timezone.utc))
+    dummy_log.id = 3001
+    monkeypatch.setattr(OutreachService, "send_outreach", lambda *args, **kwargs: dummy_log)
+
+    pairings = [{"candidate_id": 1, "employer_id": i} for i in range(1, 51)]
+    res = OutreachService.batch_outreach(test_db, pairings)
+
+    assert res["sent_count"] == 1
+    assert res["queued_count"] == 19
+    assert res["skipped_count"] == 30
+    assert (res["sent_count"] + res["queued_count"] + res["skipped_count"] + res["failed_count"]) == 50
 
 
+def test_sent_outreach_job_not_double_counted_with_email_log(test_db):
+    """TEST 6: Completed OutreachJob (status='sent') with EmailLog is NOT double-counted."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=4, min_gap_minutes=2, enabled=True)
+    start_of_today = OutreachService.get_start_of_today_ist()
 
+    # 1. Create 1 EmailLog with status="sent"
+    log = EmailLog(candidate_id=1, employer_id=1, gmail_account_id=1, subject="Sent", status="sent", created_at=datetime.now(timezone.utc), sent_at=datetime.now(timezone.utc))
+    test_db.add(log)
+    test_db.commit()
+
+    # 2. Create 1 OutreachJob associated with this sent email (status="sent")
+    job = OutreachJob(candidate_id=1, employer_id=1, gmail_account_id=1, scheduled_at=datetime.now(timezone.utc), status="sent", email_log_id=log.id)
+    test_db.add(job)
+    test_db.commit()
+
+    sent_count = OutreachService.get_candidate_sent_today(test_db, 1, start_of_today)
+    pending_count = OutreachService.get_candidate_pending_today(test_db, 1, start_of_today)
+
+    assert sent_count == 1
+    assert pending_count == 0
+    # Total capacity used must be 1, NOT 2!
+    assert (sent_count + pending_count) == 1
+
+
+def test_cancel_pending_jobs(test_db):
+    """TEST 19: Cancelling pending jobs sets status to cancelled and worker ignores them."""
+    job1 = OutreachJob(candidate_id=1, employer_id=1, gmail_account_id=1, scheduled_at=datetime.now(timezone.utc), status="pending")
+    job2 = OutreachJob(candidate_id=1, employer_id=2, gmail_account_id=1, scheduled_at=datetime.now(timezone.utc), status="pending")
+    test_db.add_all([job1, job2])
+    test_db.commit()
+
+    res = OutreachService.cancel_pending_jobs(test_db)
+    assert res["success"] is True
+    assert res["cancelled_count"] == 2
+
+    test_db.refresh(job1)
+    test_db.refresh(job2)
+    assert job1.status == "cancelled"
+    assert job2.status == "cancelled"
+
+    # Worker processing should find 0 due jobs
+    worker_res = OutreachService.process_due_outreach_jobs(test_db)
+    assert worker_res["processed"] == 0
 

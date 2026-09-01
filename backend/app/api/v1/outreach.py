@@ -113,6 +113,19 @@ def process_due_outreach_jobs(
 
 
 @router.post(
+    "/cancel-jobs",
+)
+def cancel_pending_outreach_jobs(
+    candidate_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    return OutreachService.cancel_pending_jobs(
+        db=db,
+        candidate_id=candidate_id,
+    )
+
+
+@router.post(
     "/send",
     status_code=status.HTTP_201_CREATED,
 )
