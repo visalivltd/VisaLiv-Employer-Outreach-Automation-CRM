@@ -428,21 +428,10 @@ export default function RealCandidatesPage() {
     }
   };
 
-  // Outreach Batch Send for Selected Real Candidates
+  // Trigger Daily Summary Email for Selected Real Candidates
   const handleSendOutreachForSelected = async () => {
     if (selectedRealCandIds.size === 0) {
       setError('Please select at least one Real Candidate.');
-      return;
-    }
-
-    const selectedRCs = realCandidates.filter((rc) => selectedRealCandIds.has(rc.id));
-    // DEDUPLICATE all linked CRM candidate IDs
-    const candidateIds = Array.from(
-      new Set(selectedRCs.flatMap((rc) => rc.linked_candidate_ids || []))
-    );
-
-    if (candidateIds.length === 0) {
-      setError('The selected Real Candidate(s) do not have any linked CRM candidate accounts.');
       return;
     }
 
@@ -451,55 +440,39 @@ export default function RealCandidatesPage() {
       setError('');
       setSuccess('');
 
-      const allPreviewItems = [];
-      for (const candId of candidateIds) {
-        const res = await fetch(`${API_URL}/outreach/preview?candidate_id=${candId}&page_size=500`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.items) {
-            allPreviewItems.push(...data.items);
-          }
-        }
-      }
+      const payload = {
+        real_candidate_ids: Array.from(selectedRealCandIds),
+        force: true,
+      };
 
-      // Keep eligible items and deduplicate candidate-employer pairing keys
-      const eligibleItems = [];
-      const seenKeys = new Set();
-      for (const item of allPreviewItems) {
-        if (item.eligible) {
-          const key = `${item.candidate_id}_${item.employer_id}`;
-          if (!seenKeys.has(key)) {
-            seenKeys.add(key);
-            eligibleItems.push(item);
-          }
-        }
-      }
-
-      if (eligibleItems.length === 0) {
-        setError('No eligible candidate-employer outreach pairings found for the selected Real Candidate(s).');
-        return;
-      }
-
-      const res = await fetch(`${API_URL}/outreach/batch-send`, {
+      const res = await fetch(`${API_URL}/real-candidates/send-daily-summaries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(eligibleItems),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || 'Outreach batch send failed');
+        throw new Error(data.detail || 'Failed to send daily summary');
       }
 
-      const sentCount = data.sent_count ?? data.sent ?? 0;
-      const failedCount = data.failed_count ?? data.failed ?? 0;
-      const skippedCount = data.skipped_count ?? data.skipped ?? 0;
+      const sentCount = data.sent_count ?? 0;
+      const skippedCount = data.skipped_count ?? 0;
+      const detailMsg = (data.details || [])
+        .map((d) => (d.result?.reason ? `${d.name}: ${d.result.reason}` : (d.error ? `${d.name}: ${d.error}` : null)))
+        .filter(Boolean)
+        .join('; ');
 
-      setSuccess(`Outreach Sent Successfully: ${sentCount} email(s) sent${failedCount > 0 ? `, ${failedCount} failed` : ''}${skippedCount > 0 ? `, ${skippedCount} skipped` : ''}.`);
+      if (sentCount > 0) {
+        setSuccess(`Daily Summary Email Sent Successfully from support@visaliv.com to ${sentCount} Real Candidate(s)!`);
+      } else {
+        setError(`Daily Summary Run Completed: 0 sent, ${skippedCount} skipped. ${detailMsg ? `Reason: ${detailMsg}` : ''}`);
+      }
+
       setSelectedRealCandIds(new Set());
       fetchRealCandidates();
     } catch (err) {
-      setError(err.message || 'Error sending outreach for selected real candidates');
+      setError(err.message || 'Error sending daily summary for selected real candidates');
     } finally {
       setSendingOutreach(false);
     }
@@ -575,7 +548,7 @@ export default function RealCandidatesPage() {
         </div>
 
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          {/* Send Outreach Button for Selected Real Candidates */}
+          {/* Send Daily Summary Button for Selected Real Candidates */}
           <button
             onClick={handleSendOutreachForSelected}
             disabled={sendingOutreach || selectedRealCandIds.size === 0}
@@ -594,8 +567,8 @@ export default function RealCandidatesPage() {
               opacity: sendingOutreach ? 0.7 : 1,
             }}
           >
-            <Send size={18} />
-            {sendingOutreach ? 'Sending Outreach...' : `Send Outreach (${selectedRealCandIds.size})`}
+            <Mail size={18} />
+            {sendingOutreach ? 'Sending Summary...' : `Send Daily Summary (${selectedRealCandIds.size})`}
           </button>
 
           <button

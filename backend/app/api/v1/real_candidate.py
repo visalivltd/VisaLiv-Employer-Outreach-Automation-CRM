@@ -60,10 +60,13 @@ def get_real_candidates(
     "/send-daily-summaries",
 )
 def trigger_daily_summaries(
+    payload: dict | None = None,
     db: Session = Depends(get_db),
 ):
     try:
-        result = daily_summary_service.send_all_daily_summaries(db)
+        real_cand_ids = payload.get("real_candidate_ids") if payload else None
+        force = payload.get("force", True) if (payload and "force" in payload) else True
+        result = daily_summary_service.send_all_daily_summaries(db, real_candidate_ids=real_cand_ids, force=force)
         return result
     except Exception as exc:
         raise HTTPException(
