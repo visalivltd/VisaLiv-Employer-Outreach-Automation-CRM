@@ -263,8 +263,9 @@ class OutreachService:
         db: Session,
         candidate_id: int,
         employer_id: int,
+        exclude_job_id: int | None = None,
     ) -> tuple[bool, str | None]:
-        res = OutreachService.check_eligibility(db, candidate_id, employer_id)
+        res = OutreachService.check_eligibility(db, candidate_id, employer_id, exclude_job_id=exclude_job_id)
         if not res.allowed or res.reason_code == ReasonCode.MIN_GAP_WAITING:
             return False, res.reason
         return True, None
@@ -474,6 +475,7 @@ class OutreachService:
         subject: str,
         body: str,
         draft_id: int | None = None,
+        exclude_job_id: int | None = None,
     ) -> EmailLog:
         # Atomic Concurrency-Safe Reservation using row locking on Candidate
         candidate = db.scalar(
@@ -482,7 +484,7 @@ class OutreachService:
         if candidate is None:
             raise ValueError("Candidate does not exist")
 
-        can_send, reason = OutreachService.can_send(db, candidate_id, employer_id)
+        can_send, reason = OutreachService.can_send(db, candidate_id, employer_id, exclude_job_id=exclude_job_id)
         if not can_send:
             raise ValueError(reason)
 
@@ -986,6 +988,7 @@ class OutreachService:
                     gmail_account=cand.gmail_account,
                     subject="",
                     body="",
+                    exclude_job_id=job.id,
                 )
                 if email_log.status == "sent":
                     job.status = "sent"
