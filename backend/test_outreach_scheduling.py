@@ -698,3 +698,29 @@ def test_cancel_pending_jobs(test_db):
     worker_res = OutreachService.process_due_outreach_jobs(test_db)
     assert worker_res["processed"] == 0
 
+
+def test_auto_replacement_for_cooldown_job(test_db):
+    """TEST 20: If assigned employer enters 3-day cooldown, worker auto-replaces with next free eligible employer."""
+    cand = test_db.get(Candidate, 1)
+    emp1 = Employer(id=100, service_name="Emp100", email="emp100@test.com", is_active=True)
+    emp2 = Employer(id=101, service_name="Emp101", email="emp101@test.com", is_active=True)
+    test_db.add_all([emp1, emp2])
+    test_db.commit()
+
+    # Put emp1 into 3-day cooldown by another candidate
+    log = EmailLog(candidate_id=2, employer_id=emp1.id, gmail_account_id=1, subject="S", body="B", status="sent", sent_at=datetime.now(timezone.utc), created_at=datetime.now(timezone.utc))
+    test_db.add(log)
+    test_db.commit()
+
+    # Job created for emp1
+    job = OutreachJob(candidate_id=cand.id, employer_id=emp1.id, gmail_account_id=cand.gmail_account.id, scheduled_at=datetime.now(timezone.utc), status="pending")
+    test_db.add(job)
+    test_db.commit()
+
+    # Worker processes job -> should auto-replace emp1 with emp2
+    res = OutreachService.process_due_outreach_jobs(test_db)
+    assert res["processed"] == 1
+
+    test_db.refresh(job)
+    assert job.employer_id != emp1.id
+

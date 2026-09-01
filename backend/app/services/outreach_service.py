@@ -795,6 +795,65 @@ class OutreachService:
         return updated_count
 
     @staticmethod
+    def find_next_eligible_employer_for_candidate(
+        db: Session,
+        candidate_id: int,
+        now_utc: datetime | None = None,
+    ) -> int | None:
+        if now_utc is None:
+            now_utc = datetime.now(timezone.utc)
+
+        contacted_set = set(
+            db.scalars(
+                select(EmailLog.employer_id).where(
+                    EmailLog.candidate_id == candidate_id,
+                    EmailLog.status.in_(["sent", "pending", "sending"]),
+                )
+            ).all()
+        )
+
+        queued_set = set(
+            db.scalars(
+                select(OutreachJob.employer_id).where(
+                    OutreachJob.candidate_id == candidate_id,
+                    OutreachJob.status.in_(["pending", "processing"]),
+                )
+            ).all()
+        )
+
+        cooldown_start = now_utc - timedelta(days=3)
+        cooldown_set = set(
+            db.scalars(
+                select(EmailLog.employer_id).where(
+                    EmailLog.status.in_(["sent", "pending", "sending"]),
+                    EmailLog.created_at >= cooldown_start,
+                )
+            ).all()
+        )
+
+        excluded_set = contacted_set | queued_set | cooldown_set
+
+        stmt = (
+            select(Employer.id)
+            .where(
+                Employer.is_active.is_(True),
+                Employer.email.isnot(None),
+                Employer.email != "",
+            )
+            .order_by(Employer.id)
+        )
+        if excluded_set:
+            stmt = stmt.where(Employer.id.notin_(excluded_set))
+
+        candidate_employers = db.scalars(stmt).all()
+        for emp_id in candidate_employers:
+            emp = db.get(Employer, emp_id)
+            if emp and emp.email and EMAIL_REGEX.match(emp.email.strip()):
+                return emp_id
+
+        return None
+
+    @staticmethod
     def process_due_outreach_jobs(db: Session, max_jobs: int = 50) -> dict:
         settings = get_outreach_settings(db)
         if not settings.enabled:
@@ -849,6 +908,18 @@ class OutreachService:
                 skipped_cnt += 1
                 continue
             elif not eligibility.allowed:
+                # Smart Auto-Replacement: If assigned employer entered 3-day cooldown or was contacted,
+                # auto-assign next available free & eligible employer for candidate instead of wasting slot.
+                replacement_emp_id = OutreachService.find_next_eligible_employer_for_candidate(
+                    db, job.candidate_id, now_utc=now_utc
+                )
+                if replacement_emp_id:
+                    job.employer_id = replacement_emp_id
+                    eligibility = OutreachService.check_eligibility(
+                        db, job.candidate_id, replacement_emp_id, now_utc=now_utc, exclude_job_id=job.id
+                    )
+
+            if not eligibility.allowed:
                 # Permanent eligibility violation -> mark skipped
                 job.status = "skipped"
                 job.error_message = eligibility.reason
