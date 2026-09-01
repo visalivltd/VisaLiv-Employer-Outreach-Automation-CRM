@@ -349,9 +349,13 @@ def test_updating_min_gap_reschedules_pending_jobs(test_db):
     assert (sched_time_after - now_utc).total_seconds() <= 15 * 60 + 5
 
 
-def test_batch_outreach_queues_minimum_gap_jobs(test_db):
+def test_batch_outreach_queues_minimum_gap_jobs(test_db, monkeypatch):
     """TEST 12: Batch outreach sends 1st email immediately and queues 2nd & 3rd emails with 2m gap."""
     update_outreach_settings(test_db, max_emails_per_candidate_per_day=10, min_gap_minutes=2, enabled=True)
+
+    dummy_log = EmailLog(candidate_id=1, employer_id=1, gmail_account_id=1, subject="Test", status="sent", sent_at=datetime.now(timezone.utc))
+    dummy_log.id = 998
+    monkeypatch.setattr(OutreachService, "send_outreach", lambda *args, **kwargs: dummy_log)
 
     pairings = [
         {"candidate_id": 1, "employer_id": 1},
@@ -483,9 +487,13 @@ def test_worker_subsecond_polling_reschedules_not_skips(test_db):
     assert abs((sched_tz - expected_next).total_seconds()) < 1.0
 
 
-def test_batch_outreach_counts_and_daily_limit_capacity(test_db):
+def test_batch_outreach_counts_and_daily_limit_capacity(test_db, monkeypatch):
     """TEST 15: Verify batch outreach returns exact counts (sent_count, queued_count, skipped_count) and respects daily capacity."""
     update_outreach_settings(test_db, max_emails_per_candidate_per_day=4, min_gap_minutes=2, enabled=True)
+
+    dummy_log = EmailLog(candidate_id=1, employer_id=1, gmail_account_id=1, subject="Test", status="sent", sent_at=datetime.now(timezone.utc))
+    dummy_log.id = 997
+    monkeypatch.setattr(OutreachService, "send_outreach", lambda *args, **kwargs: dummy_log)
 
     pairings = [
         {"candidate_id": 1, "employer_id": 1},
@@ -723,4 +731,94 @@ def test_auto_replacement_for_cooldown_job(test_db):
 
     test_db.refresh(job)
     assert job.employer_id != emp1.id
+
+
+def test_cooldown_includes_pending_and_processing_outreach_jobs(test_db):
+    """TEST 21: Active OutreachJob (pending/processing) puts employer into 3-day cooldown for other candidates."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=5, min_gap_minutes=60, enabled=True)
+
+    # Queue Employer 1 for Candidate 1
+    job = OutreachJob(candidate_id=1, employer_id=1, gmail_account_id=1, scheduled_at=datetime.now(timezone.utc), status="pending")
+    test_db.add(job)
+    test_db.commit()
+
+    # Candidate 2 checks eligibility for Employer 1 -> Should be in cooldown
+    from app.services.outreach_service import ReasonCode
+    res = OutreachService.check_eligibility(test_db, candidate_id=2, employer_id=1)
+    assert res.allowed is False
+    assert res.reason_code == ReasonCode.EMPLOYER_COOLDOWN
+
+
+def test_batch_outreach_prevents_duplicate_employer_sends_across_candidates(test_db, monkeypatch):
+    """TEST 22: Batch outreach prevents multiple candidates from emailing the same employer in the same run."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=5, min_gap_minutes=60, enabled=True)
+
+    dummy_log = EmailLog(candidate_id=1, employer_id=1, gmail_account_id=1, subject="Test", status="sent", sent_at=datetime.now(timezone.utc))
+    dummy_log.id = 996
+    monkeypatch.setattr(OutreachService, "send_outreach", lambda *args, **kwargs: dummy_log)
+
+    pairings = [
+        {"candidate_id": 1, "employer_id": 1},
+        {"candidate_id": 2, "employer_id": 1},
+    ]
+
+    from app.services.outreach_service import ReasonCode
+    res = OutreachService.batch_outreach(test_db, pairings)
+    assert res["skipped"] == 1
+    assert res["details"][1]["status"] == "skipped"
+    assert res["details"][1]["reason_code"] == ReasonCode.EMPLOYER_COOLDOWN.value
+
+
+def test_process_due_jobs_marks_cooldown_employer_as_skipped_not_failed(test_db):
+    """TEST 23: If worker re-evaluates a due job and employer is in cooldown with no replacement, status is set to skipped."""
+    update_outreach_settings(test_db, max_emails_per_candidate_per_day=5, min_gap_minutes=60, enabled=True)
+
+    # Deactivate all active employers except employer 1
+    test_db.query(Employer).filter(Employer.id != 1).update({"is_active": False})
+    test_db.commit()
+
+    # Put Employer 1 in cooldown via EmailLog from Candidate 2
+    log = EmailLog(candidate_id=2, employer_id=1, gmail_account_id=2, subject="S", body="B", status="sent", sent_at=datetime.now(timezone.utc), created_at=datetime.now(timezone.utc))
+    test_db.add(log)
+
+    job = OutreachJob(candidate_id=1, employer_id=1, gmail_account_id=1, scheduled_at=datetime.now(timezone.utc) - timedelta(minutes=1), status="pending")
+    test_db.add(job)
+    test_db.commit()
+
+    res = OutreachService.process_due_outreach_jobs(test_db)
+    assert res["processed"] == 1
+    assert res["skipped"] == 1
+    assert res["failed"] == 0
+
+    test_db.refresh(job)
+    assert job.status == "skipped"
+    assert "cooldown" in job.error_message.lower()
+
+
+def test_invalid_grant_token_expiration_deactivates_gmail_account(test_db):
+    """TEST 24: invalid_grant exception in EmailService deactivates GmailAccount and sets error message."""
+    gmail = test_db.get(GmailAccount, 1)
+    assert gmail.is_active is True
+
+    from app.services.email_service import EmailService
+    try:
+        EmailService.send_and_log(
+            db=test_db,
+            candidate_id=1,
+            employer_id=1,
+            gmail_account=gmail,
+            to_email="test@example.com",
+            subject="Test",
+            body="Body",
+        )
+    except Exception:
+        pass
+
+    test_db.refresh(gmail)
+    assert gmail.is_active is False
+
+    log = test_db.scalars(select(EmailLog).where(EmailLog.candidate_id == 1, EmailLog.employer_id == 1)).first()
+    assert log is not None
+    assert log.status == "failed"
+    assert "Gmail token expired" in log.error_message
 

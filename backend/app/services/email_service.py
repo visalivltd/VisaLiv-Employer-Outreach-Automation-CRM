@@ -67,9 +67,21 @@ class EmailService:
 
         except Exception as exc:
             db.rollback()
+            err_str = str(exc)
+            is_token_expired = "invalid_grant" in err_str or "Token has been expired or revoked" in err_str
+            if is_token_expired:
+                try:
+                    gmail_account.is_active = False
+                    db.commit()
+                except Exception:
+                    db.rollback()
+
             try:
                 email_log.status = "failed"
-                email_log.error_message = str(exc)
+                if is_token_expired:
+                    email_log.error_message = "Gmail token expired — please reconnect account"
+                else:
+                    email_log.error_message = err_str
                 db.commit()
                 db.refresh(email_log)
             except Exception:

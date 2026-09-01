@@ -211,15 +211,26 @@ class OutreachService:
 
         # 5. Employer-Level 3-Day Cooldown Check
         cooldown_start = now_utc - timedelta(days=3)
-        recent_cooldown = db.scalar(
-            select(EmailLog).where(
+        recent_cooldown_email = db.scalar(
+            select(EmailLog.id).where(
                 EmailLog.employer_id == employer_id,
                 EmailLog.status.in_(["sent", "pending", "sending"]),
                 EmailLog.created_at >= cooldown_start,
             )
         )
-        if recent_cooldown:
+        if recent_cooldown_email:
             return EligibilityResult(False, ReasonCode.EMPLOYER_COOLDOWN, "Employer in 3-day cooldown")
+
+        job_cooldown_stmt = select(OutreachJob.id).where(
+            OutreachJob.employer_id == employer_id,
+            OutreachJob.status.in_(["pending", "processing"]),
+        )
+        if exclude_job_id is not None:
+            job_cooldown_stmt = job_cooldown_stmt.where(OutreachJob.id != exclude_job_id)
+
+        recent_cooldown_job = db.scalar(job_cooldown_stmt)
+        if recent_cooldown_job:
+            return EligibilityResult(False, ReasonCode.EMPLOYER_COOLDOWN, "Employer in 3-day cooldown (queued for outreach)")
 
         # 6. Daily Limit Check
         if custom_capacity_used is not None:
@@ -344,7 +355,7 @@ class OutreachService:
             )
 
             cooldown_start = now_utc - timedelta(days=3)
-            cooldown_set = set(
+            cooldown_emails = set(
                 db.scalars(
                     select(EmailLog.employer_id).where(
                         EmailLog.status.in_(["sent", "pending", "sending"]),
@@ -352,6 +363,14 @@ class OutreachService:
                     )
                 ).all()
             )
+            cooldown_jobs = set(
+                db.scalars(
+                    select(OutreachJob.employer_id).where(
+                        OutreachJob.status.in_(["pending", "processing"]),
+                    )
+                ).all()
+            )
+            cooldown_set = cooldown_emails | cooldown_jobs
 
             cand_valid = (
                 settings.enabled
@@ -530,6 +549,7 @@ class OutreachService:
         results = []
 
         cand_states: dict[int, CandidateBatchState] = {}
+        processed_employers_in_batch: set[int] = set()
 
         # Pre-group candidate IDs to apply concurrency row locks
         candidate_ids = sorted(list({item.get("candidate_id") for item in items if item.get("candidate_id")}))
@@ -545,6 +565,17 @@ class OutreachService:
 
             if not candidate_id or not employer_id:
                 skipped_count += 1
+                continue
+
+            if employer_id in processed_employers_in_batch:
+                skipped_count += 1
+                results.append({
+                    "candidate_id": candidate_id,
+                    "employer_id": employer_id,
+                    "status": "skipped",
+                    "reason": "Employer in 3-day cooldown (assigned in current batch)",
+                    "reason_code": ReasonCode.EMPLOYER_COOLDOWN.value,
+                })
                 continue
 
             # Initialize candidate state if not present
@@ -624,6 +655,7 @@ class OutreachService:
                     state.consume_slot()
                     if log.status == "sent":
                         sent_count += 1
+                        processed_employers_in_batch.add(employer_id)
                         results.append({
                             "candidate_id": candidate_id,
                             "employer_id": employer_id,
@@ -662,6 +694,7 @@ class OutreachService:
                 db.commit()
 
                 queued_count += 1
+                processed_employers_in_batch.add(employer_id)
                 state.consume_slot()
                 state.next_send_at = scheduled_time + timedelta(minutes=settings.min_gap_minutes)
 
@@ -718,6 +751,7 @@ class OutreachService:
 
         total_queued = 0
         total_skipped = 0
+        queued_in_run_employer_ids: set[int] = set()
 
         for cand in active_candidates:
             if not cand.is_active or not cand.gmail_account or not cand.gmail_account.is_active or not cand.email_draft_id or not cand.email_draft:
@@ -742,6 +776,10 @@ class OutreachService:
                 if remaining <= 0:
                     break
 
+                if emp.id in queued_in_run_employer_ids:
+                    total_skipped += 1
+                    continue
+
                 res = OutreachService.check_eligibility(
                     db=db,
                     candidate_id=cand.id,
@@ -763,6 +801,8 @@ class OutreachService:
                     attempts=0,
                 )
                 db.add(job)
+                db.flush()
+                queued_in_run_employer_ids.add(emp.id)
 
                 total_queued += 1
                 remaining -= 1
@@ -857,7 +897,7 @@ class OutreachService:
         )
 
         cooldown_start = now_utc - timedelta(days=3)
-        cooldown_set = set(
+        cooldown_emails = set(
             db.scalars(
                 select(EmailLog.employer_id).where(
                     EmailLog.status.in_(["sent", "pending", "sending"]),
@@ -865,6 +905,14 @@ class OutreachService:
                 )
             ).all()
         )
+        cooldown_jobs = set(
+            db.scalars(
+                select(OutreachJob.employer_id).where(
+                    OutreachJob.status.in_(["pending", "processing"]),
+                )
+            ).all()
+        )
+        cooldown_set = cooldown_emails | cooldown_jobs
 
         excluded_set = contacted_set | queued_set | cooldown_set
 
@@ -1002,11 +1050,23 @@ class OutreachService:
                     job.error_message = email_log.error_message or "Send failed"
                     db.commit()
                     failed_cnt += 1
-            except Exception as exc:
-                job.status = "failed"
+            except ValueError as exc:
+                job.status = "skipped"
                 job.error_message = str(exc)
                 db.commit()
-                failed_cnt += 1
+                skipped_cnt += 1
+            except Exception as exc:
+                err_str = str(exc)
+                if "invalid_grant" in err_str or "Token has been expired or revoked" in err_str or "Gmail token expired" in err_str:
+                    job.status = "skipped"
+                    job.error_message = "Gmail token expired — please reconnect account"
+                    db.commit()
+                    skipped_cnt += 1
+                else:
+                    job.status = "failed"
+                    job.error_message = err_str
+                    db.commit()
+                    failed_cnt += 1
 
         return {
             "processed": processed_cnt,
