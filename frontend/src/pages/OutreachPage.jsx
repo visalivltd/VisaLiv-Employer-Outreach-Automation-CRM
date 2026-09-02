@@ -417,9 +417,9 @@ export default function OutreachPage() {
       setMessage('');
 
       let baseUrl = getApiUrl();
-      let res = await fetch(`${baseUrl}/outreach/preview?only_eligible=true&page_size=1000`);
+      let res = await fetch(`${baseUrl}/outreach/preview?only_eligible=true&page_size=500`);
       if (!res.ok && !baseUrl.includes('/api/v1')) {
-        res = await fetch(`${baseUrl}/api/v1/outreach/preview?only_eligible=true&page_size=1000`);
+        res = await fetch(`${baseUrl}/api/v1/outreach/preview?only_eligible=true&page_size=500`);
       }
 
       const data = await res.json().catch(() => ({}));
@@ -451,11 +451,14 @@ export default function OutreachPage() {
       const globallyAssignedEmployers = new Set();
       let totalAutoSelected = 0;
 
+      const configuredLimit = Number(settings?.max_emails_per_candidate_per_day) || 10;
+
       for (const [candId, candEligibleItems] of candItemsMap.entries()) {
         const summary = candSummaries.get(candId) || {};
         const sentToday = Number(summary.sent_today_count) || 0;
         const queuedToday = Number(summary.queued_today_count) || 0;
-        const dailyLimit = Number(summary.daily_limit) || Number(settings?.max_emails_per_candidate_per_day) || 20;
+        const summaryLimit = summary.daily_limit !== undefined && summary.daily_limit !== null ? Number(summary.daily_limit) : null;
+        const dailyLimit = (summaryLimit && summaryLimit > 0) ? Math.min(summaryLimit, configuredLimit) : configuredLimit;
         const remainingQuota = Math.max(0, dailyLimit - sentToday - queuedToday);
 
         let candSelected = 0;
@@ -473,7 +476,7 @@ export default function OutreachPage() {
 
       setSelectedItemsMap(newMap);
       if (totalAutoSelected > 0) {
-        setMessage(`Auto-selected ${totalAutoSelected} unique, non-overlapping candidate-employer pairing(s) across all active candidates!`);
+        setMessage(`Auto-selected ${totalAutoSelected} unique, non-overlapping candidate-employer pairing(s) matching your configured daily limit (${configuredLimit}/candidate)!`);
         setTimeout(() => setMessage(''), 6000);
       } else {
         setError('No eligible candidate-employer pairings available for auto-selection today.');
