@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User, Sliders } from 'lucide-react';
+import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User, Sliders, Zap } from 'lucide-react';
 
 const getApiUrl = () => {
   if (typeof window !== 'undefined') {
@@ -408,6 +408,83 @@ export default function OutreachPage() {
       headerCheckboxRef.current.indeterminate = isSomePageSelected;
     }
   }, [isSomePageSelected]);
+
+  // Auto-Select All Candidates: 1-click select daily limit per candidate with zero employer overlap
+  const handleAutoSelectAllCandidates = async () => {
+    try {
+      setLoadingPreview(true);
+      setError('');
+      setMessage('');
+
+      let baseUrl = getApiUrl();
+      let res = await fetch(`${baseUrl}/outreach/preview?only_eligible=true&page_size=1000`);
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1/outreach/preview?only_eligible=true&page_size=1000`);
+      }
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(getErrorMessage(data, 'Failed to fetch global outreach preview for auto-selection'));
+      }
+
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const newMap = new Map();
+
+      // Group eligible items by candidate_id
+      const candItemsMap = new Map();
+      items.forEach((item) => {
+        if (!item || !item.eligible) return;
+        if (!candItemsMap.has(item.candidate_id)) {
+          candItemsMap.set(item.candidate_id, []);
+        }
+        candItemsMap.get(item.candidate_id).push(item);
+      });
+
+      const candSummaries = new Map();
+      if (Array.isArray(data?.candidate_summaries)) {
+        data.candidate_summaries.forEach((s) => {
+          if (s && s.candidate_id) candSummaries.set(s.candidate_id, s);
+        });
+      }
+
+      // Track globally assigned employers to guarantee ZERO OVERLAP across candidates
+      const globallyAssignedEmployers = new Set();
+      let totalAutoSelected = 0;
+
+      for (const [candId, candEligibleItems] of candItemsMap.entries()) {
+        const summary = candSummaries.get(candId) || {};
+        const sentToday = Number(summary.sent_today_count) || 0;
+        const queuedToday = Number(summary.queued_today_count) || 0;
+        const dailyLimit = Number(summary.daily_limit) || Number(settings?.max_emails_per_candidate_per_day) || 20;
+        const remainingQuota = Math.max(0, dailyLimit - sentToday - queuedToday);
+
+        let candSelected = 0;
+        for (const item of candEligibleItems) {
+          if (candSelected >= remainingQuota) break;
+          if (globallyAssignedEmployers.has(item.employer_id)) continue;
+
+          const key = getItemKey(item);
+          newMap.set(key, item);
+          globallyAssignedEmployers.add(item.employer_id);
+          candSelected++;
+          totalAutoSelected++;
+        }
+      }
+
+      setSelectedItemsMap(newMap);
+      if (totalAutoSelected > 0) {
+        setMessage(`Auto-selected ${totalAutoSelected} unique, non-overlapping candidate-employer pairing(s) across all active candidates!`);
+        setTimeout(() => setMessage(''), 6000);
+      } else {
+        setError('No eligible candidate-employer pairings available for auto-selection today.');
+      }
+    } catch (err) {
+      console.error('handleAutoSelectAllCandidates error:', err);
+      setError(err.message || 'Failed to auto-select candidate pairings');
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
 
   const handleToggleSelectAllPage = () => {
     setError('');
@@ -882,6 +959,18 @@ export default function OutreachPage() {
                 <Trash2 size={15} /> Clear Selection ({selectedItemsMap.size})
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={handleAutoSelectAllCandidates}
+              disabled={loadingPreview}
+              className="primary-button"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#4f46e5' }}
+              title="1-Click Auto-Select unique daily limit pairings for all active candidates"
+            >
+              <Zap size={15} />
+              Auto-Select All Candidates
+            </button>
 
             <button
               type="button"
