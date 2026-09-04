@@ -38,9 +38,10 @@ class Candidate(Base):
         String(100),
     )
 
-    cv_file_path: Mapped[str] = mapped_column(
+    cv_file_path: Mapped[str | None] = mapped_column(
         String(500),
-        nullable=False,
+        nullable=True,
+        default="",
     )
 
     email_draft_id: Mapped[int | None] = mapped_column(
