@@ -9,7 +9,7 @@ class CandidateCreate(BaseModel):
     phone: str | None = None
     country: str | None = None
     visa_type: str | None = None
-    cv_file_path: str
+    cv_file_path: str | None = None
     email_draft_id: int | None = None
 
 
@@ -42,7 +42,7 @@ class CandidateResponse(BaseModel):
     phone: str | None
     country: str | None
     visa_type: str | None
-    cv_file_path: str
+    cv_file_path: str | None = None
     is_active: bool
     gmail_email: str | None = None
     email_draft_id: int | None = None

@@ -397,12 +397,6 @@ export default function CandidatesPage() {
       }
     }
 
-    // New candidate must have CV.
-    // Existing candidate can keep the existing CV.
-    if (!editingCandidate && !selectedFile && !form.cv_file_path) {
-      return 'Please upload a CV';
-    }
-
     return '';
   };
 
@@ -594,15 +588,11 @@ export default function CandidatesPage() {
     try {
       setSaving(true);
 
-      // Upload selected CV first.
-      let cvFilePath = form.cv_file_path;
+      // Upload selected CV first if present.
+      let cvFilePath = form.cv_file_path || '';
 
       if (selectedFile) {
         cvFilePath = await uploadCV();
-      }
-
-      if (!cvFilePath) {
-        throw new Error('Please upload a CV');
       }
 
       const isEditing = Boolean(editingCandidate);
@@ -1238,7 +1228,7 @@ export default function CandidatesPage() {
 
               <div className="form-field">
                 <label>
-                  CV <span className="required">*</span>
+                  CV
                 </label>
 
                 <div className="cv-upload-box">
