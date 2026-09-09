@@ -1,10 +1,12 @@
 steps:
-  # Build frontend Docker image for Dev Staging
+  # Build frontend Docker image for Dev Staging pointing to Dev Backend
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
       - '-f'
       - 'frontend/Dockerfile'
+      - '--build-arg'
+      - 'VITE_API_URL=https://visaliv-crm-backend-dev-477131280275.asia-south2.run.app'
       - '-t'
       - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-frontend/visaliv-crm-frontend:dev-$COMMIT_SHA'
       - 'frontend'
@@ -15,7 +17,7 @@ steps:
       - 'push'
       - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-frontend/visaliv-crm-frontend:dev-$COMMIT_SHA'
 
-  # Deploy to Cloud Run Dev Staging Service
+  # Deploy to Cloud Run Dev Staging Frontend Service
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args:
