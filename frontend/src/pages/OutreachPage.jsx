@@ -512,11 +512,27 @@ export default function OutreachPage() {
     setError('');
   };
 
-  // Auto-poll queue summary and trigger process-jobs on backend when jobs are pending/processing
+  const refreshQueueSummary = async () => {
+    try {
+      let baseUrl = getApiUrl();
+      let res = await fetch(`${baseUrl}/outreach/summary`);
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1/outreach/summary`);
+      }
+      if (res.ok) {
+        const summaryData = await res.json();
+        setPreviewData((prev) => (prev ? { ...prev, queue_summary: summaryData } : prev));
+      }
+    } catch (summaryErr) {
+      console.error('Queue summary refresh error:', summaryErr);
+    }
+  };
+
+  // Auto-poll lightweight queue summary when background worker jobs are pending/processing (prevents browser freezes)
   useEffect(() => {
     const queueSum = previewData?.queue_summary;
     if (queueSum && (queueSum.pending_count > 0 || queueSum.processing_count > 0)) {
-      const triggerProcessJobs = async () => {
+      const pollQueueStatus = async () => {
         try {
           let baseUrl = getApiUrl();
           let res = await fetch(`${baseUrl}/outreach/process-jobs`, { method: 'POST' });
@@ -526,15 +542,14 @@ export default function OutreachPage() {
         } catch (err) {
           console.error('Trigger process-jobs error:', err);
         } finally {
-          loadPreview(page, selectedCandidateFilter);
+          await refreshQueueSummary();
         }
       };
 
-      triggerProcessJobs();
-      const timer = setInterval(triggerProcessJobs, 6000);
+      const timer = setInterval(pollQueueStatus, 15000);
       return () => clearInterval(timer);
     }
-  }, [previewData?.queue_summary?.pending_count, previewData?.queue_summary?.processing_count, page, selectedCandidateFilter]);
+  }, [previewData?.queue_summary?.pending_count, previewData?.queue_summary?.processing_count]);
 
   const handleStartOutreach = async () => {
     try {
