@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 from sqlalchemy import select, func, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from pathlib import Path
 
@@ -294,10 +294,15 @@ class OutreachService:
         now_utc = datetime.now(timezone.utc)
         start_of_today = OutreachService.get_start_of_today_ist()
 
-        candidate_stmt = select(Candidate).where(Candidate.is_active.is_(True)).order_by(Candidate.id)
+        candidate_stmt = (
+            select(Candidate)
+            .options(joinedload(Candidate.gmail_account), joinedload(Candidate.email_draft))
+            .where(Candidate.is_active.is_(True))
+            .order_by(Candidate.id)
+        )
         if candidate_id is not None:
             candidate_stmt = candidate_stmt.where(Candidate.id == candidate_id)
-        active_candidates = db.scalars(candidate_stmt).all()
+        active_candidates = db.scalars(candidate_stmt).unique().all()
 
         total_employers = db.scalar(
             select(func.count(Employer.id)).where(Employer.is_active.is_(True))
@@ -440,6 +445,7 @@ class OutreachService:
                 cand_last_time + timedelta(minutes=settings.min_gap_minutes) if cand_last_time else None
             )
 
+            cand_gmail_email = candidate.gmail_account.gmail_email if candidate.gmail_account else None
             cand_draft_name = candidate.email_draft_name or (
                 candidate.email_draft.draft_name if candidate.email_draft else None
             )
@@ -515,7 +521,7 @@ class OutreachService:
                     "candidate_id": candidate.id,
                     "candidate_name": candidate.full_name,
                     "candidate_email": candidate.email,
-                    "gmail_account": candidate.gmail_account.gmail_email if candidate.gmail_account else None,
+                    "gmail_account": cand_gmail_email,
                     "email_draft": cand_draft_name,
                     "cv_file_path": candidate.cv_file_path,
                     "employer_id": employer.id,
