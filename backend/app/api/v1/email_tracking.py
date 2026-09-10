@@ -1,5 +1,7 @@
+import uuid
+from pathlib import Path
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,11 +12,40 @@ from app.models.email_log import EmailLog
 from app.models.employer import Employer
 from app.models.gmail_account import GmailAccount
 from app.services.gmail_service import GmailService
+from app.services.storage_service import storage_service
 
 router = APIRouter(
     prefix="/email-tracking",
     tags=["Email Tracking"],
 )
+
+
+@router.post("/upload-attachment")
+async def upload_tracking_attachment(
+    file: UploadFile = File(...),
+):
+    """Upload custom attachment (PDF, DOCX, Images, etc.) for outgoing email/reply."""
+    ext = Path(file.filename).suffix.lower()
+    allowed_exts = {".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg", ".webp", ".txt", ".xlsx", ".csv"}
+    if ext not in allowed_exts:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file type '{ext}'. Allowed types: PDF, DOCX, Images (JPG, PNG, WEBP), TXT, Excel."
+        )
+
+    contents = await file.read()
+    filename = f"{uuid.uuid4().hex[:10]}_{file.filename}"
+    rel_path = f"uploads/attachments/{filename}"
+    saved_path = storage_service.save_bytes(contents, rel_path)
+
+    return {
+        "success": True,
+        "filename": file.filename,
+        "file_path": saved_path,
+        "size": len(contents),
+        "content_type": file.content_type,
+    }
+
 
 
 class SendEmailTrackingRequest(BaseModel):
