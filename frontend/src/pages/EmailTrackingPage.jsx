@@ -83,37 +83,29 @@ export default function EmailTrackingPage() {
   const [replySending, setReplySending] = useState(false);
   const [replyError, setReplyError] = useState('');
 
-  // Fetch all required CRM data
+  // Fetch required email tracking data
   const fetchData = async () => {
     try {
       setLoading(true);
       setError('');
 
-      const [logsRes, notifRes, accountsRes, empRes] = await Promise.all([
+      const [logsRes, notifRes, accountsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/email-logs`),
         fetch(`${API_BASE_URL}/notifications`),
         fetch(`${API_BASE_URL}/gmail-accounts`),
-        fetch(`${API_BASE_URL}/employers`),
       ]);
 
       if (logsRes.ok) {
         const logsData = await logsRes.json();
-        setLogs(logsData);
+        setLogs(Array.isArray(logsData) ? logsData : []);
       }
-
       if (notifRes.ok) {
         const notifData = await notifRes.json();
-        setNotifications(notifData);
+        setNotifications(Array.isArray(notifData) ? notifData : []);
       }
-
       if (accountsRes.ok) {
-        const accountsData = await accountsRes.json();
-        setGmailAccounts(accountsData);
-      }
-
-      if (empRes.ok) {
-        const empData = await empRes.json();
-        setEmployers(empData);
+        const accData = await accountsRes.json();
+        setGmailAccounts(Array.isArray(accData) ? accData : []);
       }
 
       setLastSynced(
