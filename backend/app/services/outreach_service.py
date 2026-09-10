@@ -1,5 +1,6 @@
 import logging
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -318,6 +319,107 @@ class OutreachService:
             )
         ) or 0
 
+        if not active_candidates:
+            return {
+                "items": [],
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+                "total_eligible": 0,
+                "total_skipped": 0,
+                "eligible_today": 0,
+                "skipped_count": 0,
+                "emails_sent_today": emails_sent_today,
+                "candidate_summaries": [],
+                "queue_summary": OutreachService.get_outreach_summary(db),
+                "settings": {
+                    "max_emails_per_candidate_per_day": settings.max_emails_per_candidate_per_day,
+                    "min_gap_minutes": settings.min_gap_minutes,
+                    "enabled": settings.enabled,
+                },
+            }
+
+        candidate_ids = [c.id for c in active_candidates]
+
+        # Single bulk query for sent today per candidate
+        sent_today_map = dict(
+            db.execute(
+                select(EmailLog.candidate_id, func.count(EmailLog.id))
+                .where(
+                    EmailLog.candidate_id.in_(candidate_ids),
+                    EmailLog.status == "sent",
+                    EmailLog.sent_at >= start_of_today,
+                )
+                .group_by(EmailLog.candidate_id)
+            ).all()
+        )
+
+        # Single bulk query for queued today per candidate
+        queued_today_map = dict(
+            db.execute(
+                select(OutreachJob.candidate_id, func.count(OutreachJob.id))
+                .where(
+                    OutreachJob.candidate_id.in_(candidate_ids),
+                    OutreachJob.status.in_(["pending", "processing"]),
+                    OutreachJob.created_at >= start_of_today,
+                )
+                .group_by(OutreachJob.candidate_id)
+            ).all()
+        )
+
+        # Single bulk query for latest activity time per candidate
+        latest_activity_map = dict(
+            db.execute(
+                select(EmailLog.candidate_id, func.max(EmailLog.sent_at))
+                .where(
+                    EmailLog.candidate_id.in_(candidate_ids),
+                    EmailLog.status.in_(["sent", "pending", "sending"]),
+                )
+                .group_by(EmailLog.candidate_id)
+            ).all()
+        )
+
+        # Single bulk query for all contacted employers grouped by candidate
+        contacted_rows = db.execute(
+            select(EmailLog.candidate_id, EmailLog.employer_id).where(
+                EmailLog.candidate_id.in_(candidate_ids),
+                EmailLog.status.in_(["sent", "pending", "sending"]),
+            )
+        ).all()
+        contacted_map: dict[int, set[int]] = defaultdict(set)
+        for cid, eid in contacted_rows:
+            contacted_map[cid].add(eid)
+
+        # Single bulk query for all queued employers grouped by candidate
+        queued_rows = db.execute(
+            select(OutreachJob.candidate_id, OutreachJob.employer_id).where(
+                OutreachJob.candidate_id.in_(candidate_ids),
+                OutreachJob.status.in_(["pending", "processing"]),
+            )
+        ).all()
+        queued_map: dict[int, set[int]] = defaultdict(set)
+        for cid, eid in queued_rows:
+            queued_map[cid].add(eid)
+
+        # Single query for global 3-day cooldown employers
+        cooldown_start = now_utc - timedelta(days=3)
+        cooldown_emails = set(
+            db.scalars(
+                select(EmailLog.employer_id).where(
+                    EmailLog.status.in_(["sent", "pending", "sending"]),
+                    EmailLog.created_at >= cooldown_start,
+                )
+            ).all()
+        )
+        cooldown_jobs = set(
+            db.scalars(
+                select(OutreachJob.employer_id).where(
+                    OutreachJob.status.in_(["pending", "processing"]),
+                )
+            ).all()
+        )
+        base_cooldown_set = cooldown_emails | cooldown_jobs
+
         all_items = []
         candidate_summaries = []
         total_eligible = 0
@@ -325,9 +427,11 @@ class OutreachService:
         global_preview_assigned_employers: set[int] = set()
 
         for candidate in active_candidates:
-            cand_sent_today = OutreachService.get_candidate_sent_today(db, candidate.id, start_of_today)
-            cand_queued_today = OutreachService.get_candidate_pending_today(db, candidate.id, start_of_today)
-            cand_last_time = OutreachService.get_candidate_latest_activity_time(db, candidate.id)
+            cand_sent_today = sent_today_map.get(candidate.id, 0)
+            cand_queued_today = queued_today_map.get(candidate.id, 0)
+            cand_last_time = latest_activity_map.get(candidate.id)
+            if cand_last_time and cand_last_time.tzinfo is None:
+                cand_last_time = cand_last_time.replace(tzinfo=timezone.utc)
             cand_next_eligible = (
                 cand_last_time + timedelta(minutes=settings.min_gap_minutes) if cand_last_time else None
             )
@@ -336,42 +440,9 @@ class OutreachService:
                 candidate.email_draft.draft_name if candidate.email_draft else None
             )
 
-            # Fast set lookups to eliminate N*M database queries per request
-            contacted_set = set(
-                db.scalars(
-                    select(EmailLog.employer_id).where(
-                        EmailLog.candidate_id == candidate.id,
-                        EmailLog.status.in_(["sent", "pending", "sending"]),
-                    )
-                ).all()
-            )
-
-            queued_set = set(
-                db.scalars(
-                    select(OutreachJob.employer_id).where(
-                        OutreachJob.candidate_id == candidate.id,
-                        OutreachJob.status.in_(["pending", "processing"]),
-                    )
-                ).all()
-            )
-
-            cooldown_start = now_utc - timedelta(days=3)
-            cooldown_emails = set(
-                db.scalars(
-                    select(EmailLog.employer_id).where(
-                        EmailLog.status.in_(["sent", "pending", "sending"]),
-                        EmailLog.created_at >= cooldown_start,
-                    )
-                ).all()
-            )
-            cooldown_jobs = set(
-                db.scalars(
-                    select(OutreachJob.employer_id).where(
-                        OutreachJob.status.in_(["pending", "processing"]),
-                    )
-                ).all()
-            )
-            cooldown_set = cooldown_emails | cooldown_jobs | global_preview_assigned_employers
+            contacted_set = contacted_map[candidate.id]
+            queued_set = queued_map[candidate.id]
+            cooldown_set = base_cooldown_set | global_preview_assigned_employers
 
             cand_valid = (
                 settings.enabled
@@ -754,24 +825,114 @@ class OutreachService:
         now_utc = datetime.now(timezone.utc)
         start_of_today = OutreachService.get_start_of_today_ist()
 
+        if not active_candidates or not active_employers:
+            return {
+                "success": True,
+                "queued": 0,
+                "skipped": 0,
+                "message": "Outreach jobs queued successfully: 0 job(s) scheduled.",
+            }
+
+        candidate_ids = [c.id for c in active_candidates]
+
+        # 1. Bulk pre-fetch sent today counts per candidate
+        sent_today_map = dict(
+            db.execute(
+                select(EmailLog.candidate_id, func.count(EmailLog.id))
+                .where(
+                    EmailLog.candidate_id.in_(candidate_ids),
+                    EmailLog.status == "sent",
+                    EmailLog.sent_at >= start_of_today,
+                )
+                .group_by(EmailLog.candidate_id)
+            ).all()
+        )
+
+        # 2. Bulk pre-fetch queued/pending today counts per candidate
+        pending_today_map = dict(
+            db.execute(
+                select(OutreachJob.candidate_id, func.count(OutreachJob.id))
+                .where(
+                    OutreachJob.candidate_id.in_(candidate_ids),
+                    OutreachJob.status.in_(["pending", "processing"]),
+                    OutreachJob.created_at >= start_of_today,
+                )
+                .group_by(OutreachJob.candidate_id)
+            ).all()
+        )
+
+        # 3. Bulk pre-fetch latest activity time per candidate
+        latest_activity_map = dict(
+            db.execute(
+                select(EmailLog.candidate_id, func.max(EmailLog.sent_at))
+                .where(
+                    EmailLog.candidate_id.in_(candidate_ids),
+                    EmailLog.status.in_(["sent", "pending", "sending"]),
+                )
+                .group_by(EmailLog.candidate_id)
+            ).all()
+        )
+
+        # 4. Bulk pre-fetch contacted pairs (candidate_id, employer_id)
+        contacted_pairs: set[tuple[int, int]] = set(
+            db.execute(
+                select(EmailLog.candidate_id, EmailLog.employer_id).where(
+                    EmailLog.candidate_id.in_(candidate_ids),
+                    EmailLog.status.in_(["sent", "pending", "sending"]),
+                )
+            ).all()
+        )
+
+        # 5. Bulk pre-fetch queued pairs (candidate_id, employer_id)
+        queued_pairs: set[tuple[int, int]] = set(
+            db.execute(
+                select(OutreachJob.candidate_id, OutreachJob.employer_id).where(
+                    OutreachJob.candidate_id.in_(candidate_ids),
+                    OutreachJob.status.in_(["pending", "processing"]),
+                )
+            ).all()
+        )
+
+        # 6. Bulk pre-fetch 3-day cooldown employer IDs across all candidates
+        cooldown_start = now_utc - timedelta(days=3)
+        cooldown_emails = set(
+            db.scalars(
+                select(EmailLog.employer_id).where(
+                    EmailLog.status.in_(["sent", "pending", "sending"]),
+                    EmailLog.created_at >= cooldown_start,
+                )
+            ).all()
+        )
+        cooldown_jobs = set(
+            db.scalars(
+                select(OutreachJob.employer_id).where(
+                    OutreachJob.status.in_(["pending", "processing"]),
+                )
+            ).all()
+        )
+        cooldown_employers = cooldown_emails | cooldown_jobs
+
         total_queued = 0
         total_skipped = 0
         queued_in_run_employer_ids: set[int] = set()
+        jobs_to_add: list[OutreachJob] = []
 
         for cand in active_candidates:
             if not cand.is_active or not cand.gmail_account or not cand.gmail_account.is_active or not cand.email_draft_id or not cand.email_draft:
                 continue
 
-            actual_sent = OutreachService.get_candidate_sent_today(db, cand.id, start_of_today)
-            reserved_pending = OutreachService.get_candidate_pending_today(db, cand.id, start_of_today)
+            actual_sent = sent_today_map.get(cand.id, 0)
+            reserved_pending = pending_today_map.get(cand.id, 0)
             capacity_used = actual_sent + reserved_pending
             remaining = max(0, settings.max_emails_per_candidate_per_day - capacity_used)
 
             if remaining <= 0:
                 continue
 
-            last_time = OutreachService.get_candidate_latest_activity_time(db, cand.id)
+            last_time = latest_activity_map.get(cand.id)
             if last_time:
+                if last_time.tzinfo is None:
+                    last_time = last_time.replace(tzinfo=timezone.utc)
                 next_eligible = last_time + timedelta(minutes=settings.min_gap_minutes)
                 candidate_next_send = max(now_utc, next_eligible)
             else:
@@ -781,22 +942,20 @@ class OutreachService:
                 if remaining <= 0:
                     break
 
-                if emp.id in queued_in_run_employer_ids:
+                emp_email = (emp.email or "").strip()
+                if not emp.is_active or not emp_email or not EMAIL_REGEX.match(emp_email):
                     total_skipped += 1
                     continue
 
-                res = OutreachService.check_eligibility(
-                    db=db,
-                    candidate_id=cand.id,
-                    employer_id=emp.id,
-                    now_utc=now_utc,
-                    custom_capacity_used=settings.max_emails_per_candidate_per_day - remaining,
-                )
-
-                if not res.allowed:
+                if emp.id in queued_in_run_employer_ids or emp.id in cooldown_employers:
                     total_skipped += 1
                     continue
 
+                if (cand.id, emp.id) in contacted_pairs or (cand.id, emp.id) in queued_pairs:
+                    total_skipped += 1
+                    continue
+
+                # Candidate & employer are eligible!
                 job = OutreachJob(
                     candidate_id=cand.id,
                     employer_id=emp.id,
@@ -805,15 +964,18 @@ class OutreachService:
                     status="pending",
                     attempts=0,
                 )
-                db.add(job)
-                db.flush()
+                jobs_to_add.append(job)
+
                 queued_in_run_employer_ids.add(emp.id)
+                cooldown_employers.add(emp.id)
 
                 total_queued += 1
                 remaining -= 1
                 candidate_next_send = candidate_next_send + timedelta(minutes=settings.min_gap_minutes)
 
-        db.commit()
+        if jobs_to_add:
+            db.add_all(jobs_to_add)
+            db.commit()
 
         return {
             "success": True,
