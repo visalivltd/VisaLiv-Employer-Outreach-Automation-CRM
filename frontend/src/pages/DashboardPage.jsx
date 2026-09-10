@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Users,
@@ -9,11 +9,205 @@ import {
   ShieldCheck,
   Clock3,
   Target,
+  Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 import { getApiUrl } from '../config/api';
 
 const API_BASE_URL = getApiUrl();
+
+// Interactive Dashboard Outreach Calendar Component
+function DashboardCalendar({ recentEmails }) {
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayIndex = new Date(year, month, 1).getDay();
+
+  const today = new Date();
+
+  const handlePrevMonth = () => {
+    setCurrentDate(new Date(year, month - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentDate(new Date(year, month + 1, 1));
+  };
+
+  const handleToday = () => {
+    const now = new Date();
+    setCurrentDate(now);
+    setSelectedDate(now);
+  };
+
+  // Map dates to activity count from recent logs
+  const activityMap = useMemo(() => {
+    const map = new Map();
+    (recentEmails || []).forEach((email) => {
+      if (email.sentAt) {
+        const d = new Date(email.sentAt);
+        const dateKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+        map.set(dateKey, (map.get(dateKey) || 0) + 1);
+      }
+    });
+    return map;
+  }, [recentEmails]);
+
+  const daysGrid = [];
+  for (let i = 0; i < firstDayIndex; i++) {
+    daysGrid.push(null);
+  }
+  for (let day = 1; day <= daysInMonth; day++) {
+    daysGrid.push(day);
+  }
+
+  const isToday = (day) => {
+    return (
+      day &&
+      today.getDate() === day &&
+      today.getMonth() === month &&
+      today.getFullYear() === year
+    );
+  };
+
+  const isSelected = (day) => {
+    return (
+      day &&
+      selectedDate.getDate() === day &&
+      selectedDate.getMonth() === month &&
+      selectedDate.getFullYear() === year
+    );
+  };
+
+  const hasActivity = (day) => {
+    if (!day) return false;
+    const dateKey = `${year}-${month}-${day}`;
+    return activityMap.has(dateKey) || isToday(day);
+  };
+
+  return (
+    <div className="activity-card" style={{ padding: '24px', flex: '1 1 360px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <CalendarIcon size={20} color="#2563eb" />
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '17px', color: '#0f172a', fontWeight: 700 }}>
+              Outreach Calendar
+            </h3>
+            <span style={{ fontSize: '12px', color: '#64748b' }}>Daily schedule & activity monitor</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button
+            onClick={handlePrevMonth}
+            style={{ border: '1px solid #e2e8f0', background: '#ffffff', borderRadius: '6px', padding: '5px 8px', cursor: 'pointer' }}
+          >
+            <ChevronLeft size={16} color="#475569" />
+          </button>
+
+          <span style={{ fontWeight: 600, fontSize: '13px', color: '#1e293b', minWidth: '120px', textAlign: 'center' }}>
+            {monthNames[month]} {year}
+          </span>
+
+          <button
+            onClick={handleNextMonth}
+            style={{ border: '1px solid #e2e8f0', background: '#ffffff', borderRadius: '6px', padding: '5px 8px', cursor: 'pointer' }}
+          >
+            <ChevronRight size={16} color="#475569" />
+          </button>
+
+          <button
+            onClick={handleToday}
+            style={{ border: '1px solid #2563eb', background: '#eff6ff', color: '#2563eb', borderRadius: '6px', padding: '5px 9px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+          >
+            Today
+          </button>
+        </div>
+      </div>
+
+      {/* Weekday Labels */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center', marginBottom: '8px' }}>
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+          <span key={d} style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>
+            {d}
+          </span>
+        ))}
+      </div>
+
+      {/* Calendar Days Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', textAlign: 'center' }}>
+        {daysGrid.map((day, idx) => {
+          if (day === null) {
+            return <div key={`empty-${idx}`} style={{ height: '36px' }} />;
+          }
+
+          const currentIsToday = isToday(day);
+          const currentIsSelected = isSelected(day);
+          const active = hasActivity(day);
+
+          return (
+            <button
+              key={`day-${day}`}
+              onClick={() => setSelectedDate(new Date(year, month, day))}
+              style={{
+                height: '36px',
+                border: currentIsSelected ? '2px solid #2563eb' : '1px solid #f1f5f9',
+                borderRadius: '8px',
+                background: currentIsToday ? '#2563eb' : currentIsSelected ? '#eff6ff' : '#ffffff',
+                color: currentIsToday ? '#ffffff' : '#1e293b',
+                fontWeight: currentIsToday || currentIsSelected ? '700' : '500',
+                cursor: 'pointer',
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '13px',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {day}
+              {active && !currentIsToday && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    bottom: '4px',
+                    width: '4px',
+                    height: '4px',
+                    borderRadius: '50%',
+                    background: '#2563eb',
+                  }}
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Selected Day Info Footer */}
+      <div style={{ marginTop: '16px', padding: '10px 14px', borderRadius: '8px', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: '12px', color: '#475569', fontWeight: 500 }}>
+          Selected Date: <strong>{selectedDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</strong>
+        </span>
+        <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 700, background: '#eff6ff', padding: '3px 8px', borderRadius: '4px' }}>
+          {selectedDate.getDate() === today.getDate() && selectedDate.getMonth() === today.getMonth() ? 'Outreach Active Today' : 'Scheduled'}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 // Google / Gmail M Logo Component
 function GmailLogoIcon() {
@@ -447,17 +641,23 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Recent Email Activity */}
-      <div
-        className="activity-card"
-        style={{ marginTop: '24px' }}
-      >
+      {/* Dashboard Lower Section: Activity & Calendar Grid */}
+      <div style={{ display: 'flex', gap: '24px', marginTop: '24px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
-        <div className="activity-card-header">
-          <h2>
-            Recent Email Activity
-          </h2>
-        </div>
+        {/* Outreach Calendar Widget */}
+        <DashboardCalendar recentEmails={recentEmails} />
+
+        {/* Recent Email Activity Table */}
+        <div
+          className="activity-card"
+          style={{ flex: '2 1 540px', marginTop: 0 }}
+        >
+
+          <div className="activity-card-header">
+            <h2>
+              Recent Email Activity
+            </h2>
+          </div>
 
         <div className="table-responsive">
           <table className="data-table">
