@@ -96,6 +96,18 @@ async def execute_employer_import(
         ) from exc
 
 
+@router.post(
+    "/bulk-delete",
+    status_code=status.HTTP_200_OK,
+)
+def bulk_delete_employers(
+    data: BulkDeleteEmployerRequest,
+    db: Session = Depends(get_db),
+):
+    count = employer_service.bulk_delete_employers(db, data.employer_ids)
+    return {"success": True, "deleted_count": count}
+
+
 @router.get(
     "/{employer_id}",
     response_model=EmployerResponse,
@@ -166,15 +178,4 @@ def delete_employer(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Employer not found",
         )
-
-
-@router.post(
-    "/bulk-delete",
-    status_code=status.HTTP_200_OK,
-)
-def bulk_delete_employers(
-    data: BulkDeleteEmployerRequest,
-    db: Session = Depends(get_db),
-):
-    count = employer_service.bulk_delete_employers(db, data.employer_ids)
-    return {"success": True, "deleted_count": count}
+
