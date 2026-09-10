@@ -82,4 +82,34 @@ def delete_employer(
             db.commit()
     except Exception:
         db.rollback()
-        raise
+        raise
+
+
+def bulk_delete_employers(
+    db: Session,
+    employer_ids: list[int],
+) -> int:
+    deleted_count = 0
+    try:
+        employers = db.scalars(
+            select(Employer).where(Employer.id.in_(employer_ids))
+        ).all()
+        for emp in employers:
+            has_logs = db.scalar(
+                select(func.count(EmailLog.id)).where(
+                    EmailLog.employer_id == emp.id
+                )
+            ) or 0
+            if has_logs > 0:
+                emp.is_active = False
+                if not emp.email.endswith(f"_deleted_{emp.id}"):
+                    emp.email = f"{emp.email}_deleted_{emp.id}"
+            else:
+                db.delete(emp)
+            deleted_count += 1
+        db.commit()
+        return deleted_count
+    except Exception:
+        db.rollback()
+        raise
+

@@ -89,3 +89,7 @@ class EmployerImportResultResponse(BaseModel):
     invalid_rows_count: int
     message: str
     details: list[dict] | None = None
+
+
+class BulkDeleteEmployerRequest(BaseModel):
+    employer_ids: list[int]

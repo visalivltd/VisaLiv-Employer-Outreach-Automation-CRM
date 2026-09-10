@@ -67,6 +67,58 @@ export default function EmployersPage() {
     return filteredEmployers.slice(start, start + pageSize);
   }, [filteredEmployers, currentPage, pageSize]);
 
+  // Bulk Selection State
+  const [selectedEmployerIds, setSelectedEmployerIds] = useState(new Set());
+
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      const pageIds = paginatedEmployers.map((emp) => emp.id);
+      setSelectedEmployerIds((prev) => new Set([...prev, ...pageIds]));
+    } else {
+      const pageIds = new Set(paginatedEmployers.map((emp) => emp.id));
+      setSelectedEmployerIds((prev) => new Set([...prev].filter((id) => !pageIds.has(id))));
+    }
+  };
+
+  const handleSelectOne = (id) => {
+    setSelectedEmployerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    const count = selectedEmployerIds.size;
+    if (count === 0) return;
+
+    if (!window.confirm(`Are you sure you want to delete ${count} selected employer(s)?`)) return;
+
+    try {
+      setError('');
+      setSuccess('');
+
+      const response = await fetch(`${API_URL}/employers/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employer_ids: Array.from(selectedEmployerIds) }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Failed to bulk delete employers');
+
+      setSuccess(`Successfully deleted ${data.deleted_count || count} employer(s).`);
+      setSelectedEmployerIds(new Set());
+      await fetchEmployers();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   // Add / Edit Modal state
   const [showForm, setShowForm] = useState(false);
   const [editingEmployer, setEditingEmployer] = useState(null);
@@ -440,26 +492,50 @@ export default function EmployersPage() {
             </p>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', padding: '7px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-            <Search size={16} color="#64748b" />
-            <input
-              type="text"
-              placeholder="Search name, email, industry..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
-              }}
-              style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '13px', width: '220px' }}
-            />
-            {searchQuery && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {selectedEmployerIds.size > 0 && (
               <button
-                onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: '#94a3b8' }}
+                onClick={handleBulkDelete}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '7px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid #fecaca',
+                  background: '#fef2f2',
+                  color: '#dc2626',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                }}
               >
-                <X size={14} />
+                <Trash2 size={15} />
+                Delete Selected ({selectedEmployerIds.size})
               </button>
             )}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', padding: '7px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+              <Search size={16} color="#64748b" />
+              <input
+                type="text"
+                placeholder="Search name, email, industry..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '13px', width: '220px' }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
+                  style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: '#94a3b8' }}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -478,6 +554,17 @@ export default function EmployersPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1100px' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc' }}>
+                    <th style={{ ...thStyle, width: '40px', textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={
+                          paginatedEmployers.length > 0 &&
+                          paginatedEmployers.every((emp) => selectedEmployerIds.has(emp.id))
+                        }
+                        onChange={handleSelectAll}
+                        style={{ width: '16px', height: '16px', accentColor: '#2563eb', cursor: 'pointer' }}
+                      />
+                    </th>
                     <th style={thStyle}>#</th>
                     <th style={thStyle}>Service Name</th>
                     <th style={thStyle}>Primary Outreach Email</th>
@@ -493,8 +580,17 @@ export default function EmployersPage() {
                 <tbody>
                   {paginatedEmployers.map((employer, index) => {
                     const globalIdx = (currentPage - 1) * pageSize + index + 1;
+                    const isSelected = selectedEmployerIds.has(employer.id);
                     return (
-                      <tr key={employer.id}>
+                      <tr key={employer.id} style={{ background: isSelected ? '#eff6ff' : 'transparent' }}>
+                        <td style={{ ...tdStyle, textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleSelectOne(employer.id)}
+                            style={{ width: '16px', height: '16px', accentColor: '#2563eb', cursor: 'pointer' }}
+                          />
+                        </td>
                         <td style={tdStyle}>#{globalIdx}</td>
                         <td style={{ ...tdStyle, fontWeight: 600, color: '#0f172a' }}>
                           {employer.service_name || '-'}
