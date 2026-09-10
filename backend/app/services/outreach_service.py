@@ -625,6 +625,7 @@ class OutreachService:
         failed_count = 0
         skipped_count = 0
         results = []
+        jobs_to_add: list[OutreachJob] = []
 
         cand_states: dict[int, CandidateBatchState] = {}
         processed_employers_in_batch: set[int] = set()
@@ -713,76 +714,35 @@ class OutreachService:
                 })
                 continue
 
-            # 2. Check scheduled slot & immediate send feasibility
             scheduled_time = state.next_send_at
-            is_immediate = scheduled_time <= now_utc + timedelta(seconds=2)
-
             candidate = db.get(Candidate, candidate_id)
 
-            if is_immediate:
-                state.next_send_at = now_utc + timedelta(minutes=settings.min_gap_minutes)
-                try:
-                    log = OutreachService.send_outreach(
-                        db=db,
-                        candidate_id=candidate_id,
-                        employer_id=employer_id,
-                        gmail_account=candidate.gmail_account,
-                        subject=item.get("subject", ""),
-                        body=item.get("body", ""),
-                    )
-                    state.consume_slot()
-                    if log.status == "sent":
-                        sent_count += 1
-                        processed_employers_in_batch.add(employer_id)
-                        results.append({
-                            "candidate_id": candidate_id,
-                            "employer_id": employer_id,
-                            "status": "sent",
-                            "log_id": log.id,
-                        })
-                    else:
-                        failed_count += 1
-                        results.append({
-                            "candidate_id": candidate_id,
-                            "employer_id": employer_id,
-                            "status": "failed",
-                            "error": log.error_message,
-                        })
-                except Exception as e:
-                    err_msg = str(e)
-                    failed_count += 1
-                    state.consume_slot()
-                    results.append({
-                        "candidate_id": candidate_id,
-                        "employer_id": employer_id,
-                        "status": "failed",
-                        "error": err_msg,
-                    })
-            else:
-                # Slot is scheduled in future -> Queue OutreachJob
-                job = OutreachJob(
-                    candidate_id=candidate_id,
-                    employer_id=employer_id,
-                    gmail_account_id=candidate.gmail_account.id,
-                    scheduled_at=scheduled_time,
-                    status="pending",
-                    attempts=0,
-                )
-                db.add(job)
-                db.commit()
+            # Queue job for async background worker processing
+            job = OutreachJob(
+                candidate_id=candidate_id,
+                employer_id=employer_id,
+                gmail_account_id=candidate.gmail_account.id,
+                scheduled_at=scheduled_time,
+                status="pending",
+                attempts=0,
+            )
+            jobs_to_add.append(job)
 
-                queued_count += 1
-                processed_employers_in_batch.add(employer_id)
-                state.consume_slot()
-                state.next_send_at = scheduled_time + timedelta(minutes=settings.min_gap_minutes)
+            queued_count += 1
+            processed_employers_in_batch.add(employer_id)
+            state.consume_slot()
+            state.next_send_at = scheduled_time + timedelta(minutes=settings.min_gap_minutes)
 
-                results.append({
-                    "candidate_id": candidate_id,
-                    "employer_id": employer_id,
-                    "status": "queued",
-                    "job_id": job.id,
-                    "scheduled_at": scheduled_time.isoformat(),
-                })
+            results.append({
+                "candidate_id": candidate_id,
+                "employer_id": employer_id,
+                "status": "queued",
+                "scheduled_at": scheduled_time.isoformat(),
+            })
+
+        if jobs_to_add:
+            db.add_all(jobs_to_add)
+            db.commit()
 
         logger.info(
             "Outreach batch execution summary: submitted=%d, sent=%d, queued=%d, failed=%d, skipped=%d",
