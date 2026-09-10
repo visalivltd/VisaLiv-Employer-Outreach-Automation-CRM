@@ -11,7 +11,9 @@ import {
   ExternalLink,
 } from 'lucide-react';
 
-const API_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+import { getApiUrl } from '../config/api';
+
+const API_URL = getApiUrl();
 
 const emptyForm = {
   name: '',

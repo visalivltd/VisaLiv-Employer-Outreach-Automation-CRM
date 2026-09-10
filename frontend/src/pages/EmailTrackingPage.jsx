@@ -31,7 +31,9 @@ import {
   Link as LinkIcon
 } from 'lucide-react';
 
-const API_BASE_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+import { getApiUrl } from '../config/api';
+
+const API_BASE_URL = getApiUrl();
 
 export default function EmailTrackingPage() {
   const navigate = useNavigate();

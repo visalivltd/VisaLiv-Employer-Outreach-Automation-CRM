@@ -11,7 +11,9 @@ import {
   Target,
 } from 'lucide-react';
 
-const API_BASE_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+import { getApiUrl } from '../config/api';
+
+const API_BASE_URL = getApiUrl();
 
 // Google / Gmail M Logo Component
 function GmailLogoIcon() {
