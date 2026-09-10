@@ -86,15 +86,10 @@ def send_email_from_tracking(
         )
 
     if not employer:
-        emp_name = to_email_clean.split("@")[0].replace(".", " ").title()
-        employer = Employer(
-            service_name=emp_name,
-            email=to_email_clean,
-            is_active=True,
+        raise HTTPException(
+            status_code=400,
+            detail=f"Employer with email '{to_email_clean}' is not registered in the Employers list."
         )
-        db.add(employer)
-        db.commit()
-        db.refresh(employer)
 
     # Prepare attachments
     attachments = []
