@@ -25,7 +25,7 @@ steps:
       - '--image'
       - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-frontend/visaliv-crm-backend:dev-$COMMIT_SHA'
       - '--region'
-      - 'asia-south2'
+      - 'asia-south1'
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
