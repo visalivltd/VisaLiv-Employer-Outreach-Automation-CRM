@@ -15,7 +15,7 @@ steps:
       - 'push'
       - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-backend/visaliv-crm-backend:dev-$COMMIT_SHA'
 
-  # Deploy to Cloud Run Dev Staging Backend Service
+  # Deploy to Cloud Run Dev Staging Backend Service with isolated environment variables
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args:
@@ -29,6 +29,8 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'DATABASE_URL=sqlite:///./visaliv_dev.db,JWT_SECRET_KEY=DevStagingSecretKey12345,FRONTEND_URL=https://visaliv-crm-frontend-dev-477131280275.asia-south2.run.app'
 
 images:
   - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-backend/visaliv-crm-backend:dev-$COMMIT_SHA'
