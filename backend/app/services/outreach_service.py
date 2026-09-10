@@ -476,9 +476,10 @@ class OutreachService:
             # Determine list of employers to evaluate:
             # If only_eligible or filtering a specific candidate, skip contacted/cooldown employers automatically
             if only_eligible or candidate_id is not None:
+                max_cand_limit = min(page_size, cand_remaining_quota) if (only_eligible and cand_remaining_quota > 0) else page_size
                 cand_employers = [
                     emp for emp in all_active_employers if emp.id not in ineligible_set
-                ][start_offset : start_offset + page_size]
+                ][start_offset : start_offset + max_cand_limit]
             else:
                 cand_employers = paginated_employers
 

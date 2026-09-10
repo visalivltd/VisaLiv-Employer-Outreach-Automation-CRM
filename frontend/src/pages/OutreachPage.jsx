@@ -405,9 +405,9 @@ export default function OutreachPage() {
       setMessage('');
 
       let baseUrl = getApiUrl();
-      let res = await fetch(`${baseUrl}/outreach/preview?only_eligible=true&page_size=500`);
+      let res = await fetch(`${baseUrl}/outreach/preview?only_eligible=true&page_size=20`);
       if (!res.ok && !baseUrl.includes('/api/v1')) {
-        res = await fetch(`${baseUrl}/api/v1/outreach/preview?only_eligible=true&page_size=500`);
+        res = await fetch(`${baseUrl}/api/v1/outreach/preview?only_eligible=true&page_size=20`);
       }
 
       const data = await res.json().catch(() => ({}));
