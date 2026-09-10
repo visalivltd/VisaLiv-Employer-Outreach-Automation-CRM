@@ -100,6 +100,10 @@ async def execute_employer_import(
     "/bulk-delete",
     status_code=status.HTTP_200_OK,
 )
+@router.delete(
+    "/bulk-delete",
+    status_code=status.HTTP_200_OK,
+)
 def bulk_delete_employers(
     data: BulkDeleteEmployerRequest,
     db: Session = Depends(get_db),

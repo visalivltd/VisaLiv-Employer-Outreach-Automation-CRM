@@ -93,7 +93,8 @@ export default function EmployersPage() {
   };
 
   const handleBulkDelete = async () => {
-    const count = selectedEmployerIds.size;
+    const ids = Array.from(selectedEmployerIds);
+    const count = ids.length;
     if (count === 0) return;
 
     if (!window.confirm(`Are you sure you want to delete ${count} selected employer(s)?`)) return;
@@ -102,20 +103,37 @@ export default function EmployersPage() {
       setError('');
       setSuccess('');
 
-      const response = await fetch(`${API_URL}/employers/bulk-delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employer_ids: Array.from(selectedEmployerIds) }),
-      });
+      let successCount = 0;
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || 'Failed to bulk delete employers');
+      // Try bulk-delete API first
+      try {
+        const response = await fetch(`${API_URL}/employers/bulk-delete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ employer_ids: ids }),
+        });
 
-      setSuccess(`Successfully deleted ${data.deleted_count || count} employer(s).`);
+        if (response.ok) {
+          const data = await response.json();
+          successCount = data.deleted_count || count;
+        }
+      } catch {
+        // fallback below if bulk API unavailable
+      }
+
+      // Fallback: parallel delete if bulk endpoint fails/405
+      if (successCount === 0) {
+        const results = await Promise.allSettled(
+          ids.map((id) => fetch(`${API_URL}/employers/${id}`, { method: 'DELETE' }))
+        );
+        successCount = results.filter((r) => r.status === 'fulfilled' && r.value.ok).length;
+      }
+
+      setSuccess(`Successfully deleted ${successCount} employer(s).`);
       setSelectedEmployerIds(new Set());
       await fetchEmployers();
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to delete employers');
     }
   };
 
