@@ -304,13 +304,17 @@ class OutreachService:
         ) or 0
 
         start_offset = (page - 1) * page_size
-        paginated_employers = db.scalars(
+        all_active_employers = db.scalars(
             select(Employer)
-            .where(Employer.is_active.is_(True))
+            .where(
+                Employer.is_active.is_(True),
+                Employer.email.isnot(None),
+                Employer.email != "",
+            )
             .order_by(Employer.id)
-            .offset(start_offset)
-            .limit(page_size)
         ).all()
+
+        paginated_employers = all_active_employers[start_offset : start_offset + page_size]
 
         emails_sent_today = db.scalar(
             select(func.count(EmailLog.id)).where(
@@ -472,18 +476,9 @@ class OutreachService:
             # Determine list of employers to evaluate:
             # If only_eligible or filtering a specific candidate, skip contacted/cooldown employers automatically
             if only_eligible or candidate_id is not None:
-                emp_stmt = (
-                    select(Employer)
-                    .where(
-                        Employer.is_active.is_(True),
-                        Employer.email.isnot(None),
-                        Employer.email != "",
-                    )
-                    .order_by(Employer.id)
-                )
-                if ineligible_set:
-                    emp_stmt = emp_stmt.where(Employer.id.notin_(ineligible_set))
-                cand_employers = db.scalars(emp_stmt.offset(start_offset).limit(page_size)).all()
+                cand_employers = [
+                    emp for emp in all_active_employers if emp.id not in ineligible_set
+                ][start_offset : start_offset + page_size]
             else:
                 cand_employers = paginated_employers
 
