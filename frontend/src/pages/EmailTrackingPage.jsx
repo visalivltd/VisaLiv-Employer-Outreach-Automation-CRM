@@ -496,6 +496,19 @@ export default function EmailTrackingPage() {
     sortBy,
   ]);
 
+  const unreadCount = useMemo(
+    () => conversations.filter((c) => c.has_unread).length,
+    [conversations]
+  );
+  const incomingCount = useMemo(
+    () => conversations.filter((c) => c.latestMessage?.direction === 'incoming').length,
+    [conversations]
+  );
+  const outgoingCount = useMemo(
+    () => conversations.filter((c) => c.latestMessage?.direction === 'outgoing').length,
+    [conversations]
+  );
+
   // Check if any filter is active
   const isFiltered = useMemo(() => {
     return (
@@ -1019,7 +1032,7 @@ export default function EmailTrackingPage() {
                         <div style={{ fontWeight: 600, fontSize: '13px', color: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whitespace: 'nowrap' }}>{cand.candidate_name}</span>
                           <span style={{ fontSize: '11px', color: '#2563eb', background: '#dbeafe', padding: '1px 6px', borderRadius: '10px', fontWeight: 700 }}>
-                            {cand.conversationCount || 35}
+                            {cand.conversationCount || 0}
                           </span>
                         </div>
                         <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -1033,14 +1046,14 @@ export default function EmailTrackingPage() {
                     {isExpanded && (
                       <div style={{ paddingLeft: '42px', paddingRight: '12px', paddingTop: '4px', paddingBottom: '6px', background: '#f8fafc' }}>
                         {[
-                          { id: 'inbox', label: 'Inbox', icon: Inbox, count: cand.conversationCount || 33 },
+                          { id: 'inbox', label: 'Inbox', icon: Inbox, count: cand.conversationCount || 0 },
                           { id: 'sent', label: 'Sent', icon: Send, count: null },
                           { id: 'junk', label: 'Junk Email', icon: Ban, count: null },
-                          { id: 'drafts', label: 'Drafts', icon: FileText, count: 1 },
+                          { id: 'drafts', label: 'Drafts', icon: FileText, count: null },
                           { id: 'deleted', label: 'Deleted Items', icon: Trash2, count: null },
                           { id: 'archive', label: 'Archive', icon: Archive, count: null },
                           { id: 'outbox', label: 'Outbox', icon: Send, count: null },
-                          { id: 'scheduled', label: 'Scheduled', icon: Clock, count: 12 },
+                          { id: 'scheduled', label: 'Scheduled', icon: Clock, count: null },
                         ].map((f) => {
                           const FIcon = f.icon;
                           const isFolderSelected = selectedFolder === f.id;
@@ -1109,10 +1122,10 @@ export default function EmailTrackingPage() {
             {/* Filter Pills Bar */}
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               {[
-                { id: 'all', label: `All (${filteredConversations.length})` },
-                { id: 'unread', label: 'Unread (5)' },
-                { id: 'incoming', label: 'Incoming (22)' },
-                { id: 'outgoing', label: 'Outgoing (11)' },
+                { id: 'all', label: `All (${conversations.length})` },
+                { id: 'unread', label: `Unread (${unreadCount})` },
+                { id: 'incoming', label: `Incoming (${incomingCount})` },
+                { id: 'outgoing', label: `Outgoing (${outgoingCount})` },
               ].map((tab) => (
                 <button
                   key={tab.id}
