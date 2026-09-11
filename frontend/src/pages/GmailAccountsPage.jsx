@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Mail, CheckCircle, XCircle, AlertTriangle, Link as LinkIcon, Trash2, Check } from 'lucide-react';
 
-const API_BASE_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+import { getApiUrl } from '../config/api';
+
+const API_BASE_URL = getApiUrl();
 
 export default function GmailAccountsPage() {
   const [accounts, setAccounts] = useState([]);

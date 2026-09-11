@@ -2,7 +2,9 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Menu, User, ChevronDown, Bell, Check, CheckCheck, RefreshCw, Mail, ExternalLink } from 'lucide-react';
 
-const API_BASE_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+import { getApiUrl } from '../config/api';
+
+const API_BASE_URL = getApiUrl();
 const POLLING_INTERVAL_MS = 30000; // 30 seconds polling
 
 export default function Header({ onToggleSidebar }) {

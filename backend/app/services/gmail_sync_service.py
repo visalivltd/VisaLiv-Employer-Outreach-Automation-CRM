@@ -333,25 +333,9 @@ def sync_incoming_replies(db: Session) -> dict:
                             if matched_employer:
                                 matched_by = "employer_email_lookup"
 
-                        # Priority 3: Auto-create Employer record for real senders if missing
-                        if not matched_employer and target_email and target_email != cand_gmail and not is_system_sender:
-                            emp_name = target_email.split("@")[0].replace(".", " ").title()
-                            try:
-                                matched_employer = Employer(
-                                    service_name=emp_name,
-                                    email=target_email,
-                                    is_active=True,
-                                )
-                                db.add(matched_employer)
-                                db.commit()
-                                db.refresh(matched_employer)
-                                employer_by_email[target_email] = matched_employer
-                                matched_by = "auto_created_employer"
-                                print(f"[EMAIL SYNC] Auto-created Employer: {emp_name} ({target_email})", flush=True)
-                            except Exception as create_emp_exc:
-                                db.rollback()
-                                print(f"[EMAIL SYNC WARNING] Failed to auto-create employer for {target_email}: {create_emp_exc}", flush=True)
-                                matched_employer = None
+                        # Priority 3: Do not auto-create missing Employers (only match existing Employers)
+                        if not matched_employer:
+                            matched_by = None
 
                         # Validate matched_employer existence in database
                         if matched_employer and matched_employer.id:

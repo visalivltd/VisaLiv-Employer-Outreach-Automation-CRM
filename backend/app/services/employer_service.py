@@ -93,3 +93,12 @@ def delete_employer(
     employer_repository.delete_employer(db, employer)
 
     return True
+
+
+def bulk_delete_employers(
+    db: Session,
+    employer_ids: list[int],
+) -> int:
+    if not employer_ids:
+        return 0
+    return employer_repository.bulk_delete_employers(db, employer_ids)

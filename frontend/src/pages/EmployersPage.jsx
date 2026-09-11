@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   Building2,
   Plus,
@@ -11,20 +11,12 @@ import {
   CheckCircle2,
   AlertCircle,
   HelpCircle,
+  Search,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
-const getApiUrl = () => {
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    if (host === 'localhost' || host === '127.0.0.1' || !host.includes('run.app')) {
-      return `${window.location.protocol}//${host}:8000`;
-    }
-  }
-  return 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
-};
+import { getApiUrl } from '../config/api';
 
 const rawApiUrl = getApiUrl();
 const API_URL = rawApiUrl.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
@@ -50,6 +42,100 @@ export default function EmployersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Search & Pagination state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 50;
+
+  const filteredEmployers = useMemo(() => {
+    if (!searchQuery.trim()) return employers;
+    const q = searchQuery.toLowerCase().trim();
+    return employers.filter(
+      (emp) =>
+        (emp.service_name && emp.service_name.toLowerCase().includes(q)) ||
+        (emp.email && emp.email.toLowerCase().includes(q)) ||
+        (emp.country && emp.country.toLowerCase().includes(q)) ||
+        (emp.industry && emp.industry.toLowerCase().includes(q))
+    );
+  }, [employers, searchQuery]);
+
+  const totalPages = Math.ceil(filteredEmployers.length / pageSize) || 1;
+
+  const paginatedEmployers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredEmployers.slice(start, start + pageSize);
+  }, [filteredEmployers, currentPage, pageSize]);
+
+  // Bulk Selection State
+  const [selectedEmployerIds, setSelectedEmployerIds] = useState(new Set());
+
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      const pageIds = paginatedEmployers.map((emp) => emp.id);
+      setSelectedEmployerIds((prev) => new Set([...prev, ...pageIds]));
+    } else {
+      const pageIds = new Set(paginatedEmployers.map((emp) => emp.id));
+      setSelectedEmployerIds((prev) => new Set([...prev].filter((id) => !pageIds.has(id))));
+    }
+  };
+
+  const handleSelectOne = (id) => {
+    setSelectedEmployerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedEmployerIds);
+    const count = ids.length;
+    if (count === 0) return;
+
+    if (!window.confirm(`Are you sure you want to delete ${count} selected employer(s)?`)) return;
+
+    try {
+      setError('');
+      setSuccess('');
+
+      let successCount = 0;
+
+      // Try bulk-delete API first
+      try {
+        const response = await fetch(`${API_URL}/employers/bulk-delete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ employer_ids: ids }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          successCount = data.deleted_count || count;
+        }
+      } catch {
+        // fallback below if bulk API unavailable
+      }
+
+      // Fallback: parallel delete if bulk endpoint fails/405
+      if (successCount === 0) {
+        const results = await Promise.allSettled(
+          ids.map((id) => fetch(`${API_URL}/employers/${id}`, { method: 'DELETE' }))
+        );
+        successCount = results.filter((r) => r.status === 'fulfilled' && r.value.ok).length;
+      }
+
+      setSuccess(`Successfully deleted ${successCount} employer(s).`);
+      setSelectedEmployerIds(new Set());
+      await fetchEmployers();
+    } catch (err) {
+      setError(err.message || 'Failed to delete employers');
+    }
+  };
 
   // Add / Edit Modal state
   const [showForm, setShowForm] = useState(false);
@@ -416,108 +502,236 @@ export default function EmployersPage() {
 
       {/* Employers Card */}
       <div style={cardStyle}>
-        <div style={{ padding: '20px 22px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ padding: '20px 22px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h2 style={{ margin: 0, fontSize: '18px' }}>All Employers</h2>
             <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>
-              {employers.length} employers registered (Excel order preserved)
+              {filteredEmployers.length} of {employers.length} employers showing
             </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {selectedEmployerIds.size > 0 && (
+              <button
+                onClick={handleBulkDelete}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '7px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid #fecaca',
+                  background: '#fef2f2',
+                  color: '#dc2626',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                }}
+              >
+                <Trash2 size={15} />
+                Delete Selected ({selectedEmployerIds.size})
+              </button>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', padding: '7px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+              <Search size={16} color="#64748b" />
+              <input
+                type="text"
+                placeholder="Search name, email, industry..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '13px', width: '220px' }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
+                  style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: '#94a3b8' }}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
         {loading ? (
           <div style={emptyStateStyle}>Loading employers...</div>
-        ) : employers.length === 0 ? (
+        ) : filteredEmployers.length === 0 ? (
           <div style={emptyStateStyle}>
             <Building2 size={36} color="#94a3b8" />
-            <p style={{ margin: '10px 0 0', color: '#64748b' }}>No employers found. Click "+ Add Employer" or "Import Excel" to get started.</p>
+            <p style={{ margin: '10px 0 0', color: '#64748b' }}>
+              {searchQuery ? `No employers found matching "${searchQuery}".` : 'No employers found. Click "+ Add Employer" or "Import Excel" to get started.'}
+            </p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1100px' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc' }}>
-                  <th style={thStyle}>#</th>
-                  <th style={thStyle}>Service Name</th>
-                  <th style={thStyle}>Primary Outreach Email</th>
-                  <th style={thStyle}>Email Type</th>
-                  <th style={thStyle}>Country</th>
-                  <th style={thStyle}>Industry</th>
-                  <th style={thStyle}>Status</th>
-                  <th style={thStyle}>Service Website</th>
-                  <th style={{ ...thStyle, textAlign: 'center' }}>Actions</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {employers.map((employer, index) => (
-                  <tr key={employer.id}>
-                    <td style={tdStyle}>#{index + 1}</td>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: '#0f172a' }}>
-                      {employer.service_name || '-'}
-                    </td>
-                    <td style={tdStyle}>
-                      {employer.email ? (
-                        <span style={{ fontWeight: '500', color: '#1e293b' }}>{employer.email}</span>
-                      ) : (
-                        <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>No Email</span>
-                      )}
-                    </td>
-                    <td style={tdStyle}>
-                      {renderEmailTypeBadge(employer.primary_email_type)}
-                    </td>
-                    <td style={tdStyle}>{employer.country || '-'}</td>
-                    <td style={tdStyle}>{employer.industry || '-'}</td>
-                    <td style={tdStyle}>
-                      <button
-                        onClick={() => toggleStatus(employer)}
-                        title="Click to change status"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '4px 10px',
-                          border: 'none',
-                          borderRadius: '999px',
-                          background: employer.is_active ? '#ecfdf5' : '#f1f5f9',
-                          color: employer.is_active ? '#047857' : '#64748b',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <span>●</span>
-                        {employer.is_active ? 'Active' : 'Inactive'}
-                      </button>
-                    </td>
-                    <td style={tdStyle}>
-                      {employer.service_website ? (
-                        <a
-                          href={employer.service_website.startsWith('http') ? employer.service_website : `https://${employer.service_website}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ color: '#2563eb', display: 'inline-flex', alignItems: 'center', gap: '5px', textDecoration: 'none', fontWeight: 500 }}
-                        >
-                          Visit <ExternalLink size={14} />
-                        </a>
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'center' }}>
-                      <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
-                        <button onClick={() => openEditForm(employer)} title="Edit employer" style={iconButtonStyle}>
-                          <Pencil size={15} />
-                        </button>
-                        <button onClick={() => deleteEmployer(employer)} title="Delete employer" style={{ ...iconButtonStyle, color: '#dc2626', borderColor: '#fecaca' }}>
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
+          <div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1100px' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    <th style={{ ...thStyle, width: '40px', textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={
+                          paginatedEmployers.length > 0 &&
+                          paginatedEmployers.every((emp) => selectedEmployerIds.has(emp.id))
+                        }
+                        onChange={handleSelectAll}
+                        style={{ width: '16px', height: '16px', accentColor: '#2563eb', cursor: 'pointer' }}
+                      />
+                    </th>
+                    <th style={thStyle}>#</th>
+                    <th style={thStyle}>Service Name</th>
+                    <th style={thStyle}>Primary Outreach Email</th>
+                    <th style={thStyle}>Email Type</th>
+                    <th style={thStyle}>Country</th>
+                    <th style={thStyle}>Industry</th>
+                    <th style={thStyle}>Status</th>
+                    <th style={thStyle}>Service Website</th>
+                    <th style={{ ...thStyle, textAlign: 'center' }}>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+
+                <tbody>
+                  {paginatedEmployers.map((employer, index) => {
+                    const globalIdx = (currentPage - 1) * pageSize + index + 1;
+                    const isSelected = selectedEmployerIds.has(employer.id);
+                    return (
+                      <tr key={employer.id} style={{ background: isSelected ? '#eff6ff' : 'transparent' }}>
+                        <td style={{ ...tdStyle, textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleSelectOne(employer.id)}
+                            style={{ width: '16px', height: '16px', accentColor: '#2563eb', cursor: 'pointer' }}
+                          />
+                        </td>
+                        <td style={tdStyle}>#{globalIdx}</td>
+                        <td style={{ ...tdStyle, fontWeight: 600, color: '#0f172a' }}>
+                          {employer.service_name || '-'}
+                        </td>
+                        <td style={tdStyle}>
+                          {employer.email ? (
+                            <span style={{ fontWeight: '500', color: '#1e293b' }}>{employer.email}</span>
+                          ) : (
+                            <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>No Email</span>
+                          )}
+                        </td>
+                        <td style={tdStyle}>
+                          {renderEmailTypeBadge(employer.primary_email_type)}
+                        </td>
+                        <td style={tdStyle}>{employer.country || '-'}</td>
+                        <td style={tdStyle}>{employer.industry || '-'}</td>
+                        <td style={tdStyle}>
+                          <button
+                            onClick={() => toggleStatus(employer)}
+                            title="Click to change status"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '4px 10px',
+                              border: 'none',
+                              borderRadius: '999px',
+                              background: employer.is_active ? '#ecfdf5' : '#f1f5f9',
+                              color: employer.is_active ? '#047857' : '#64748b',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <span>●</span>
+                            {employer.is_active ? 'Active' : 'Inactive'}
+                          </button>
+                        </td>
+                        <td style={tdStyle}>
+                          {employer.service_website ? (
+                            <a
+                              href={employer.service_website.startsWith('http') ? employer.service_website : `https://${employer.service_website}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ color: '#2563eb', display: 'inline-flex', alignItems: 'center', gap: '5px', textDecoration: 'none', fontWeight: 500 }}
+                            >
+                              Visit <ExternalLink size={14} />
+                            </a>
+                          ) : (
+                            '-'
+                          )}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: 'center' }}>
+                          <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                            <button onClick={() => openEditForm(employer)} title="Edit employer" style={iconButtonStyle}>
+                              <Pencil size={15} />
+                            </button>
+                            <button onClick={() => deleteEmployer(employer)} title="Delete employer" style={{ ...iconButtonStyle, color: '#dc2626', borderColor: '#fecaca' }}>
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div style={{ padding: '14px 22px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>
+                  Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, filteredEmployers.length)} of {filteredEmployers.length} employers
+                </span>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
+                      color: currentPage === 1 ? '#94a3b8' : '#334155',
+                      cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                    }}
+                  >
+                    <ChevronLeft size={16} /> Previous
+                  </button>
+
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155', padding: '0 8px' }}>
+                    Page {currentPage} of {totalPages}
+                  </span>
+
+                  <button
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
+                      color: currentPage === totalPages ? '#94a3b8' : '#334155',
+                      cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                    }}
+                  >
+                    Next <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

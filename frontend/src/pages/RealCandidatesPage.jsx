@@ -14,7 +14,9 @@ import {
   Mail
 } from 'lucide-react';
 
-const rawApiUrl = import.meta.env.VITE_API_URL || 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+import { getApiUrl } from '../config/api';
+
+const rawApiUrl = getApiUrl();
 const API_URL = rawApiUrl.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
 
 const getErrorMessage = (error, fallback = "Something went wrong.") => {

@@ -11,14 +11,23 @@ router = APIRouter(
 )
 
 
+from sqlalchemy.orm import Session, joinedload
+
 @router.get("")
 def get_email_logs(
+    limit: int = 500,
     db: Session = Depends(get_db),
 ):
     logs = db.scalars(
         select(EmailLog)
+        .options(
+            joinedload(EmailLog.candidate),
+            joinedload(EmailLog.employer),
+            joinedload(EmailLog.gmail_account),
+        )
         .order_by(EmailLog.id.desc())
-    ).all()
+        .limit(limit)
+    ).unique().all()
 
     result = []
     for log in logs:

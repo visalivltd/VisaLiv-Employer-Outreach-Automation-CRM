@@ -134,6 +134,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(candidate_router)
 app.include_router(employer_router)
+app.include_router(employer_router, prefix="/api/v1")
 app.include_router(gmail_account_router)
 app.include_router(gmail_oauth_router)
 app.include_router(outreach_router)

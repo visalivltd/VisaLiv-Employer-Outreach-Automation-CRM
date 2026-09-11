@@ -1,0 +1,39 @@
+steps:
+  # Build frontend Docker image for Dev Staging pointing to Dev Backend in asia-south1
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'frontend/Dockerfile'
+      - '--build-arg'
+      - 'VITE_API_URL=https://visaliv-crm-backend-dev-477131280275.asia-south1.run.app'
+      - '-t'
+      - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-frontend/visaliv-crm-frontend:dev-$COMMIT_SHA'
+      - 'frontend'
+
+  # Push image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-frontend/visaliv-crm-frontend:dev-$COMMIT_SHA'
+
+  # Deploy to Cloud Run Dev Staging Frontend Service
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'visaliv-crm-frontend-dev'
+      - '--image'
+      - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-frontend/visaliv-crm-frontend:dev-$COMMIT_SHA'
+      - '--region'
+      - 'asia-south2'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+
+images:
+  - 'asia-south2-docker.pkg.dev/$PROJECT_ID/visaliv-crm-frontend/visaliv-crm-frontend:dev-$COMMIT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

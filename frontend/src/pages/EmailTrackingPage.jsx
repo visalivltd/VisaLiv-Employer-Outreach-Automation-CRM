@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -31,7 +31,9 @@ import {
   Link as LinkIcon
 } from 'lucide-react';
 
-const API_BASE_URL = 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
+import { getApiUrl } from '../config/api';
+
+const API_BASE_URL = getApiUrl();
 
 export default function EmailTrackingPage() {
   const navigate = useNavigate();
@@ -81,37 +83,98 @@ export default function EmailTrackingPage() {
   const [replySending, setReplySending] = useState(false);
   const [replyError, setReplyError] = useState('');
 
-  // Fetch all required CRM data
+  // ATTACHMENT STATE & REFS
+  const [replyAttachments, setReplyAttachments] = useState([]);
+  const [composeAttachments, setComposeAttachments] = useState([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+
+  const replyFormRef = useRef(null);
+  const replyTextareaRef = useRef(null);
+
+  // Auto Scroll & Focus when Reply opens
+  useEffect(() => {
+    if (isReplying) {
+      setReplyAttachments([]);
+      setTimeout(() => {
+        replyFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        replyTextareaRef.current?.focus();
+      }, 50);
+    }
+  }, [isReplying]);
+
+  // Attachment File Upload Helper (PDF, DOCX, Images, etc.)
+  const handleFileUpload = async (e, isReply) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    setUploadingAttachment(true);
+    setError('');
+
+    for (const file of files) {
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetch(`${API_BASE_URL}/email-tracking/upload-attachment`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Failed to upload file');
+
+        const item = {
+          filename: data.filename || file.name,
+          file_path: data.file_path,
+          size: data.size || file.size,
+        };
+
+        if (isReply) {
+          setReplyAttachments((prev) => [...prev, item]);
+        } else {
+          setComposeAttachments((prev) => [...prev, item]);
+        }
+      } catch (err) {
+        console.error('Attachment upload error:', err);
+        showToast(`Attachment error: ${err.message}`);
+      }
+    }
+
+    setUploadingAttachment(false);
+    e.target.value = '';
+  };
+
+  const removeAttachment = (index, isReply) => {
+    if (isReply) {
+      setReplyAttachments((prev) => prev.filter((_, i) => i !== index));
+    } else {
+      setComposeAttachments((prev) => prev.filter((_, i) => i !== index));
+    }
+  };
+
+  // Fetch required email tracking data
   const fetchData = async () => {
     try {
       setLoading(true);
       setError('');
 
-      const [logsRes, notifRes, accountsRes, empRes] = await Promise.all([
+      const [logsRes, notifRes, accountsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/email-logs`),
         fetch(`${API_BASE_URL}/notifications`),
         fetch(`${API_BASE_URL}/gmail-accounts`),
-        fetch(`${API_BASE_URL}/employers`),
       ]);
 
       if (logsRes.ok) {
         const logsData = await logsRes.json();
-        setLogs(logsData);
+        setLogs(Array.isArray(logsData) ? logsData : []);
       }
-
       if (notifRes.ok) {
         const notifData = await notifRes.json();
-        setNotifications(notifData);
+        setNotifications(Array.isArray(notifData) ? notifData : []);
       }
-
       if (accountsRes.ok) {
-        const accountsData = await accountsRes.json();
-        setGmailAccounts(accountsData);
-      }
-
-      if (empRes.ok) {
-        const empData = await empRes.json();
-        setEmployers(empData);
+        const accData = await accountsRes.json();
+        setGmailAccounts(Array.isArray(accData) ? accData : []);
       }
 
       setLastSynced(
@@ -527,6 +590,7 @@ export default function EmailTrackingPage() {
           subject: composeSubject.trim(),
           body: composeBody.trim(),
           attach_cv: composeAttachCv,
+          custom_attachment_paths: composeAttachments.map((a) => a.file_path),
         }),
       });
 
@@ -552,6 +616,7 @@ export default function EmailTrackingPage() {
       setComposeBody('');
       setComposeSubject('');
       setComposeToEmail('');
+      setComposeAttachments([]);
       showToast('Email sent successfully');
       await fetchData();
 
@@ -607,6 +672,7 @@ export default function EmailTrackingPage() {
           body: replyBody.trim(),
           thread_id: threadId,
           attach_cv: replyAttachCv,
+          custom_attachment_paths: replyAttachments.map((a) => a.file_path),
         }),
       });
 
@@ -2149,15 +2215,16 @@ export default function EmailTrackingPage() {
                 {/* INLINE REPLY EDITOR */}
                 {isReplying && (
                   <form
+                    ref={replyFormRef}
                     onSubmit={handleSendReply}
                     style={{
                       backgroundColor: '#ffffff',
                       border: '2px solid #2563eb',
                       borderRadius: '12px',
-                      padding: '18px 20px',
-                      marginTop: '10px',
-                      marginBottom: '20px',
-                      boxShadow: '0 4px 12px rgba(37, 99, 235, 0.1)',
+                      padding: '20px 22px',
+                      marginTop: '16px',
+                      marginBottom: '24px',
+                      boxShadow: '0 10px 30px rgba(37, 99, 235, 0.18)',
                     }}
                   >
                     <div
@@ -2165,23 +2232,26 @@ export default function EmailTrackingPage() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        marginBottom: '12px',
-                        paddingBottom: '8px',
-                        borderBottom: '1px solid #f1f5f9',
+                        marginBottom: '14px',
+                        paddingBottom: '10px',
+                        borderBottom: '1px solid #e2e8f0',
+                        backgroundColor: '#eff6ff',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
                       }}
                     >
                       <div
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '6px',
+                          gap: '8px',
                         }}
                       >
-                        <CornerUpLeft size={16} style={{ color: '#2563eb' }} />
-                        <strong style={{ fontSize: '14px', color: '#0f172a' }}>
+                        <CornerUpLeft size={18} style={{ color: '#2563eb' }} />
+                        <strong style={{ fontSize: '15px', color: '#1e3a8a' }}>
                           Replying to {selectedConversation.employer_name}
                         </strong>
-                        <span style={{ fontSize: '12px', color: '#64748b' }}>
+                        <span style={{ fontSize: '13px', color: '#3b82f6', fontWeight: '500' }}>
                           ({selectedConversation.employer_email})
                         </span>
                       </div>
@@ -2194,9 +2264,10 @@ export default function EmailTrackingPage() {
                           border: 'none',
                           color: '#64748b',
                           cursor: 'pointer',
+                          padding: '4px',
                         }}
                       >
-                        <X size={16} />
+                        <X size={18} />
                       </button>
                     </div>
 
@@ -2265,92 +2336,171 @@ export default function EmailTrackingPage() {
                       );
                     })()}
 
-                    <div style={{ marginBottom: '12px', fontSize: '12px', color: '#475569' }}>
+                    <div style={{ marginBottom: '12px', fontSize: '13px', color: '#475569' }}>
                       <strong>From Account:</strong> {selectedConversation.candidate_name} ({selectedConversation.candidate_gmail})
                     </div>
 
-                    <div style={{ marginBottom: '12px' }}>
+                    <div style={{ marginBottom: '14px' }}>
                       <textarea
-                        rows={4}
+                        ref={replyTextareaRef}
+                        rows={5}
                         placeholder="Write your email reply..."
                         value={replyBody}
                         onChange={(e) => setReplyBody(e.target.value)}
                         style={{
                           width: '100%',
-                          padding: '10px 14px',
+                          padding: '12px 14px',
                           borderRadius: '8px',
-                          border: '1px solid #cbd5e1',
-                          fontSize: '13px',
+                          border: '1.5px solid #93c5fd',
+                          fontSize: '14px',
                           outline: 'none',
                           resize: 'vertical',
+                          boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
                         }}
                       />
+                    </div>
+
+                    {/* Attachments Control Section */}
+                    <div style={{ marginBottom: '14px', backgroundColor: '#f8fafc', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                          <label
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              fontSize: '13px',
+                              color: '#334155',
+                              cursor: 'pointer',
+                              fontWeight: '600',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={replyAttachCv}
+                              onChange={(e) => setReplyAttachCv(e.target.checked)}
+                              style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
+                            />
+                            Attach Candidate CV ({getCvFilename(selectedConversation.candidate_cv_path, selectedConversation.candidate_name)})
+                          </label>
+
+                          <label
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '6px 14px',
+                              borderRadius: '6px',
+                              border: '1px solid #2563eb',
+                              background: '#eff6ff',
+                              color: '#2563eb',
+                              fontSize: '13px',
+                              fontWeight: '600',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <Paperclip size={15} />
+                            {uploadingAttachment ? 'Uploading File...' : 'Attach File (PDF, DOCX, Image)'}
+                            <input
+                              type="file"
+                              multiple
+                              accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.webp,.txt"
+                              onChange={(e) => handleFileUpload(e, true)}
+                              style={{ display: 'none' }}
+                              disabled={uploadingAttachment}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Custom Uploaded Attachments List */}
+                      {replyAttachments.length > 0 && (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
+                          {replyAttachments.map((att, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '5px 10px',
+                                borderRadius: '6px',
+                                backgroundColor: '#ffffff',
+                                border: '1px solid #93c5fd',
+                                color: '#1e40af',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                              }}
+                            >
+                              <Paperclip size={13} />
+                              {att.filename} ({Math.round(att.size / 1024)} KB)
+                              <button
+                                type="button"
+                                onClick={() => removeAttachment(idx, true)}
+                                style={{
+                                  border: 'none',
+                                  background: 'none',
+                                  cursor: 'pointer',
+                                  color: '#dc2626',
+                                  padding: '0 2px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <X size={14} />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     <div
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'space-between',
+                        justifyContent: 'flex-end',
+                        gap: '10px',
                       }}
                     >
-                      <label
+                      <button
+                        type="button"
+                        onClick={() => setIsReplying(false)}
+                        style={{
+                          padding: '8px 16px',
+                          borderRadius: '8px',
+                          border: '1px solid #cbd5e1',
+                          backgroundColor: '#ffffff',
+                          color: '#475569',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Cancel
+                      </button>
+
+                      <button
+                        type="submit"
+                        disabled={replySending || uploadingAttachment}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '6px',
-                          fontSize: '12px',
-                          color: '#475569',
-                          cursor: 'pointer',
+                          padding: '8px 20px',
+                          borderRadius: '8px',
+                          backgroundColor: '#2563eb',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          border: 'none',
+                          cursor: (replySending || uploadingAttachment) ? 'not-allowed' : 'pointer',
+                          boxShadow: '0 2px 6px rgba(37, 99, 235, 0.25)',
                         }}
                       >
-                        <input
-                          type="checkbox"
-                          checked={replyAttachCv}
-                          onChange={(e) => setReplyAttachCv(e.target.checked)}
-                        />
-                        Attach Candidate CV ({getCvFilename(selectedConversation.candidate_cv_path, selectedConversation.candidate_name)})
-                      </label>
-
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => setIsReplying(false)}
-                          style={{
-                            padding: '6px 14px',
-                            borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
-                            backgroundColor: '#ffffff',
-                            color: '#475569',
-                            fontSize: '12px',
-                            fontWeight: '600',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Cancel
-                        </button>
-
-                        <button
-                          type="submit"
-                          disabled={replySending}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '6px 16px',
-                            borderRadius: '6px',
-                            backgroundColor: '#2563eb',
-                            color: '#ffffff',
-                            fontSize: '12px',
-                            fontWeight: '600',
-                            border: 'none',
-                            cursor: replySending ? 'not-allowed' : 'pointer',
-                          }}
-                        >
-                          <Send size={13} />
-                          {replySending ? 'Sending Reply...' : 'Send Reply'}
-                        </button>
-                      </div>
+                        <Send size={15} />
+                        {replySending ? 'Sending Reply...' : 'Send Reply'}
+                      </button>
                     </div>
                   </form>
                 )}
@@ -2702,26 +2852,99 @@ export default function EmailTrackingPage() {
                 />
               </div>
 
-              {/* Attachments Checkbox */}
-              <div style={{ marginBottom: '24px' }}>
-                <label
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '13px',
-                    color: '#334155',
-                    cursor: 'pointer',
-                    fontWeight: '500',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={composeAttachCv}
-                    onChange={(e) => setComposeAttachCv(e.target.checked)}
-                  />
-                  Attach candidate's uploaded CV file
-                </label>
+              {/* Attachments Section */}
+              <div style={{ marginBottom: '24px', backgroundColor: '#f8fafc', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                    <label
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '13px',
+                        color: '#334155',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={composeAttachCv}
+                        onChange={(e) => setComposeAttachCv(e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
+                      />
+                      Attach candidate's uploaded CV file
+                    </label>
+
+                    <label
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        border: '1px solid #2563eb',
+                        background: '#eff6ff',
+                        color: '#2563eb',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Paperclip size={15} />
+                      {uploadingAttachment ? 'Uploading File...' : 'Attach File (PDF, DOCX, Image)'}
+                      <input
+                        type="file"
+                        multiple
+                        accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.webp,.txt"
+                        onChange={(e) => handleFileUpload(e, false)}
+                        style={{ display: 'none' }}
+                        disabled={uploadingAttachment}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Custom Uploaded Attachments List */}
+                {composeAttachments.length > 0 && (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
+                    {composeAttachments.map((att, idx) => (
+                      <span
+                        key={idx}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '5px 10px',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          border: '1px solid #93c5fd',
+                          color: '#1e40af',
+                          fontSize: '12px',
+                          fontWeight: '600',
+                        }}
+                      >
+                        <Paperclip size={13} />
+                        {att.filename} ({Math.round(att.size / 1024)} KB)
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(idx, false)}
+                          style={{
+                            border: 'none',
+                            background: 'none',
+                            cursor: 'pointer',
+                            color: '#dc2626',
+                            padding: '0 2px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Modal Buttons */}

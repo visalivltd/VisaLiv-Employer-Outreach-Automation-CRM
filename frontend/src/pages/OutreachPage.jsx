@@ -1,19 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User, Sliders, Zap } from 'lucide-react';
 
-const getApiUrl = () => {
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    if (host === 'localhost' || host === '127.0.0.1') {
-      return `${window.location.protocol}//${host}:8000`;
-    }
-  }
-  let url = import.meta.env.VITE_API_URL || '';
-  if (url) {
-    return url.replace(/\/$/, '');
-  }
-  return 'https://visaliv-crm-backend-477131280275.asia-south2.run.app';
-};
+import { getApiUrl } from '../config/api';
 
 const getErrorMessage = (error, fallback = "Something went wrong.") => {
   const detail = error?.response?.data?.detail ?? error?.detail;
@@ -261,8 +249,8 @@ export default function OutreachPage() {
     loadPreview(1, nextFilter);
   };
 
-  // Helper: Compute Ready, Queued, and Skipped stats & send times for currently selected items
-  const computeSelectedSchedule = () => {
+  // Memoized: Compute Ready, Queued, and Skipped stats & send times for currently selected items
+  const selectedScheduleStats = useMemo(() => {
     try {
       const selectedList = selectedItemsMap ? Array.from(selectedItemsMap.values()).filter(Boolean) : [];
       if (selectedList.length === 0) {
@@ -361,16 +349,24 @@ export default function OutreachPage() {
       console.error('computeSelectedSchedule error:', err);
       return { readyCount: 0, queuedCount: 0, skippedCount: 0, itemStatuses: new Map() };
     }
-  };
+  }, [selectedItemsMap, previewData?.candidate_summaries, settings]);
 
-  // Helper: Count selected items for a candidate in local selection map
-  const getCandidateSelectedCount = (candId) => {
-    let count = 0;
-    for (const item of selectedItemsMap.values()) {
-      if (item.candidate_id === candId) count++;
+  const computeSelectedSchedule = () => selectedScheduleStats;
+
+  // Memoized: Count selected items for candidate in local selection map (O(1) lookups)
+  const candidateSelectedCounts = useMemo(() => {
+    const counts = new Map();
+    if (selectedItemsMap) {
+      for (const item of selectedItemsMap.values()) {
+        if (item && item.candidate_id) {
+          counts.set(item.candidate_id, (counts.get(item.candidate_id) || 0) + 1);
+        }
+      }
     }
-    return count;
-  };
+    return counts;
+  }, [selectedItemsMap]);
+
+  const getCandidateSelectedCount = (candId) => candidateSelectedCounts.get(candId) || 0;
 
   // Toggle individual row selection (unrestricted)
   const handleToggleRow = (item) => {
@@ -417,9 +413,9 @@ export default function OutreachPage() {
       setMessage('');
 
       let baseUrl = getApiUrl();
-      let res = await fetch(`${baseUrl}/outreach/preview?only_eligible=true&page_size=500`);
+      let res = await fetch(`${baseUrl}/outreach/preview?only_eligible=true&page_size=20`);
       if (!res.ok && !baseUrl.includes('/api/v1')) {
-        res = await fetch(`${baseUrl}/api/v1/outreach/preview?only_eligible=true&page_size=500`);
+        res = await fetch(`${baseUrl}/api/v1/outreach/preview?only_eligible=true&page_size=20`);
       }
 
       const data = await res.json().catch(() => ({}));
@@ -512,11 +508,27 @@ export default function OutreachPage() {
     setError('');
   };
 
-  // Auto-poll queue summary and trigger process-jobs on backend when jobs are pending/processing
+  const refreshQueueSummary = async () => {
+    try {
+      let baseUrl = getApiUrl();
+      let res = await fetch(`${baseUrl}/outreach/summary`);
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1/outreach/summary`);
+      }
+      if (res.ok) {
+        const summaryData = await res.json();
+        setPreviewData((prev) => (prev ? { ...prev, queue_summary: summaryData } : prev));
+      }
+    } catch (summaryErr) {
+      console.error('Queue summary refresh error:', summaryErr);
+    }
+  };
+
+  // Auto-poll lightweight queue summary when background worker jobs are pending/processing (prevents browser freezes)
   useEffect(() => {
     const queueSum = previewData?.queue_summary;
     if (queueSum && (queueSum.pending_count > 0 || queueSum.processing_count > 0)) {
-      const triggerProcessJobs = async () => {
+      const pollQueueStatus = async () => {
         try {
           let baseUrl = getApiUrl();
           let res = await fetch(`${baseUrl}/outreach/process-jobs`, { method: 'POST' });
@@ -526,15 +538,14 @@ export default function OutreachPage() {
         } catch (err) {
           console.error('Trigger process-jobs error:', err);
         } finally {
-          loadPreview(page, selectedCandidateFilter);
+          await refreshQueueSummary();
         }
       };
 
-      triggerProcessJobs();
-      const timer = setInterval(triggerProcessJobs, 6000);
+      const timer = setInterval(pollQueueStatus, 15000);
       return () => clearInterval(timer);
     }
-  }, [previewData?.queue_summary?.pending_count, previewData?.queue_summary?.processing_count, page, selectedCandidateFilter]);
+  }, [previewData?.queue_summary?.pending_count, previewData?.queue_summary?.processing_count]);
 
   const handleStartOutreach = async () => {
     try {
