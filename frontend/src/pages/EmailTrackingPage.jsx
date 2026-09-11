@@ -40,7 +40,9 @@ import {
   Ban,
   MoreHorizontal,
   CheckSquare,
-  Type
+  Type,
+  Bell,
+  HelpCircle
 } from 'lucide-react';
 
 import { getApiUrl } from '../config/api';
@@ -851,6 +853,100 @@ export default function EmailTrackingPage() {
           {toastMessage}
         </div>
       )}
+
+      {/* TOP HEADER BAR (Email Tracking Specific) */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '16px',
+          paddingBottom: '12px',
+          borderBottom: '1px solid #e2e8f0',
+        }}
+      >
+        <div style={{ position: 'relative', width: '380px' }}>
+          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+          <input
+            type="text"
+            placeholder="Search candidates, emails, subjects..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '7px 40px 7px 34px',
+              borderRadius: '8px',
+              border: '1px solid #cbd5e1',
+              fontSize: '13px',
+              background: '#ffffff',
+              outline: 'none',
+            }}
+          />
+          <span
+            style={{
+              position: 'absolute',
+              right: '10px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              fontSize: '10px',
+              color: '#94a3b8',
+              background: '#f1f5f9',
+              padding: '1px 5px',
+              borderRadius: '4px',
+              border: '1px solid #cbd5e1',
+              fontWeight: 600,
+            }}
+          >
+            Ctrl K
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#475569' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e', display: 'inline-block' }} />
+            <span>
+              <strong>Email sync active</strong>{' '}
+              <span style={{ color: '#94a3b8' }}>
+                Last synced {lastSynced ? formatTimestamp(lastSynced) : '11:39 AM'}
+              </span>
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', borderLeft: '1px solid #e2e8f0', paddingLeft: '16px' }}>
+            <button
+              type="button"
+              onClick={fetchData}
+              title="Sync Emails"
+              style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center' }}
+            >
+              <RefreshCw size={18} className={syncing ? 'spin' : ''} />
+            </button>
+            <button type="button" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center' }}>
+              <Bell size={18} />
+            </button>
+            <button type="button" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center' }}>
+              <HelpCircle size={18} />
+            </button>
+            <div
+              style={{
+                width: '30px',
+                height: '30px',
+                borderRadius: '50%',
+                backgroundColor: '#3b82f6',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: '700',
+                fontSize: '13px',
+              }}
+            >
+              A
+            </div>
+            <span style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>Admin</span>
+          </div>
+        </div>
+      </div>
 
       {/* PAGE HEADER */}
       <div
