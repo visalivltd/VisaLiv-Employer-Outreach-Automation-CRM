@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User, Sliders, Zap } from 'lucide-react';
 
 import { getApiUrl } from '../config/api';
@@ -163,6 +163,7 @@ export default function OutreachPage() {
 
   useEffect(() => {
     loadData();
+    loadPreview(1, null);
   }, []);
 
   const loadPreview = async (targetPage = page, targetCandId = selectedCandidateFilter) => {

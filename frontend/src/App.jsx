@@ -41,15 +41,15 @@ export default function App() {
         <main>
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/candidates" element={<CandidatesPage />} />
-            <Route path="/real-candidates" element={<RealCandidatesPage />} />
-            <Route path="/employers" element={<EmployersPage />} />
-            <Route path="/gmail-accounts" element={<GmailAccountsPage />} />
-            <Route path="/email-drafts" element={<EmailDraftsPage />} />
+            <Route path="/dashboard" element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
+            <Route path="/candidates" element={<ErrorBoundary><CandidatesPage /></ErrorBoundary>} />
+            <Route path="/real-candidates" element={<ErrorBoundary><RealCandidatesPage /></ErrorBoundary>} />
+            <Route path="/employers" element={<ErrorBoundary><EmployersPage /></ErrorBoundary>} />
+            <Route path="/gmail-accounts" element={<ErrorBoundary><GmailAccountsPage /></ErrorBoundary>} />
+            <Route path="/email-drafts" element={<ErrorBoundary><EmailDraftsPage /></ErrorBoundary>} />
             <Route path="/email-tracking" element={<ErrorBoundary><EmailTrackingPage /></ErrorBoundary>} />
-            <Route path="/email-logs" element={<EmailLogsPage />} />
-            <Route path="/outreach" element={<OutreachPage />} />
+            <Route path="/email-logs" element={<ErrorBoundary><EmailLogsPage /></ErrorBoundary>} />
+            <Route path="/outreach" element={<ErrorBoundary><OutreachPage /></ErrorBoundary>} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>
