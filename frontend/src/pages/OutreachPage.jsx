@@ -163,6 +163,7 @@ export default function OutreachPage() {
 
   useEffect(() => {
     loadData();
+    loadPreview(1, null);
   }, []);
 
   const loadPreview = async (targetPage = page, targetCandId = selectedCandidateFilter) => {
