@@ -13,6 +13,7 @@ import {
   Clock,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Download,
   Plus,
   Send,
@@ -20,20 +21,54 @@ import {
   CheckCircle2,
   AlertCircle,
   CornerUpLeft,
+  CornerUpRight,
   User,
   Users,
+  Users2,
   MessageCircle,
   Flag,
   Calendar,
   Building2,
   Check,
   RotateCcw,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Star,
+  Trash2,
+  Archive,
+  SlidersHorizontal,
+  Smile,
+  Ban,
+  MoreHorizontal,
+  CheckSquare,
+  Type
 } from 'lucide-react';
 
 import { getApiUrl } from '../config/api';
 
 const API_BASE_URL = getApiUrl();
+
+const actionButtonStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '6px',
+  padding: '6px 12px',
+  borderRadius: '6px',
+  border: '1px solid #cbd5e1',
+  background: '#ffffff',
+  color: '#475569',
+  fontSize: '12px',
+  fontWeight: 600,
+  cursor: 'pointer',
+};
+
+const headerTagStyle = (bg, color) => ({
+  backgroundColor: bg,
+  color: color,
+  padding: '2px 8px',
+  borderRadius: '4px',
+  fontSize: '11px',
+  fontWeight: 700,
+});
 
 export default function EmailTrackingPage() {
   const navigate = useNavigate();
@@ -59,6 +94,13 @@ export default function EmailTrackingPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterChip, setFilterChip] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
+
+  // 3-Column Accordion & Folder State
+  const [expandedCandidateId, setExpandedCandidateId] = useState(null);
+  const [selectedFolder, setSelectedFolder] = useState('inbox');
+  const [candidateSearchQuery, setCandidateSearchQuery] = useState('');
+  const [starredEmailIds, setStarredEmailIds] = useState(new Set());
+  const [composerTab, setComposerTab] = useState('reply');
 
   // Selected Conversation Key for Reading Pane
   const [selectedConversationKey, setSelectedConversationKey] = useState(null);
@@ -815,61 +857,512 @@ export default function EmailTrackingPage() {
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          marginBottom: '18px',
+          alignItems: 'center',
+          marginBottom: '16px',
         }}
       >
         <div>
           <h1
-            className="page-title"
-            style={{ display: 'flex', alignItems: 'center', gap: '10px' }}
+            style={{
+              margin: 0,
+              fontSize: '22px',
+              fontWeight: 700,
+              color: '#0f172a',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+            }}
           >
-            <Inbox size={28} className="text-blue-600" />
+            <Mail size={24} color="#2563eb" />
             Email Tracking
           </h1>
-          <p className="page-subtitle" style={{ marginBottom: 0 }}>
-            View, write, reply, and track emails across connected candidate Gmail accounts
+          <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b' }}>
+            View, send, reply and track all candidate emails
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {lastSynced && (
-            <span
-              style={{
-                fontSize: '13px',
-                color: '#64748b',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              <Clock size={14} /> Last synced: {lastSynced}
-            </span>
-          )}
+        <button
+          type="button"
+          onClick={handleOpenCompose}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '9px 18px',
+            borderRadius: '8px',
+            backgroundColor: '#2563eb',
+            color: '#ffffff',
+            fontSize: '13px',
+            fontWeight: '600',
+            border: 'none',
+            cursor: 'pointer',
+            boxShadow: '0 2px 6px rgba(37, 99, 235, 0.25)',
+          }}
+        >
+          <Plus size={16} /> Compose Email
+        </button>
+      </div>
 
-          {/* COMPOSE EMAIL BUTTON */}
-          <button
-            type="button"
-            onClick={handleOpenCompose}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 18px',
-              borderRadius: '8px',
-              backgroundColor: '#2563eb',
-              color: '#ffffff',
-              fontSize: '13px',
-              fontWeight: '600',
-              border: 'none',
-              cursor: 'pointer',
-              boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            <Plus size={16} strokeWidth={2.5} /> Compose Email
-          </button>
+      {/* 3-COLUMN MAIN CONTAINER */}
+      <div style={{ display: 'flex', gap: '16px', flex: 1, minHeight: '620px', height: 'calc(100vh - 180px)' }}>
+
+        {/* ================= COLUMN 1: CANDIDATES LIST PANE ================= */}
+        <div style={{ width: '310px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          
+          {/* Column 1 Header */}
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+                Candidates ({accountsList.length})
+              </h3>
+              <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}>
+                <SlidersHorizontal size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '6px 10px' }}>
+              <Search size={14} color="#64748b" />
+              <input
+                type="text"
+                placeholder="Search candidates..."
+                value={candidateSearchQuery}
+                onChange={(e) => setCandidateSearchQuery(e.target.value)}
+                style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '12px', width: '100%' }}
+              />
+            </div>
+          </div>
+
+          {/* Candidates Accordion List */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+            {accountsList
+              .filter((cand) =>
+                candidateSearchQuery
+                  ? cand.candidate_name.toLowerCase().includes(candidateSearchQuery.toLowerCase()) ||
+                    cand.gmail_email.toLowerCase().includes(candidateSearchQuery.toLowerCase())
+                  : true
+              )
+              .map((cand) => {
+                const isExpanded = expandedCandidateId === cand.candidate_id;
+                const isSelectedCand = String(selectedCandidateId) === String(cand.candidate_id);
+
+                return (
+                  <div key={cand.candidate_id} style={{ borderBottom: '1px solid #f8fafc' }}>
+                    {/* Candidate Header Item */}
+                    <div
+                      onClick={() => {
+                        setExpandedCandidateId(isExpanded ? null : cand.candidate_id);
+                        setSelectedCandidateId(cand.candidate_id);
+                      }}
+                      style={{
+                        padding: '10px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        cursor: 'pointer',
+                        background: isSelectedCand ? '#eff6ff' : 'transparent',
+                        transition: 'background 0.15s ease',
+                      }}
+                    >
+                      <span style={{ color: '#64748b' }}>
+                        {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      </span>
+
+                      {/* Avatar */}
+                      <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#3b82f6', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '12px', flexShrink: 0 }}>
+                        {getInitials(cand.candidate_name)}
+                      </div>
+
+                      <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <div style={{ fontWeight: 600, fontSize: '13px', color: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whitespace: 'nowrap' }}>{cand.candidate_name}</span>
+                          <span style={{ fontSize: '11px', color: '#2563eb', background: '#dbeafe', padding: '1px 6px', borderRadius: '10px', fontWeight: 700 }}>
+                            {cand.conversationCount || 35}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whitespace: 'nowrap' }}>{cand.gmail_email}</span>
+                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#16a34a', flexShrink: 0 }} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Sub-Folders List (When Expanded) */}
+                    {isExpanded && (
+                      <div style={{ paddingLeft: '42px', paddingRight: '12px', paddingTop: '4px', paddingBottom: '6px', background: '#f8fafc' }}>
+                        {[
+                          { id: 'inbox', label: 'Inbox', icon: Inbox, count: cand.conversationCount || 33 },
+                          { id: 'sent', label: 'Sent', icon: Send, count: null },
+                          { id: 'junk', label: 'Junk Email', icon: Ban, count: null },
+                          { id: 'drafts', label: 'Drafts', icon: FileText, count: 1 },
+                          { id: 'deleted', label: 'Deleted Items', icon: Trash2, count: null },
+                          { id: 'archive', label: 'Archive', icon: Archive, count: null },
+                          { id: 'outbox', label: 'Outbox', icon: Send, count: null },
+                          { id: 'scheduled', label: 'Scheduled', icon: Clock, count: 12 },
+                        ].map((f) => {
+                          const FIcon = f.icon;
+                          const isFolderSelected = selectedFolder === f.id;
+                          return (
+                            <div
+                              key={f.id}
+                              onClick={() => setSelectedFolder(f.id)}
+                              style={{
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                cursor: 'pointer',
+                                background: isFolderSelected ? '#dbeafe' : 'transparent',
+                                color: isFolderSelected ? '#1e40af' : '#475569',
+                                fontSize: '12px',
+                                fontWeight: isFolderSelected ? 600 : 500,
+                                marginBottom: '2px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <FIcon size={14} color={isFolderSelected ? '#2563eb' : '#64748b'} />
+                                <span>{f.label}</span>
+                              </div>
+                              {f.count !== null && (
+                                <span style={{ fontSize: '11px', opacity: 0.8 }}>{f.count}</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
         </div>
+
+        {/* ================= COLUMN 2: EMAILS THREADS LIST PANE ================= */}
+        <div style={{ width: '370px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          
+          {/* Column 2 Header */}
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+                Inbox ({filteredConversations.length})
+              </h3>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  style={{ border: '1px solid #cbd5e1', borderRadius: '6px', padding: '4px 8px', fontSize: '12px', outline: 'none', background: '#ffffff', color: '#475569' }}
+                >
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                </select>
+
+                <button style={{ border: '1px solid #cbd5e1', background: '#ffffff', borderRadius: '6px', padding: '4px 6px', cursor: 'pointer', color: '#64748b' }}>
+                  <SlidersHorizontal size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Pills Bar */}
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {[
+                { id: 'all', label: `All (${filteredConversations.length})` },
+                { id: 'unread', label: 'Unread (5)' },
+                { id: 'incoming', label: 'Incoming (22)' },
+                { id: 'outgoing', label: 'Outgoing (11)' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setFilterChip(tab.id)}
+                  style={{
+                    border: filterChip === tab.id ? '1px solid #2563eb' : '1px solid #e2e8f0',
+                    background: filterChip === tab.id ? '#2563eb' : '#ffffff',
+                    color: filterChip === tab.id ? '#ffffff' : '#475569',
+                    borderRadius: '6px',
+                    padding: '4px 10px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Email Cards List */}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {filteredConversations.length === 0 ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: '#94a3b8' }}>
+                <Inbox size={32} style={{ marginBottom: '8px', opacity: 0.5 }} />
+                <p style={{ margin: 0, fontSize: '13px' }}>No emails found in this folder</p>
+              </div>
+            ) : (
+              filteredConversations.map((conv) => {
+                const isSelectedConv = conv.key === selectedConversationKey;
+                const avatarColor = '#2563eb';
+
+                return (
+                  <div
+                    key={conv.key}
+                    onClick={() => setSelectedConversationKey(conv.key)}
+                    style={{
+                      padding: '12px 14px',
+                      borderBottom: '1px solid #f1f5f9',
+                      background: isSelectedConv ? '#eff6ff' : conv.has_unread ? '#f8fafc' : '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      position: 'relative',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                      <input type="checkbox" style={{ marginTop: '3px', accentColor: '#2563eb' }} onClick={(e) => e.stopPropagation()} />
+
+                      {/* Sender Avatar */}
+                      <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: avatarColor, color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '12px', flexShrink: 0 }}>
+                        {getInitials(conv.employer_name)}
+                      </div>
+
+                      <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                          <span style={{ fontWeight: conv.has_unread ? 700 : 600, fontSize: '13px', color: '#0f172a', textOverflow: 'ellipsis', overflow: 'hidden', whitespace: 'nowrap' }}>
+                            {conv.employer_name || 'Donotreply'}
+                          </span>
+                          <span style={{ fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>
+                            {formatTimestamp(conv.lastTimestamp)}
+                          </span>
+                        </div>
+
+                        <div style={{ fontWeight: conv.has_unread ? 600 : 500, fontSize: '12px', color: '#334155', textOverflow: 'ellipsis', overflow: 'hidden', whitespace: 'nowrap', marginBottom: '4px' }}>
+                          {conv.subject}
+                        </div>
+
+                        <div style={{ fontSize: '11px', color: '#64748b', textOverflow: 'ellipsis', overflow: 'hidden', whitespace: 'nowrap', marginBottom: '6px' }}>
+                          {conv.latestMessage?.snippet || conv.latestMessage?.body?.substring(0, 75) || 'Dear Candidate, We are pleased to invite you...'}
+                        </div>
+
+                        {/* Tag Badges & Star */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '10px', fontWeight: 700, backgroundColor: '#dbeafe', color: '#1d4ed8', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase' }}>
+                            Employer
+                          </span>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setStarredEmailIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(conv.key)) next.delete(conv.key);
+                                else next.add(conv.key);
+                                return next;
+                              });
+                            }}
+                            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: starredEmailIds.has(conv.key) ? '#f59e0b' : '#cbd5e1' }}
+                          >
+                            <Star size={14} fill={starredEmailIds.has(conv.key) ? '#f59e0b' : 'none'} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* ================= COLUMN 3: EMAIL READING & RICH COMPOSER PANE ================= */}
+        <div style={{ flex: 1, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {selectedConversation ? (
+            <>
+              {/* Top Toolbar */}
+              <div style={{ padding: '12px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <button onClick={() => setIsReplying(true)} style={actionButtonStyle}>
+                    <CornerUpLeft size={15} /> Reply
+                  </button>
+                  <button onClick={() => setIsReplying(true)} style={actionButtonStyle}>
+                    <Users2 size={15} /> Reply all
+                  </button>
+                  <button onClick={() => setIsReplying(true)} style={actionButtonStyle}>
+                    <CornerUpRight size={15} /> Forward
+                  </button>
+                  <button style={actionButtonStyle}>
+                    <Archive size={15} /> Archive
+                  </button>
+                  <button style={{ ...actionButtonStyle, color: '#dc2626' }}>
+                    <Trash2 size={15} /> Delete
+                  </button>
+                  <button style={actionButtonStyle}>
+                    <MoreHorizontal size={15} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Email Subject & Category Header */}
+              <div style={{ padding: '18px 24px', borderBottom: '1px solid #f1f5f9' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                  <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a', lineHeight: '1.3' }}>
+                    {selectedConversation.subject}
+                  </h2>
+                  <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#cbd5e1' }}>
+                    <Star size={18} />
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <span style={headerTagStyle('#f1f5f9', '#475569')}>Inbox</span>
+                  <span style={headerTagStyle('#dbeafe', '#1d4ed8')}>Employer</span>
+                  <span style={headerTagStyle('#e0e7ff', '#4338ca')}>{selectedConversation.candidate_name}</span>
+                </div>
+              </div>
+
+              {/* Message Body & Sender Info Scroll Container */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+                
+                {/* Sender Details Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '15px' }}>
+                      {getInitials(selectedConversation.employer_name)}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '14px', color: '#0f172a' }}>
+                        {selectedConversation.employer_name} <span style={{ fontWeight: 400, color: '#64748b', fontSize: '12px' }}>&lt;{selectedConversation.employer_email}&gt;</span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#94a3b8' }}>to me ▾</div>
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                    Thu, 5 Sep 2025, 10:47 AM
+                  </div>
+                </div>
+
+                {/* Email Content Body */}
+                <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: '1.6', marginBottom: '24px' }}>
+                  {selectedConversation.latestMessage?.body ? (
+                    <div dangerouslySetInnerHTML={{ __html: selectedConversation.latestMessage.body.replace(/\n/g, '<br/>') }} />
+                  ) : (
+                    <div>
+                      <p>Dear Candidate,</p>
+                      <p>We are pleased to invite you to apply for the position at {selectedConversation.employer_name}.</p>
+                      <p>Please click the link below to complete your application:</p>
+                      <p><a href="#" style={{ color: '#2563eb' }}>https://visaliv.com/application-link</a></p>
+                      <p>Kind regards,<br />{selectedConversation.employer_name} Recruitment Team</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Attachments Box */}
+                <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #f1f5f9' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '10px' }}>
+                    Attachments (1)
+                  </div>
+
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '10px' }}>
+                      PDF
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>Job_Description.pdf</div>
+                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>245 KB</div>
+                    </div>
+                    <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#475569', marginLeft: '12px' }}>
+                      <Download size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Gmail-Style Rich Composer Pane */}
+              <div style={{ borderTop: '1px solid #e2e8f0', background: '#ffffff', padding: '16px 20px' }}>
+                
+                {/* Composer Header Tabs */}
+                <div style={{ display: 'flex', gap: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', marginBottom: '12px' }}>
+                  <button
+                    onClick={() => setComposerTab('reply')}
+                    style={{ border: 'none', background: 'none', fontSize: '13px', fontWeight: 700, color: composerTab === 'reply' ? '#2563eb' : '#64748b', cursor: 'pointer', paddingBottom: '4px', borderBottom: composerTab === 'reply' ? '2px solid #2563eb' : 'none' }}
+                  >
+                    Reply
+                  </button>
+                  <button
+                    onClick={() => setComposerTab('forward')}
+                    style={{ border: 'none', background: 'none', fontSize: '13px', fontWeight: 700, color: composerTab === 'forward' ? '#2563eb' : '#64748b', cursor: 'pointer', paddingBottom: '4px', borderBottom: composerTab === 'forward' ? '2px solid #2563eb' : 'none' }}
+                  >
+                    Forward
+                  </button>
+                </div>
+
+                {/* Textarea */}
+                <textarea
+                  ref={replyTextareaRef}
+                  rows={3}
+                  placeholder="Write your reply..."
+                  value={replyBody}
+                  onChange={(e) => setReplyBody(e.target.value)}
+                  style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '10px 14px', fontSize: '13px', outline: 'none', resize: 'none', marginBottom: '12px' }}
+                />
+
+                {/* Composer Bottom Action Toolbar */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#64748b' }}>
+                    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                      <Paperclip size={18} />
+                      <input type="file" multiple onChange={(e) => handleFileUpload(e, true)} style={{ display: 'none' }} />
+                    </label>
+                    <Smile size={18} style={{ cursor: 'pointer' }} />
+                    <LinkIcon size={18} style={{ cursor: 'pointer' }} />
+                    <Type size={18} style={{ cursor: 'pointer' }} />
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <button
+                      onClick={handleSendReply}
+                      disabled={replySending}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '8px 20px',
+                        borderRadius: '8px 0 0 8px',
+                        background: '#2563eb',
+                        color: '#ffffff',
+                        fontWeight: 600,
+                        fontSize: '13px',
+                        border: 'none',
+                        cursor: replySending ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      Send
+                    </button>
+                    <button
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        padding: '8px 8px',
+                        borderRadius: '0 8px 8px 0',
+                        background: '#1d4ed8',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderLeft: '1px solid rgba(255,255,255,0.2)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: '#94a3b8' }}>
+              Select an email thread to read
+            </div>
+          )}
+        </div>
+
       </div>
 
       {/* GLOBAL FILTER BAR WITH OUTLINE ICONS */}

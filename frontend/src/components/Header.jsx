@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Menu, User, ChevronDown, Bell, Check, CheckCheck, RefreshCw, Mail, ExternalLink } from 'lucide-react';
+import { Menu, User, ChevronDown, Bell, Check, CheckCheck, RefreshCw, Mail, ExternalLink, Search, HelpCircle } from 'lucide-react';
 
 import { getApiUrl } from '../config/api';
 
@@ -134,8 +134,8 @@ export default function Header({ onToggleSidebar }) {
   };
 
   return (
-    <header className="top-header">
-      <div className="header-left">
+    <header className="top-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 24px', background: '#ffffff', borderBottom: '1px solid #e2e8f0' }}>
+      <div className="header-left" style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, maxWidth: '520px' }}>
         <button
           className="menu-toggle-btn"
           onClick={onToggleSidebar}
@@ -143,9 +143,36 @@ export default function Header({ onToggleSidebar }) {
         >
           <Menu size={22} strokeWidth={2} />
         </button>
+
+        {/* Global Search Bar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '7px 12px', width: '100%' }}>
+          <Search size={16} color="#64748b" />
+          <input
+            type="text"
+            placeholder="Search candidates, emails, subjects..."
+            style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '13px', width: '100%', color: '#0f172a' }}
+          />
+          <span style={{ fontSize: '11px', color: '#94a3b8', background: '#ffffff', border: '1px solid #e2e8f0', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+            Ctrl K
+          </span>
+        </div>
       </div>
 
-      <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+      <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
+        {/* Email Sync Status Badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#475569', backgroundColor: '#f0fdf4', padding: '6px 12px', borderRadius: '999px', border: '1px solid #bbf7d0' }}>
+          <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#16a34a' }} />
+          <span><strong>Email sync active</strong> <span style={{ color: '#94a3b8' }}>• Last synced 11:39 AM</span></span>
+        </div>
+
+        {/* HELP ICON */}
+        <button
+          type="button"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center' }}
+          title="Help & Support"
+        >
+          <HelpCircle size={20} />
+        </button>
         {/* NOTIFICATION BELL ICON & DROPDOWN */}
         <div style={{ position: 'relative' }} ref={dropdownRef}>
           <button
