@@ -52,11 +52,11 @@ export class ErrorBoundary extends React.Component {
           </div>
 
           <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#0f172a', marginBottom: '8px' }}>
-            Something went wrong while loading Email Tracking
+            Something went wrong while loading this page
           </h2>
 
           <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '24px', lineHeight: '1.5' }}>
-            An unexpected error occurred. You can reload Email Tracking to recover the page state.
+            An unexpected error occurred. You can reload to recover the page state.
           </p>
 
           {this.state.error && (
@@ -97,7 +97,7 @@ export class ErrorBoundary extends React.Component {
             }}
           >
             <RefreshCw size={16} />
-            Reload Email Tracking
+            Reload Page
           </button>
         </div>
       );
