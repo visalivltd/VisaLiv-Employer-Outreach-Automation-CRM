@@ -937,23 +937,6 @@ export default function EmailTrackingPage() {
             <button type="button" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center' }}>
               <HelpCircle size={18} />
             </button>
-            <div
-              style={{
-                width: '30px',
-                height: '30px',
-                borderRadius: '50%',
-                backgroundColor: '#3b82f6',
-                color: '#ffffff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: '700',
-                fontSize: '13px',
-              }}
-            >
-              A
-            </div>
-            <span style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>Admin</span>
           </div>
         </div>
       </div>
