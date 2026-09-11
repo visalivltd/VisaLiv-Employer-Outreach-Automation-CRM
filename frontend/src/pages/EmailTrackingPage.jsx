@@ -800,6 +800,17 @@ export default function EmailTrackingPage() {
     return `${(candName || 'Candidate').replace(/\s+/g, '_')}_CV.pdf`;
   };
 
+  const stripHtmlTags = (str) => {
+    if (!str) return '';
+    return str
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
   // Reusable style for filter select dropdowns with left icon spacing
   const filterSelectStyleWithIcon = {
     width: '100%',
@@ -864,97 +875,22 @@ export default function EmailTrackingPage() {
         </div>
       )}
 
-      {/* TOP HEADER BAR (Email Tracking Specific) */}
+      {/* UNIFIED PAGE HEADER */}
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           marginBottom: '16px',
-          paddingBottom: '12px',
+          paddingBottom: '14px',
           borderBottom: '1px solid #e2e8f0',
-        }}
-      >
-        <div style={{ position: 'relative', width: '380px' }}>
-          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-          <input
-            type="text"
-            placeholder="Search candidates, emails, subjects..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '7px 40px 7px 34px',
-              borderRadius: '8px',
-              border: '1px solid #cbd5e1',
-              fontSize: '13px',
-              background: '#ffffff',
-              outline: 'none',
-            }}
-          />
-          <span
-            style={{
-              position: 'absolute',
-              right: '10px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              fontSize: '10px',
-              color: '#94a3b8',
-              background: '#f1f5f9',
-              padding: '1px 5px',
-              borderRadius: '4px',
-              border: '1px solid #cbd5e1',
-              fontWeight: 600,
-            }}
-          >
-            Ctrl K
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#475569' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e', display: 'inline-block' }} />
-            <span>
-              <strong>Email sync active</strong>{' '}
-              <span style={{ color: '#94a3b8' }}>
-                Last synced {lastSynced ? formatTimestamp(lastSynced) : '11:39 AM'}
-              </span>
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', borderLeft: '1px solid #e2e8f0', paddingLeft: '16px' }}>
-            <button
-              type="button"
-              onClick={fetchData}
-              title="Sync Emails"
-              style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center' }}
-            >
-              <RefreshCw size={18} className={syncing ? 'spin' : ''} />
-            </button>
-            <button type="button" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center' }}>
-              <Bell size={18} />
-            </button>
-            <button type="button" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center' }}>
-              <HelpCircle size={18} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* PAGE HEADER */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '16px',
         }}
       >
         <div>
           <h1
             style={{
               margin: 0,
-              fontSize: '22px',
+              fontSize: '20px',
               fontWeight: 700,
               color: '#0f172a',
               display: 'flex',
@@ -962,34 +898,52 @@ export default function EmailTrackingPage() {
               gap: '10px',
             }}
           >
-            <Mail size={24} color="#2563eb" />
+            <Mail size={22} color="#2563eb" />
             Email Tracking
           </h1>
-          <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b' }}>
+          <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
             View, send, reply and track all candidate emails
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenCompose}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '9px 18px',
-            borderRadius: '8px',
-            backgroundColor: '#2563eb',
-            color: '#ffffff',
-            fontSize: '13px',
-            fontWeight: '600',
-            border: 'none',
-            cursor: 'pointer',
-            boxShadow: '0 2px 6px rgba(37, 99, 235, 0.25)',
-          }}
-        >
-          <Plus size={16} /> Compose Email
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          {/* Sync Status Badge */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#475569', background: '#ffffff', padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e', display: 'inline-block' }} />
+            <span>
+              <strong>Email sync active</strong>
+            </span>
+            <button
+              type="button"
+              onClick={fetchData}
+              title="Sync Emails"
+              style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', padding: '2px', marginLeft: '4px' }}
+            >
+              <RefreshCw size={14} className={syncing ? 'spin' : ''} />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleOpenCompose}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '9px 18px',
+              borderRadius: '8px',
+              backgroundColor: '#2563eb',
+              color: '#ffffff',
+              fontSize: '13px',
+              fontWeight: '600',
+              border: 'none',
+              cursor: 'pointer',
+              boxShadow: '0 2px 6px rgba(37, 99, 235, 0.25)',
+            }}
+          >
+            <Plus size={16} /> Compose Email
+          </button>
+        </div>
       </div>
 
       {/* 3-COLUMN MAIN CONTAINER */}
@@ -1228,7 +1182,7 @@ export default function EmailTrackingPage() {
                         </div>
 
                         <div style={{ fontSize: '11px', color: '#64748b', textOverflow: 'ellipsis', overflow: 'hidden', whitespace: 'nowrap', marginBottom: '6px' }}>
-                          {conv.latestMessage?.snippet || conv.latestMessage?.body?.substring(0, 75) || 'Dear Candidate, We are pleased to invite you...'}
+                          {stripHtmlTags(conv.latestMessage?.snippet || conv.latestMessage?.body) || 'No message content preview'}
                         </div>
 
                         {/* Tag Badges & Star */}
