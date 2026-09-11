@@ -442,11 +442,17 @@ export default function EmailTrackingPage() {
     // 6. Date Range Filter
     if (startDate) {
       const startMs = new Date(startDate).setHours(0, 0, 0, 0);
-      result = result.filter((c) => c.lastTimestamp.getTime() >= startMs);
+      result = result.filter((c) => {
+        const d = c.lastTimestamp instanceof Date ? c.lastTimestamp : new Date(c.lastTimestamp);
+        return !isNaN(d.getTime()) && d.getTime() >= startMs;
+      });
     }
     if (endDate) {
       const endMs = new Date(endDate).setHours(23, 59, 59, 999);
-      result = result.filter((c) => c.lastTimestamp.getTime() <= endMs);
+      result = result.filter((c) => {
+        const d = c.lastTimestamp instanceof Date ? c.lastTimestamp : new Date(c.lastTimestamp);
+        return !isNaN(d.getTime()) && d.getTime() <= endMs;
+      });
     }
 
     // 7. Search in Results
@@ -454,11 +460,11 @@ export default function EmailTrackingPage() {
       const q = searchQuery.toLowerCase().trim();
       result = result.filter(
         (c) =>
-          c.candidate_name.toLowerCase().includes(q) ||
-          c.candidate_gmail.toLowerCase().includes(q) ||
-          c.employer_name.toLowerCase().includes(q) ||
-          c.employer_email.toLowerCase().includes(q) ||
-          c.subject.toLowerCase().includes(q) ||
+          (c.candidate_name || '').toLowerCase().includes(q) ||
+          (c.candidate_gmail || '').toLowerCase().includes(q) ||
+          (c.employer_name || '').toLowerCase().includes(q) ||
+          (c.employer_email || '').toLowerCase().includes(q) ||
+          (c.subject || '').toLowerCase().includes(q) ||
           c.messages.some((m) =>
             (m.error_message || '').toLowerCase().includes(q)
           )
@@ -467,10 +473,12 @@ export default function EmailTrackingPage() {
 
     // Sort conversations
     result.sort((a, b) => {
+      const tA = (a.lastTimestamp instanceof Date ? a.lastTimestamp : new Date(a.lastTimestamp)).getTime() || 0;
+      const tB = (b.lastTimestamp instanceof Date ? b.lastTimestamp : new Date(b.lastTimestamp)).getTime() || 0;
       if (sortBy === 'newest') {
-        return b.lastTimestamp - a.lastTimestamp;
+        return tB - tA;
       } else {
-        return a.lastTimestamp - b.lastTimestamp;
+        return tA - tB;
       }
     });
 
@@ -757,8 +765,10 @@ export default function EmailTrackingPage() {
     (a) => String(a.candidate_id) === String(composeFromCandId)
   );
 
-  const formatTimestamp = (dateObj) => {
-    if (!dateObj || isNaN(dateObj.getTime())) return '';
+  const formatTimestamp = (rawDate) => {
+    if (!rawDate) return '';
+    const dateObj = rawDate instanceof Date ? rawDate : new Date(rawDate);
+    if (isNaN(dateObj.getTime())) return '';
     const now = new Date();
     const isToday = dateObj.toDateString() === now.toDateString();
     if (isToday) {
