@@ -1197,12 +1197,20 @@ class OutreachService:
                     db.commit()
                     failed_cnt += 1
 
+        if sent_cnt > 0:
+            try:
+                from app.services import daily_summary_service
+                daily_summary_service.send_all_daily_summaries(db, force=True, automation_start_time=now_utc)
+            except Exception as exc:
+                logger.warning("Failed to dispatch instant real candidate summary after outreach run: %s", exc)
+
         return {
             "processed": processed_cnt,
             "sent": sent_cnt,
             "skipped": skipped_cnt,
             "failed": failed_cnt,
         }
+
 
     @staticmethod
     def get_outreach_summary(db: Session) -> dict:

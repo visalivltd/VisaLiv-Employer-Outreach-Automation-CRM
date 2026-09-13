@@ -268,3 +268,51 @@ def preview_daily_summary(
         applications_count=len(employer_names),
         employers_list=employer_names,
     )
+
+
+@router.get(
+    "/{real_candidate_pk}/email-history",
+)
+def get_real_candidate_email_history(
+    real_candidate_pk: int,
+    db: Session = Depends(get_db),
+):
+    try:
+        return daily_summary_service.get_real_candidate_email_history(db, real_candidate_pk)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/{real_candidate_pk}/send-custom-summary",
+)
+def send_custom_summary(
+    real_candidate_pk: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+    try:
+        custom_subject = payload.get("subject")
+        custom_body = payload.get("body")
+        employers = payload.get("employers")
+        if not custom_subject or not custom_body:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Subject and body are required",
+            )
+        return daily_summary_service.send_custom_summary_for_real_candidate(
+            db=db,
+            real_candidate_pk=real_candidate_pk,
+            custom_subject=custom_subject,
+            custom_body=custom_body,
+            employer_names_override=employers,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
