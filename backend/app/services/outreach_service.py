@@ -717,11 +717,58 @@ class OutreachService:
             scheduled_time = state.next_send_at
             candidate = db.get(Candidate, candidate_id)
 
+            is_ready_now = scheduled_time <= (now_utc + timedelta(seconds=2))
+
+            if is_ready_now and candidate and candidate.gmail_account:
+                try:
+                    email_log = OutreachService.send_outreach(
+                        db=db,
+                        candidate_id=candidate_id,
+                        employer_id=employer_id,
+                        gmail_account=candidate.gmail_account,
+                        subject=item.get("subject", ""),
+                        body=item.get("body", ""),
+                    )
+                    if email_log.status == "sent":
+                        sent_count += 1
+                        processed_employers_in_batch.add(employer_id)
+                        state.consume_slot()
+                        state.next_send_at = now_utc + timedelta(minutes=settings.min_gap_minutes)
+                        results.append({
+                            "candidate_id": candidate_id,
+                            "employer_id": employer_id,
+                            "status": "sent",
+                            "email_log_id": email_log.id,
+                        })
+                        continue
+                    else:
+                        failed_count += 1
+                        processed_employers_in_batch.add(employer_id)
+                        state.consume_slot()
+                        results.append({
+                            "candidate_id": candidate_id,
+                            "employer_id": employer_id,
+                            "status": "failed",
+                            "error": email_log.error_message,
+                        })
+                        continue
+                except Exception as exc:
+                    failed_count += 1
+                    processed_employers_in_batch.add(employer_id)
+                    state.consume_slot()
+                    results.append({
+                        "candidate_id": candidate_id,
+                        "employer_id": employer_id,
+                        "status": "failed",
+                        "error": str(exc),
+                    })
+                    continue
+
             # Queue job for async background worker processing
             job = OutreachJob(
                 candidate_id=candidate_id,
                 employer_id=employer_id,
-                gmail_account_id=candidate.gmail_account.id,
+                gmail_account_id=candidate.gmail_account.id if candidate and candidate.gmail_account else None,
                 scheduled_at=scheduled_time,
                 status="pending",
                 attempts=0,
@@ -874,6 +921,12 @@ class OutreachService:
         )
         cooldown_employers = cooldown_emails | cooldown_jobs
 
+        # Pre-filter valid active employers once before candidate iterations
+        valid_active_employers = [
+            emp for emp in active_employers
+            if emp.is_active and emp.email and EMAIL_REGEX.match(emp.email.strip())
+        ]
+
         total_queued = 0
         total_skipped = 0
         queued_in_run_employer_ids: set[int] = set()
@@ -900,14 +953,9 @@ class OutreachService:
             else:
                 candidate_next_send = now_utc
 
-            for emp in active_employers:
+            for emp in valid_active_employers:
                 if remaining <= 0:
                     break
-
-                emp_email = (emp.email or "").strip()
-                if not emp.is_active or not emp_email or not EMAIL_REGEX.match(emp_email):
-                    total_skipped += 1
-                    continue
 
                 if emp.id in queued_in_run_employer_ids or emp.id in cooldown_employers:
                     total_skipped += 1
