@@ -1165,136 +1165,6 @@ export default function OutreachPage() {
               </div>
             )}
 
-            {/* ACTIVE & RECENT OUTREACH BATCHES CARD */}
-            {Array.isArray(batches) && batches.length > 0 && (
-              <div style={{
-                marginBottom: '16px',
-                padding: '16px',
-                backgroundColor: '#ffffff',
-                borderRadius: '10px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Layers size={18} style={{ color: '#4f46e5' }} />
-                    <h3 style={{ margin: 0, fontSize: '14.5px', fontWeight: 700, color: '#0f172a' }}>
-                      Active & Recent Outreach Batches ({batches.length})
-                    </h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={fetchBatches}
-                    disabled={loadingBatches}
-                    className="secondary-button"
-                    style={{ padding: '4px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                  >
-                    <RefreshCw size={12} className={loadingBatches ? 'spin' : ''} />
-                    Refresh Batches
-                  </button>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {batches.slice(0, 8).map((batch) => {
-                    const total = batch.total_jobs || 1;
-                    const percent = Math.min(100, Math.round(((batch.sent_count || 0) / total) * 100));
-                    const isRunning = batch.status === 'processing' || batch.status === 'pending' || (batch.pending_count > 0);
-
-                    let badgeBg = '#f1f5f9';
-                    let badgeColor = '#475569';
-                    let badgeBorder = '#cbd5e1';
-                    if (batch.status === 'completed') {
-                      badgeBg = '#ecfdf5'; badgeColor = '#047857'; badgeBorder = '#a7f3d0';
-                    } else if (isRunning) {
-                      badgeBg = '#eff6ff'; badgeColor = '#1d4ed8'; badgeBorder = '#bfdbfe';
-                    } else if (batch.status === 'cancelled') {
-                      badgeBg = '#fef2f2'; badgeColor = '#b91c1c'; badgeBorder = '#fecaca';
-                    }
-
-                    return (
-                      <div
-                        key={batch.batch_id}
-                        style={{
-                          padding: '10px 14px',
-                          backgroundColor: isRunning ? '#f8fafc' : '#ffffff',
-                          borderRadius: '8px',
-                          border: `1px solid ${isRunning ? '#cbd5e1' : '#e2e8f0'}`,
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
-                          <div>
-                            <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span>{batch.batch_name}</span>
-                              <span style={{
-                                padding: '2px 8px',
-                                borderRadius: '12px',
-                                fontSize: '11px',
-                                fontWeight: 600,
-                                backgroundColor: badgeBg,
-                                color: badgeColor,
-                                border: `1px solid ${badgeBorder}`,
-                                textTransform: 'capitalize',
-                              }}>
-                                {isRunning && <span className="spin" style={{ display: 'inline-block', marginRight: '4px' }}>⚙️</span>}
-                                {batch.status}
-                              </span>
-                            </div>
-                            <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>
-                              Created: {batch.created_at ? new Date(batch.created_at).toLocaleString() : 'N/A'}
-                            </div>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ fontSize: '12px', color: '#334155', display: 'flex', gap: '10px', fontWeight: 500 }}>
-                              <span style={{ color: '#16a34a' }}>✓ {batch.sent_count ?? 0} Sent</span>
-                              <span style={{ color: '#1d4ed8' }}>⏱️ {batch.pending_count ?? 0} Pending</span>
-                              {batch.failed_count > 0 && <span style={{ color: '#dc2626' }}>✕ {batch.failed_count} Failed</span>}
-                              {batch.skipped_count > 0 && <span style={{ color: '#64748b' }}>⏭️ {batch.skipped_count} Skipped</span>}
-                              {batch.cancelled_count > 0 && <span style={{ color: '#94a3b8' }}>🛑 {batch.cancelled_count} Cancelled</span>}
-                            </div>
-
-                            {isRunning && (
-                              <button
-                                type="button"
-                                onClick={() => handleCancelBatch(batch.batch_id)}
-                                style={{
-                                  padding: '3px 9px',
-                                  fontSize: '11.5px',
-                                  fontWeight: 600,
-                                  color: '#dc2626',
-                                  backgroundColor: '#fef2f2',
-                                  border: '1px solid #fca5a5',
-                                  borderRadius: '6px',
-                                  cursor: 'pointer',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                }}
-                                title="Cancel remaining pending jobs for this batch"
-                              >
-                                <StopCircle size={12} />
-                                Cancel Batch
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Batch progress bar */}
-                        <div style={{ width: '100%', height: '5px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
-                          <div style={{
-                            height: '100%',
-                            width: `${percent}%`,
-                            backgroundColor: batch.status === 'completed' ? '#10b981' : isRunning ? '#3b82f6' : '#94a3b8',
-                            transition: 'width 0.3s ease',
-                          }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
             {/* CANDIDATE SUMMARY CHIPS (PERSISTENT SIDE-BY-SIDE MULTI-SELECT) */}
             {Array.isArray(previewData?.candidate_summaries) && previewData.candidate_summaries.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', alignItems: 'center' }}>
@@ -1307,14 +1177,14 @@ export default function OutreachPage() {
                   style={{
                     padding: '5px 12px',
                     borderRadius: '6px',
-                    backgroundColor: selectedCandidateFilters.length === 0 ? '#4f46e5' : '#ffffff',
+                    backgroundColor: selectedCandidateFilters.length === 0 ? '#2563eb' : '#ffffff',
                     color: selectedCandidateFilters.length === 0 ? '#ffffff' : '#334155',
                     border: '1px solid',
-                    borderColor: selectedCandidateFilters.length === 0 ? '#4f46e5' : '#cbd5e1',
+                    borderColor: selectedCandidateFilters.length === 0 ? '#2563eb' : '#cbd5e1',
                     fontSize: '12px',
                     fontWeight: selectedCandidateFilters.length === 0 ? '600' : '500',
                     cursor: 'pointer',
-                    boxShadow: selectedCandidateFilters.length === 0 ? '0 1px 2px rgba(79, 70, 229, 0.2)' : 'none',
+                    boxShadow: selectedCandidateFilters.length === 0 ? '0 1px 2px rgba(37, 99, 235, 0.2)' : 'none',
                     transition: 'all 0.15s ease',
                   }}
                 >
@@ -1332,21 +1202,21 @@ export default function OutreachPage() {
                       style={{
                         padding: '5px 12px',
                         borderRadius: '6px',
-                        backgroundColor: isSelectedFilter ? '#4f46e5' : '#ffffff',
+                        backgroundColor: isSelectedFilter ? '#2563eb' : '#ffffff',
                         color: isSelectedFilter ? '#ffffff' : '#334155',
                         border: '1px solid',
-                        borderColor: isSelectedFilter ? '#4f46e5' : '#cbd5e1',
+                        borderColor: isSelectedFilter ? '#2563eb' : '#cbd5e1',
                         fontSize: '12px',
                         fontWeight: isSelectedFilter ? '600' : '500',
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '6px',
-                        boxShadow: isSelectedFilter ? '0 1px 2px rgba(79, 70, 229, 0.2)' : 'none',
+                        boxShadow: isSelectedFilter ? '0 1px 2px rgba(37, 99, 235, 0.2)' : 'none',
                         transition: 'all 0.15s ease',
                       }}
                     >
-                      <User size={13} style={{ color: isSelectedFilter ? '#ffffff' : '#4f46e5' }} />
+                      <User size={13} style={{ color: isSelectedFilter ? '#ffffff' : '#2563eb' }} />
                       <span>{s.candidate_name}</span>
                       <span style={{
                         fontSize: '11px',
@@ -1368,6 +1238,9 @@ export default function OutreachPage() {
                       }}>
                         {currentSelectedCount} sel / {s.eligible_count ?? 0} elig
                       </span>
+                      {isSelectedFilter && (
+                        <span style={{ fontSize: '11px', marginLeft: '2px', opacity: 0.8 }}>✕</span>
+                      )}
                     </button>
                   );
                 })}
@@ -1376,8 +1249,8 @@ export default function OutreachPage() {
                     type="button"
                     onClick={() => handleCandidateFilter(null)}
                     style={{
-                      padding: '4px 8px',
-                      borderRadius: '4px',
+                      padding: '4px 10px',
+                      borderRadius: '6px',
                       backgroundColor: '#fef2f2',
                       color: '#dc2626',
                       border: '1px solid #fca5a5',
@@ -1390,6 +1263,251 @@ export default function OutreachPage() {
                     Reset Filter
                   </button>
                 )}
+              </div>
+            )}
+
+            {/* CANDIDATE HIGHLIGHT SUMMARY CARD (Matching Design Mockup) */}
+            {selectedCandidateFilters.length > 0 && (() => {
+              const activeCandSummary = previewData?.candidate_summaries?.find(
+                (s) => s && selectedCandidateFilters.includes(s.candidate_id)
+              );
+              if (!activeCandSummary) return null;
+
+              const initials = activeCandSummary.candidate_name
+                ? activeCandSummary.candidate_name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()
+                : 'CN';
+
+              const lastOutreachStr = activeCandSummary.last_sent_at
+                ? new Date(activeCandSummary.last_sent_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+                : 'No recent outreach';
+
+              return (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1.6fr 1fr 1fr 1fr 1.6fr',
+                  gap: '16px',
+                  alignItems: 'center',
+                  padding: '16px 20px',
+                  backgroundColor: '#f0f7ff',
+                  borderRadius: '12px',
+                  border: '1px solid #bfdbfe',
+                  marginBottom: '20px',
+                  boxShadow: '0 2px 4px rgba(37, 99, 235, 0.04)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{
+                      width: '46px',
+                      height: '46px',
+                      borderRadius: '50%',
+                      backgroundColor: '#2563eb',
+                      color: '#ffffff',
+                      fontWeight: 700,
+                      fontSize: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      boxShadow: '0 2px 6px rgba(37, 99, 235, 0.25)',
+                    }}>
+                      {initials}
+                    </div>
+                    <div>
+                      <strong style={{ fontSize: '15px', color: '#0f172a', display: 'block', fontWeight: 700 }}>
+                        {activeCandSummary.candidate_name}
+                      </strong>
+                      <span style={{ fontSize: '12.5px', color: '#475569' }}>
+                        {activeCandSummary.candidate_email || 'No email registered'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ borderLeft: '1px solid #dbeafe', paddingLeft: '16px' }}>
+                    <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block', fontWeight: 500 }}>Total Applications</span>
+                    <strong style={{ fontSize: '18px', color: '#0f172a', fontWeight: 700 }}>
+                      {activeCandSummary.eligible_count ?? 0}
+                    </strong>
+                  </div>
+
+                  <div style={{ borderLeft: '1px solid #dbeafe', paddingLeft: '16px' }}>
+                    <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block', fontWeight: 500 }}>Emails Sent</span>
+                    <strong style={{ fontSize: '18px', color: '#16a34a', fontWeight: 700 }}>
+                      {activeCandSummary.emails_sent_count ?? activeCandSummary.sent_today_count ?? 0}
+                    </strong>
+                  </div>
+
+                  <div style={{ borderLeft: '1px solid #dbeafe', paddingLeft: '16px' }}>
+                    <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block', fontWeight: 500 }}>Responses</span>
+                    <strong style={{ fontSize: '18px', color: '#2563eb', fontWeight: 700 }}>
+                      0
+                    </strong>
+                  </div>
+
+                  <div style={{ borderLeft: '1px solid #dbeafe', paddingLeft: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block', fontWeight: 500 }}>Last Outreach</span>
+                    <strong style={{ fontSize: '13px', color: '#1e293b', fontWeight: 600, marginBottom: '4px' }}>
+                      {lastOutreachStr}
+                    </strong>
+                    <a
+                      href="/candidates"
+                      style={{ fontSize: '12px', color: '#2563eb', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      View in Real Candidates ↗
+                    </a>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ACTIVE & RECENT OUTREACH BATCHES CARD (Matching Mockup Table Design) */}
+            {Array.isArray(batches) && batches.length > 0 && (
+              <div style={{
+                marginBottom: '24px',
+                padding: '20px',
+                backgroundColor: '#ffffff',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Layers size={20} style={{ color: '#2563eb' }} /> Outreach Batches
+                    </h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+                      Track your automated outreach campaigns. Each batch runs independently and updates progress in real time.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={fetchBatches}
+                    disabled={loadingBatches}
+                    className="secondary-button"
+                    style={{ padding: '6px 14px', fontSize: '12.5px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <RefreshCw size={14} className={loadingBatches ? 'spin' : ''} />
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="outreach-table-wrapper">
+                  <table className="outreach-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: '40px', textAlign: 'center' }}>#</th>
+                        <th style={{ width: '22%' }}>Batch Name</th>
+                        <th style={{ width: '16%' }}>Created At</th>
+                        <th style={{ width: '9%' }}>Candidates</th>
+                        <th style={{ width: '9%' }}>Total Emails</th>
+                        <th style={{ width: '7%' }}>Sent</th>
+                        <th style={{ width: '7%' }}>Pending</th>
+                        <th style={{ width: '7%' }}>Failed</th>
+                        <th style={{ width: '7%' }}>Skipped</th>
+                        <th style={{ width: '14%' }}>Progress</th>
+                        <th style={{ width: '10%' }}>Status</th>
+                        <th style={{ width: '9%', textAlign: 'center' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {batches.slice(0, 10).map((batch, index) => {
+                        const total = batch.total_jobs || 1;
+                        const percent = Math.min(100, Math.round(((batch.sent_count || 0) / total) * 100));
+                        const isRunning = batch.status === 'processing' || batch.status === 'pending' || batch.status === 'running' || (batch.pending_count > 0);
+
+                        let statusBadge = (
+                          <span className="visa-badge" style={{ backgroundColor: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', fontWeight: '600' }}>
+                            ✓ Completed
+                          </span>
+                        );
+
+                        if (isRunning) {
+                          statusBadge = (
+                            <span className="visa-badge" style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontWeight: '600' }}>
+                              <span className="spin" style={{ display: 'inline-block', marginRight: '4px' }}>⚙️</span> Processing
+                            </span>
+                          );
+                        } else if (batch.status === 'cancelled') {
+                          statusBadge = (
+                            <span className="visa-badge" style={{ backgroundColor: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', fontWeight: '600' }}>
+                              ✕ Cancelled
+                            </span>
+                          );
+                        }
+
+                        return (
+                          <tr key={batch.batch_id || index}>
+                            <td style={{ textAlign: 'center', fontWeight: 600, color: '#64748b' }}>{index + 1}</td>
+                            <td>
+                              <strong style={{ color: '#0f172a', fontSize: '13.5px' }}>{batch.batch_name}</strong>
+                            </td>
+                            <td style={{ fontSize: '12.5px', color: '#64748b' }}>
+                              {batch.created_at ? new Date(batch.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'N/A'}
+                            </td>
+                            <td style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                              {batch.candidate_count ?? 1}
+                            </td>
+                            <td style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                              {batch.total_jobs ?? 0}
+                            </td>
+                            <td style={{ fontSize: '13px', fontWeight: 700, color: '#16a34a' }}>
+                              {batch.sent_count ?? 0}
+                            </td>
+                            <td style={{ fontSize: '13px', fontWeight: 600, color: '#1d4ed8' }}>
+                              {batch.pending_count ?? 0}
+                            </td>
+                            <td style={{ fontSize: '13px', fontWeight: 600, color: batch.failed_count > 0 ? '#dc2626' : '#64748b' }}>
+                              {batch.failed_count ?? 0}
+                            </td>
+                            <td style={{ fontSize: '13px', color: '#64748b' }}>
+                              {batch.skipped_count ?? 0}
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ flex: 1, height: '6px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                                  <div style={{
+                                    height: '100%',
+                                    width: `${percent}%`,
+                                    backgroundColor: batch.status === 'completed' ? '#10b981' : isRunning ? '#3b82f6' : '#f59e0b',
+                                    transition: 'width 0.3s ease',
+                                  }} />
+                                </div>
+                                <span style={{ fontSize: '11.5px', fontWeight: 600, color: '#475569', minWidth: '28px' }}>
+                                  {percent}%
+                                </span>
+                              </div>
+                            </td>
+                            <td>{statusBadge}</td>
+                            <td style={{ textAlign: 'center' }}>
+                              {isRunning ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelBatch(batch.batch_id)}
+                                  style={{
+                                    padding: '4px 10px',
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                    color: '#dc2626',
+                                    backgroundColor: '#fef2f2',
+                                    border: '1px solid #fca5a5',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                  }}
+                                  title="Cancel remaining pending jobs for this batch"
+                                >
+                                  <StopCircle size={12} /> Cancel
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: '12px', color: '#94a3b8' }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 

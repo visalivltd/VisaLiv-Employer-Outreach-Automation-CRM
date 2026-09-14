@@ -548,9 +548,18 @@ class OutreachService:
                     "reason_code": res.reason_code.value,
                 })
 
+            cand_all_time_sent = db.scalar(
+                select(func.count(EmailLog.id)).where(
+                    EmailLog.candidate_id == candidate.id,
+                    EmailLog.status == "sent",
+                )
+            ) or 0
+
             candidate_summaries.append({
                 "candidate_id": candidate.id,
                 "candidate_name": candidate.full_name,
+                "candidate_email": candidate.email,
+                "emails_sent_count": cand_all_time_sent,
                 "eligible_count": cand_eligible_count,
                 "sent_today_count": cand_sent_today,
                 "queued_today_count": cand_queued_today,
