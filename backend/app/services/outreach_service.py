@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func, update, or_, and_
 from sqlalchemy.orm import Session, joinedload
 
 from pathlib import Path
@@ -86,14 +86,37 @@ class OutreachService:
 
     @staticmethod
     def get_candidate_sent_today(db: Session, candidate_id: int, start_of_today: datetime) -> int:
-        """Count of unique EmailLogs created today with status sent, pending, or sending."""
-        return db.scalar(
-            select(func.count(EmailLog.id)).where(
-                EmailLog.candidate_id == candidate_id,
-                EmailLog.status.in_(["sent", "pending", "sending"]),
-                EmailLog.created_at >= start_of_today,
+        """Count of automated outreach emails sent today for a candidate."""
+        job_count = db.scalar(
+            select(func.count(OutreachJob.id)).where(
+                OutreachJob.candidate_id == candidate_id,
+                OutreachJob.status == "sent",
+                or_(
+                    OutreachJob.sent_at >= start_of_today,
+                    and_(OutreachJob.sent_at.is_(None), OutreachJob.created_at >= start_of_today)
+                )
             )
         ) or 0
+
+        log_count = db.scalar(
+            select(func.count(EmailLog.id)).where(
+                EmailLog.candidate_id == candidate_id,
+                EmailLog.status == "sent",
+                EmailLog.direction == "outgoing",
+                or_(
+                    EmailLog.sent_at >= start_of_today,
+                    and_(EmailLog.sent_at.is_(None), EmailLog.created_at >= start_of_today)
+                ),
+                ~EmailLog.id.in_(
+                    select(OutreachJob.email_log_id).where(
+                        OutreachJob.candidate_id == candidate_id,
+                        OutreachJob.email_log_id.is_not(None)
+                    )
+                )
+            )
+        ) or 0
+
+        return job_count + log_count
 
     @staticmethod
     def get_candidate_pending_today(
