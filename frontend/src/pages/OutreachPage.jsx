@@ -45,7 +45,7 @@ export default function OutreachPage() {
   // Pagination & Filter States
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const [selectedCandidateFilter, setSelectedCandidateFilter] = useState(null);
+  const [selectedCandidateFilters, setSelectedCandidateFilters] = useState([]);
 
   // Selected items stored as a Map (key -> item) across pages
   const [selectedItemsMap, setSelectedItemsMap] = useState(new Map());
@@ -210,17 +210,17 @@ export default function OutreachPage() {
 
   useEffect(() => {
     loadData();
-    loadPreview(1, null);
+    loadPreview(1, []);
   }, []);
 
-  const loadPreview = async (targetPage = page, targetCandId = selectedCandidateFilter) => {
+  const loadPreview = async (targetPage = page, targetCandFilters = selectedCandidateFilters) => {
     try {
       setLoadingPreview(true);
       setError('');
       let baseUrl = getApiUrl();
       let query = `page=${targetPage}&page_size=${pageSize}`;
-      if (targetCandId) {
-        query += `&candidate_id=${targetCandId}`;
+      if (Array.isArray(targetCandFilters) && targetCandFilters.length > 0) {
+        query += `&candidate_ids=${targetCandFilters.join(',')}`;
       }
 
       let res = await fetch(`${baseUrl}/outreach/preview?${query}`);
@@ -272,21 +272,30 @@ export default function OutreachPage() {
   const handlePageChange = (newPage) => {
     const totalPages = Math.ceil((previewData?.total || 0) / pageSize) || 1;
     if (newPage >= 1 && newPage <= totalPages) {
-      loadPreview(newPage, selectedCandidateFilter);
+      loadPreview(newPage, selectedCandidateFilters);
     }
   };
 
   const handleCandidateFilter = (candId) => {
-    const nextFilter = selectedCandidateFilter === candId ? null : candId;
-    setSelectedCandidateFilter(nextFilter);
+    let nextFilters;
+    if (candId === null) {
+      nextFilters = [];
+    } else {
+      if (selectedCandidateFilters.includes(candId)) {
+        nextFilters = selectedCandidateFilters.filter((id) => id !== candId);
+      } else {
+        nextFilters = [...selectedCandidateFilters, candId];
+      }
+    }
+    setSelectedCandidateFilters(nextFilters);
     setPage(1);
 
-    // Filter selectedItemsMap so that switching candidate filter prunes items of other candidates
-    if (nextFilter !== null) {
+    if (nextFilters.length > 0) {
+      const filterSet = new Set(nextFilters);
       setSelectedItemsMap((prevMap) => {
         const nextMap = new Map();
         for (const [key, item] of prevMap.entries()) {
-          if (item.candidate_id === nextFilter) {
+          if (item && filterSet.has(item.candidate_id)) {
             nextMap.set(key, item);
           }
         }
@@ -294,7 +303,7 @@ export default function OutreachPage() {
       });
     }
 
-    loadPreview(1, nextFilter);
+    loadPreview(1, nextFilters);
   };
 
   // Memoized: Compute Ready, Queued, and Skipped stats & send times for currently selected items
@@ -637,8 +646,8 @@ export default function OutreachPage() {
           });
         }
       } else {
-        let endpoint = selectedCandidateFilter
-          ? `/outreach/start?candidate_id=${selectedCandidateFilter}`
+        let endpoint = (Array.isArray(selectedCandidateFilters) && selectedCandidateFilters.length > 0)
+          ? `/outreach/start?candidate_ids=${selectedCandidateFilters.join(',')}`
           : `/outreach/start`;
 
         res = await fetch(`${baseUrl}${endpoint}`, {
@@ -687,7 +696,7 @@ export default function OutreachPage() {
       setSelectedItemsMap(new Map());
       setShowConfirmModal(false);
       await loadData();
-      await loadPreview(page, selectedCandidateFilter);
+      await loadPreview(page, selectedCandidateFilters);
     } catch (err) {
       setError(err.message || 'Failed to execute outreach campaign');
     } finally {
@@ -710,8 +719,8 @@ export default function OutreachPage() {
       setCancellingJobs(true);
       setError('');
       const baseUrl = getApiUrl();
-      let endpoint = selectedCandidateFilter
-        ? `/outreach/cancel-jobs?candidate_id=${selectedCandidateFilter}`
+      let endpoint = (Array.isArray(selectedCandidateFilters) && selectedCandidateFilters.length > 0)
+        ? `/outreach/cancel-jobs?candidate_ids=${selectedCandidateFilters.join(',')}`
         : `/outreach/cancel-jobs`;
 
       let res = await fetch(`${baseUrl}${endpoint}`, {
@@ -732,7 +741,7 @@ export default function OutreachPage() {
       setMessage(data.message || `Successfully cancelled ${data.cancelled_count || 0} pending outreach job(s).`);
       setShowCancelConfirmModal(false);
       await loadData();
-      await loadPreview(page, selectedCandidateFilter);
+      await loadPreview(page, selectedCandidateFilters);
     } catch (err) {
       setError(err.message || 'Failed to cancel pending outreach jobs');
     } finally {
@@ -1286,24 +1295,26 @@ export default function OutreachPage() {
               </div>
             )}
 
-            {/* CANDIDATE SUMMARY CHIPS (PERSISTENT SIDE-BY-SIDE) */}
+            {/* CANDIDATE SUMMARY CHIPS (PERSISTENT SIDE-BY-SIDE MULTI-SELECT) */}
             {Array.isArray(previewData?.candidate_summaries) && previewData.candidate_summaries.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>Filter Candidate:</span>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>
+                  Filter Candidates ({selectedCandidateFilters.length > 0 ? `${selectedCandidateFilters.length} Selected` : 'All'}):
+                </span>
                 <button
                   type="button"
                   onClick={() => handleCandidateFilter(null)}
                   style={{
                     padding: '5px 12px',
                     borderRadius: '6px',
-                    backgroundColor: selectedCandidateFilter === null ? '#4f46e5' : '#ffffff',
-                    color: selectedCandidateFilter === null ? '#ffffff' : '#334155',
+                    backgroundColor: selectedCandidateFilters.length === 0 ? '#4f46e5' : '#ffffff',
+                    color: selectedCandidateFilters.length === 0 ? '#ffffff' : '#334155',
                     border: '1px solid',
-                    borderColor: selectedCandidateFilter === null ? '#4f46e5' : '#cbd5e1',
+                    borderColor: selectedCandidateFilters.length === 0 ? '#4f46e5' : '#cbd5e1',
                     fontSize: '12px',
-                    fontWeight: selectedCandidateFilter === null ? '600' : '500',
+                    fontWeight: selectedCandidateFilters.length === 0 ? '600' : '500',
                     cursor: 'pointer',
-                    boxShadow: selectedCandidateFilter === null ? '0 1px 2px rgba(79, 70, 229, 0.2)' : 'none',
+                    boxShadow: selectedCandidateFilters.length === 0 ? '0 1px 2px rgba(79, 70, 229, 0.2)' : 'none',
                     transition: 'all 0.15s ease',
                   }}
                 >
@@ -1312,7 +1323,7 @@ export default function OutreachPage() {
                 {previewData.candidate_summaries.map((s, idx) => {
                   if (!s) return null;
                   const currentSelectedCount = getCandidateSelectedCount(s.candidate_id);
-                  const isSelectedFilter = selectedCandidateFilter === s.candidate_id;
+                  const isSelectedFilter = selectedCandidateFilters.includes(s.candidate_id);
                   return (
                     <button
                       key={idx}
@@ -1360,6 +1371,25 @@ export default function OutreachPage() {
                     </button>
                   );
                 })}
+                {selectedCandidateFilters.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleCandidateFilter(null)}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      backgroundColor: '#fef2f2',
+                      color: '#dc2626',
+                      border: '1px solid #fca5a5',
+                      fontSize: '11.5px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      marginLeft: 'auto',
+                    }}
+                  >
+                    Reset Filter
+                  </button>
+                )}
               </div>
             )}
 

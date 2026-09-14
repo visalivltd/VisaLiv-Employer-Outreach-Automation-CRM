@@ -57,14 +57,17 @@ def get_outreach_preview(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
     candidate_id: int | None = Query(None),
+    candidate_ids: str | None = Query(None),
     only_eligible: bool = Query(False),
     db: Session = Depends(get_db),
 ):
+    parsed_ids = [int(x.strip()) for x in candidate_ids.split(",") if x.strip().isdigit()] if candidate_ids else None
     return OutreachService.get_outreach_preview(
         db=db,
         page=page,
         page_size=page_size,
         candidate_id=candidate_id,
+        candidate_ids=parsed_ids,
         only_eligible=only_eligible,
     )
 
@@ -84,11 +87,14 @@ def batch_send_outreach(
 )
 def start_outreach(
     candidate_id: int | None = Query(None),
+    candidate_ids: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
+    parsed_ids = [int(x.strip()) for x in candidate_ids.split(",") if x.strip().isdigit()] if candidate_ids else None
     return OutreachService.start_outreach(
         db=db,
         candidate_id=candidate_id,
+        candidate_ids=parsed_ids,
     )
 
 
@@ -119,11 +125,14 @@ def process_due_outreach_jobs(
 )
 def cancel_pending_outreach_jobs(
     candidate_id: int | None = Query(None),
+    candidate_ids: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
+    parsed_ids = [int(x.strip()) for x in candidate_ids.split(",") if x.strip().isdigit()] if candidate_ids else None
     return OutreachService.cancel_pending_jobs(
         db=db,
         candidate_id=candidate_id,
+        candidate_ids=parsed_ids,
     )
 
 

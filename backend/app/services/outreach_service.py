@@ -288,6 +288,7 @@ class OutreachService:
         page: int = 1,
         page_size: int = 50,
         candidate_id: int | None = None,
+        candidate_ids: list[int] | None = None,
         only_eligible: bool = False,
     ) -> dict:
         settings = get_outreach_settings(db)
@@ -301,7 +302,9 @@ class OutreachService:
             .order_by(Candidate.id)
         ).unique().all()
 
-        if candidate_id is not None:
+        if candidate_ids:
+            active_candidates = [c for c in all_active_candidates if c.id in candidate_ids]
+        elif candidate_id is not None:
             active_candidates = [c for c in all_active_candidates if c.id == candidate_id]
         else:
             active_candidates = all_active_candidates
@@ -839,6 +842,7 @@ class OutreachService:
     def start_outreach(
         db: Session,
         candidate_id: int | None = None,
+        candidate_ids: list[int] | None = None,
     ) -> dict:
         settings = get_outreach_settings(db)
         if not settings.enabled:
@@ -850,7 +854,9 @@ class OutreachService:
             }
 
         cand_stmt = select(Candidate).where(Candidate.is_active.is_(True)).order_by(Candidate.id)
-        if candidate_id is not None:
+        if candidate_ids:
+            cand_stmt = cand_stmt.where(Candidate.id.in_(candidate_ids))
+        elif candidate_id is not None:
             cand_stmt = cand_stmt.where(Candidate.id == candidate_id)
         active_candidates = db.scalars(cand_stmt).all()
 
@@ -1435,9 +1441,11 @@ class OutreachService:
         }
 
     @staticmethod
-    def cancel_pending_jobs(db: Session, candidate_id: int | None = None) -> dict:
+    def cancel_pending_jobs(db: Session, candidate_id: int | None = None, candidate_ids: list[int] | None = None) -> dict:
         stmt = select(OutreachJob).where(OutreachJob.status == "pending")
-        if candidate_id is not None:
+        if candidate_ids:
+            stmt = stmt.where(OutreachJob.candidate_id.in_(candidate_ids))
+        elif candidate_id is not None:
             stmt = stmt.where(OutreachJob.candidate_id == candidate_id)
         pending_jobs = db.scalars(stmt).all()
 
