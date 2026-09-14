@@ -1363,12 +1363,29 @@ export default function EmailTrackingPage() {
                     </div>
                   )}
                 </div>
-
-                {/* Attachments Box (Only if real attachments exist) */}
+                {/* Attachments Box (Only if real attachments or candidate CV exist) */}
                 {(() => {
                   const msg = selectedConversation.latestMessage;
                   const rawAtts = (msg && msg.attachments) || (msg && msg.attachment_paths) || [];
-                  const attachments = Array.isArray(rawAtts) ? rawAtts : [];
+                  const attachments = Array.isArray(rawAtts) ? [...rawAtts] : [];
+
+                  const cvPath = (msg && msg.candidate_cv_path) || selectedConversation.candidate_cv_path;
+                  if (cvPath && typeof cvPath === 'string') {
+                    const cvFileName = cvPath.split('/').pop().split('\\').pop() || `${selectedConversation.candidate_name || 'Candidate'}_CV.pdf`;
+                    const exists = attachments.some(a => {
+                      const name = typeof a === 'string' ? a : (a.filename || a.name || '');
+                      return name.toLowerCase() === cvFileName.toLowerCase();
+                    });
+                    if (!exists) {
+                      attachments.unshift({
+                        filename: cvFileName,
+                        name: cvFileName,
+                        path: cvPath,
+                        url: cvPath.startsWith('http') ? cvPath : `${API_BASE_URL}/${cvPath.replace(/^\/+/, '')}`,
+                        size: 'Candidate CV',
+                      });
+                    }
+                  }
 
                   if (!attachments || attachments.length === 0) return null;
 
@@ -1381,6 +1398,7 @@ export default function EmailTrackingPage() {
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
                         {attachments.map((att, idx) => {
                           const fileName = typeof att === 'string' ? att : att.filename || att.name || 'Attachment.pdf';
+                          const fileUrl = typeof att === 'object' && att.url ? att.url : (typeof att === 'string' && att.startsWith('http') ? att : (typeof att === 'string' ? `${API_BASE_URL}/${att.replace(/^\/+/, '')}` : null));
                           const isPdf = fileName.toLowerCase().endsWith('.pdf');
                           return (
                             <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc' }}>
@@ -1391,8 +1409,8 @@ export default function EmailTrackingPage() {
                                 <div style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{fileName}</div>
                                 <div style={{ fontSize: '11px', color: '#94a3b8' }}>{att.size || 'Attachment'}</div>
                               </div>
-                              {att.url && (
-                                <a href={att.url} download={fileName} target="_blank" rel="noopener noreferrer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#475569', marginLeft: '12px', display: 'inline-flex', alignItems: 'center' }}>
+                              {fileUrl && (
+                                <a href={fileUrl} download={fileName} target="_blank" rel="noopener noreferrer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#475569', marginLeft: '12px', display: 'inline-flex', alignItems: 'center' }}>
                                   <Download size={16} />
                                 </a>
                               )}
