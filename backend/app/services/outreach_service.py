@@ -294,15 +294,17 @@ class OutreachService:
         now_utc = datetime.now(timezone.utc)
         start_of_today = OutreachService.get_start_of_today_ist()
 
-        candidate_stmt = (
+        all_active_candidates = db.scalars(
             select(Candidate)
             .options(joinedload(Candidate.gmail_account), joinedload(Candidate.email_draft))
             .where(Candidate.is_active.is_(True))
             .order_by(Candidate.id)
-        )
+        ).unique().all()
+
         if candidate_id is not None:
-            candidate_stmt = candidate_stmt.where(Candidate.id == candidate_id)
-        active_candidates = db.scalars(candidate_stmt).unique().all()
+            active_candidates = [c for c in all_active_candidates if c.id == candidate_id]
+        else:
+            active_candidates = all_active_candidates
 
         total_employers = db.scalar(
             select(func.count(Employer.id)).where(Employer.is_active.is_(True))
@@ -435,7 +437,7 @@ class OutreachService:
         total_skipped = 0
         global_preview_assigned_employers: set[int] = set()
 
-        for candidate in active_candidates:
+        for candidate in all_active_candidates:
             cand_sent_today = sent_today_map.get(candidate.id, 0)
             cand_queued_today = queued_today_map.get(candidate.id, 0)
             cand_last_time = latest_activity_map.get(candidate.id)
@@ -480,22 +482,25 @@ class OutreachService:
             total_skipped += cand_skipped_count
 
             # Determine list of employers to evaluate:
-            # Efficient early-exit loop: Stop scanning as soon as page_size quota is filled
-            if only_eligible or candidate_id is not None:
-                max_cand_limit = min(page_size, cand_remaining_quota) if (only_eligible and cand_remaining_quota > 0) else page_size
-                cand_employers = []
-                eligible_found_idx = 0
-                for emp in all_active_employers:
-                    if emp.id in ineligible_set:
-                        continue
-                    if eligible_found_idx < start_offset:
-                        eligible_found_idx += 1
-                        continue
-                    cand_employers.append(emp)
-                    if len(cand_employers) >= max_cand_limit:
-                        break
+            # Evaluate items only if candidate is in active_candidates list
+            if candidate in active_candidates:
+                if only_eligible or candidate_id is not None:
+                    max_cand_limit = min(page_size, cand_remaining_quota) if (only_eligible and cand_remaining_quota > 0) else page_size
+                    cand_employers = []
+                    eligible_found_idx = 0
+                    for emp in all_active_employers:
+                        if emp.id in ineligible_set:
+                            continue
+                        if eligible_found_idx < start_offset:
+                            eligible_found_idx += 1
+                            continue
+                        cand_employers.append(emp)
+                        if len(cand_employers) >= max_cand_limit:
+                            break
+                else:
+                    cand_employers = paginated_employers
             else:
-                cand_employers = paginated_employers
+                cand_employers = []
 
             # Fast paginated evaluation for requested employers
             for employer in cand_employers:
@@ -646,6 +651,18 @@ class OutreachService:
                 select(Candidate).where(Candidate.id.in_(candidate_ids)).with_for_update().order_by(Candidate.id)
             ).all()
 
+        # Generate unique batch ID and descriptive batch name for tracking
+        batch_id = f"batch_{now_utc.strftime('%Y%m%d_%H%M%S')}_{len(items)}"
+        c_names = []
+        for cid in candidate_ids[:3]:
+            c_obj = db.get(Candidate, cid)
+            if c_obj:
+                c_names.append(c_obj.full_name)
+        cands_str = ", ".join(c_names) if c_names else "Candidates"
+        if len(candidate_ids) > 3:
+            cands_str += f" +{len(candidate_ids) - 3} more"
+        batch_name = f"Manual Batch #{now_utc.strftime('%H:%M')} ({len(items)} items - {cands_str})"
+
         for item in items:
             candidate_id = item.get("candidate_id")
             employer_id = item.get("employer_id")
@@ -780,6 +797,8 @@ class OutreachService:
                 scheduled_at=scheduled_time,
                 status="pending",
                 attempts=0,
+                batch_id=batch_id,
+                batch_name=batch_name,
             )
             jobs_to_add.append(job)
 
@@ -935,6 +954,14 @@ class OutreachService:
             if emp.is_active and emp.email and EMAIL_REGEX.match(emp.email.strip())
         ]
 
+        # Generate batch ID and batch name for tracking
+        batch_id = f"batch_{now_utc.strftime('%Y%m%d_%H%M%S')}_{len(active_candidates)}"
+        cand_names = [c.full_name for c in active_candidates[:3]]
+        cands_str = ", ".join(cand_names) if cand_names else "Candidates"
+        if len(active_candidates) > 3:
+            cands_str += f" +{len(active_candidates) - 3} more"
+        batch_name = f"Outreach Run #{now_utc.strftime('%H:%M')} ({len(active_candidates)} Candidate(s): {cands_str})"
+
         total_queued = 0
         total_skipped = 0
         queued_in_run_employer_ids: set[int] = set()
@@ -981,6 +1008,8 @@ class OutreachService:
                     scheduled_at=candidate_next_send,
                     status="pending",
                     attempts=0,
+                    batch_id=batch_id,
+                    batch_name=batch_name,
                 )
                 jobs_to_add.append(job)
 
@@ -999,7 +1028,95 @@ class OutreachService:
             "success": True,
             "queued": total_queued,
             "skipped": total_skipped,
-            "message": f"Outreach jobs queued successfully: {total_queued} job(s) scheduled.",
+            "batch_id": batch_id,
+            "batch_name": batch_name,
+            "message": f"Outreach jobs queued successfully: {total_queued} job(s) scheduled for {batch_name}.",
+        }
+
+    @staticmethod
+    def get_outreach_batches(db: Session) -> list[dict]:
+        """Returns aggregated list of recent outreach execution batches for CRM tracker UI."""
+        batches_map = {}
+        jobs = db.scalars(
+            select(OutreachJob).order_by(OutreachJob.created_at.desc(), OutreachJob.id.desc()).limit(1000)
+        ).all()
+
+        for job in jobs:
+            b_id = job.batch_id or (
+                f"batch_{job.created_at.strftime('%Y%m%d')}" if job.created_at else "legacy_batch"
+            )
+            b_name = job.batch_name or f"Legacy Outreach Run #{job.id}"
+
+            if b_id not in batches_map:
+                batches_map[b_id] = {
+                    "batch_id": b_id,
+                    "batch_name": b_name,
+                    "created_at": job.created_at.isoformat() if job.created_at else None,
+                    "total_jobs": 0,
+                    "sent_count": 0,
+                    "pending_count": 0,
+                    "processing_count": 0,
+                    "failed_count": 0,
+                    "skipped_count": 0,
+                    "cancelled_count": 0,
+                    "candidate_ids": set(),
+                }
+
+            b = batches_map[b_id]
+            b["total_jobs"] += 1
+            if job.candidate_id:
+                b["candidate_ids"].add(job.candidate_id)
+
+            st = (job.status or "pending").lower()
+            if st == "sent":
+                b["sent_count"] += 1
+            elif st == "pending":
+                b["pending_count"] += 1
+            elif st == "processing":
+                b["processing_count"] += 1
+            elif st == "failed":
+                b["failed_count"] += 1
+            elif st == "skipped":
+                b["skipped_count"] += 1
+            elif st == "cancelled":
+                b["cancelled_count"] += 1
+
+        result = []
+        for b_id, b in batches_map.items():
+            b["candidate_count"] = len(b["candidate_ids"])
+            del b["candidate_ids"]
+
+            if b["pending_count"] > 0 or b["processing_count"] > 0:
+                b["status"] = "running"
+            elif b["total_jobs"] > 0 and b["sent_count"] == b["total_jobs"]:
+                b["status"] = "completed"
+            elif b["total_jobs"] > 0 and b["cancelled_count"] == b["total_jobs"]:
+                b["status"] = "cancelled"
+            else:
+                b["status"] = "finished"
+
+            result.append(b)
+
+        return result[:50]
+
+    @staticmethod
+    def cancel_batch_jobs(db: Session, batch_id: str) -> dict:
+        """Cancels all pending/processing jobs belonging to a specific batch."""
+        res = db.execute(
+            update(OutreachJob)
+            .where(
+                OutreachJob.batch_id == batch_id,
+                OutreachJob.status.in_(["pending", "processing"]),
+            )
+            .values(status="cancelled", error_message="Cancelled by user for this batch")
+        )
+        cancelled_count = res.rowcount
+        db.commit()
+        return {
+            "success": True,
+            "batch_id": batch_id,
+            "cancelled_count": cancelled_count,
+            "message": f"Successfully cancelled {cancelled_count} pending job(s) for batch '{batch_id}'.",
         }
 
     @staticmethod

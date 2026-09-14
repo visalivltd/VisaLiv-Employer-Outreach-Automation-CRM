@@ -127,6 +127,25 @@ def cancel_pending_outreach_jobs(
     )
 
 
+@router.get(
+    "/batches",
+)
+def get_outreach_batches(
+    db: Session = Depends(get_db),
+):
+    return OutreachService.get_outreach_batches(db)
+
+
+@router.post(
+    "/cancel-batch/{batch_id}",
+)
+def cancel_batch_outreach(
+    batch_id: str,
+    db: Session = Depends(get_db),
+):
+    return OutreachService.cancel_batch_jobs(db, batch_id)
+
+
 @router.post(
     "/send",
     status_code=status.HTTP_201_CREATED,

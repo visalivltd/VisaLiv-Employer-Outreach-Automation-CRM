@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User, Sliders, Zap } from 'lucide-react';
+import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User, Sliders, Zap, Layers, StopCircle } from 'lucide-react';
 
 import { getApiUrl } from '../config/api';
 
@@ -28,6 +28,9 @@ export default function OutreachPage() {
   const [previewData, setPreviewData] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [startingBatch, setStartingBatch] = useState(false);
+
+  const [batches, setBatches] = useState([]);
+  const [loadingBatches, setLoadingBatches] = useState(false);
 
   // Outreach Settings State
   const [settings, setSettings] = useState({
@@ -138,6 +141,49 @@ export default function OutreachPage() {
   };
 
 
+  const fetchBatches = async () => {
+    try {
+      setLoadingBatches(true);
+      let baseUrl = getApiUrl();
+      let res = await fetch(`${baseUrl}/outreach/batches`);
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1/outreach/batches`);
+      }
+      if (res.ok) {
+        const data = await res.json();
+        setBatches(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch outreach batches:', err);
+    } finally {
+      setLoadingBatches(false);
+    }
+  };
+
+  const handleCancelBatch = async (batchId) => {
+    try {
+      setError('');
+      let baseUrl = getApiUrl();
+      let res = await fetch(`${baseUrl}/outreach/cancel-batch/${batchId}`, {
+        method: 'POST',
+      });
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1/outreach/cancel-batch/${batchId}`, {
+          method: 'POST',
+        });
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(getErrorMessage(data, 'Failed to cancel batch'));
+
+      setMessage(data.message || `Batch cancelled successfully.`);
+      await fetchBatches();
+      await loadPreview(page, selectedCandidateFilter);
+      await refreshQueueSummary();
+    } catch (err) {
+      setError(err.message || 'Failed to cancel batch');
+    }
+  };
+
   const loadData = async () => {
     try {
       setLoadingData(true);
@@ -147,6 +193,7 @@ export default function OutreachPage() {
         fetch(`${getApiUrl()}/email-drafts`),
         fetch(`${getApiUrl()}/dashboard`),
         loadSettings(),
+        fetchBatches(),
       ]);
 
       if (candRes.ok) setCandidates(await candRes.json().catch(() => []));
@@ -525,10 +572,12 @@ export default function OutreachPage() {
     }
   };
 
-  // Auto-poll lightweight queue summary when background worker jobs are pending/processing (prevents browser freezes)
+  // Auto-poll lightweight queue summary and batches when background worker jobs are pending/processing (prevents browser freezes)
   useEffect(() => {
     const queueSum = previewData?.queue_summary;
-    if (queueSum && (queueSum.pending_count > 0 || queueSum.processing_count > 0)) {
+    const hasActiveBatches = Array.isArray(batches) && batches.some((b) => b.status === 'processing' || b.status === 'pending' || b.pending_count > 0);
+
+    if ((queueSum && (queueSum.pending_count > 0 || queueSum.processing_count > 0)) || hasActiveBatches) {
       const pollQueueStatus = async () => {
         try {
           let baseUrl = getApiUrl();
@@ -540,13 +589,14 @@ export default function OutreachPage() {
           console.error('Trigger process-jobs error:', err);
         } finally {
           await refreshQueueSummary();
+          await fetchBatches();
         }
       };
 
       const timer = setInterval(pollQueueStatus, 15000);
       return () => clearInterval(timer);
     }
-  }, [previewData?.queue_summary?.pending_count, previewData?.queue_summary?.processing_count]);
+  }, [previewData?.queue_summary?.pending_count, previewData?.queue_summary?.processing_count, batches]);
 
   const handleStartOutreach = async () => {
     try {
@@ -1106,7 +1156,137 @@ export default function OutreachPage() {
               </div>
             )}
 
-            {/* CANDIDATE SUMMARY CHIPS */}
+            {/* ACTIVE & RECENT OUTREACH BATCHES CARD */}
+            {Array.isArray(batches) && batches.length > 0 && (
+              <div style={{
+                marginBottom: '16px',
+                padding: '16px',
+                backgroundColor: '#ffffff',
+                borderRadius: '10px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Layers size={18} style={{ color: '#4f46e5' }} />
+                    <h3 style={{ margin: 0, fontSize: '14.5px', fontWeight: 700, color: '#0f172a' }}>
+                      Active & Recent Outreach Batches ({batches.length})
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={fetchBatches}
+                    disabled={loadingBatches}
+                    className="secondary-button"
+                    style={{ padding: '4px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <RefreshCw size={12} className={loadingBatches ? 'spin' : ''} />
+                    Refresh Batches
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {batches.slice(0, 8).map((batch) => {
+                    const total = batch.total_jobs || 1;
+                    const percent = Math.min(100, Math.round(((batch.sent_count || 0) / total) * 100));
+                    const isRunning = batch.status === 'processing' || batch.status === 'pending' || (batch.pending_count > 0);
+
+                    let badgeBg = '#f1f5f9';
+                    let badgeColor = '#475569';
+                    let badgeBorder = '#cbd5e1';
+                    if (batch.status === 'completed') {
+                      badgeBg = '#ecfdf5'; badgeColor = '#047857'; badgeBorder = '#a7f3d0';
+                    } else if (isRunning) {
+                      badgeBg = '#eff6ff'; badgeColor = '#1d4ed8'; badgeBorder = '#bfdbfe';
+                    } else if (batch.status === 'cancelled') {
+                      badgeBg = '#fef2f2'; badgeColor = '#b91c1c'; badgeBorder = '#fecaca';
+                    }
+
+                    return (
+                      <div
+                        key={batch.batch_id}
+                        style={{
+                          padding: '10px 14px',
+                          backgroundColor: isRunning ? '#f8fafc' : '#ffffff',
+                          borderRadius: '8px',
+                          border: `1px solid ${isRunning ? '#cbd5e1' : '#e2e8f0'}`,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
+                          <div>
+                            <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span>{batch.batch_name}</span>
+                              <span style={{
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                backgroundColor: badgeBg,
+                                color: badgeColor,
+                                border: `1px solid ${badgeBorder}`,
+                                textTransform: 'capitalize',
+                              }}>
+                                {isRunning && <span className="spin" style={{ display: 'inline-block', marginRight: '4px' }}>⚙️</span>}
+                                {batch.status}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>
+                              Created: {batch.created_at ? new Date(batch.created_at).toLocaleString() : 'N/A'}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ fontSize: '12px', color: '#334155', display: 'flex', gap: '10px', fontWeight: 500 }}>
+                              <span style={{ color: '#16a34a' }}>✓ {batch.sent_count ?? 0} Sent</span>
+                              <span style={{ color: '#1d4ed8' }}>⏱️ {batch.pending_count ?? 0} Pending</span>
+                              {batch.failed_count > 0 && <span style={{ color: '#dc2626' }}>✕ {batch.failed_count} Failed</span>}
+                              {batch.skipped_count > 0 && <span style={{ color: '#64748b' }}>⏭️ {batch.skipped_count} Skipped</span>}
+                              {batch.cancelled_count > 0 && <span style={{ color: '#94a3b8' }}>🛑 {batch.cancelled_count} Cancelled</span>}
+                            </div>
+
+                            {isRunning && (
+                              <button
+                                type="button"
+                                onClick={() => handleCancelBatch(batch.batch_id)}
+                                style={{
+                                  padding: '3px 9px',
+                                  fontSize: '11.5px',
+                                  fontWeight: 600,
+                                  color: '#dc2626',
+                                  backgroundColor: '#fef2f2',
+                                  border: '1px solid #fca5a5',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                                title="Cancel remaining pending jobs for this batch"
+                              >
+                                <StopCircle size={12} />
+                                Cancel Batch
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Batch progress bar */}
+                        <div style={{ width: '100%', height: '5px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${percent}%`,
+                            backgroundColor: batch.status === 'completed' ? '#10b981' : isRunning ? '#3b82f6' : '#94a3b8',
+                            transition: 'width 0.3s ease',
+                          }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* CANDIDATE SUMMARY CHIPS (PERSISTENT SIDE-BY-SIDE) */}
             {Array.isArray(previewData?.candidate_summaries) && previewData.candidate_summaries.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', alignItems: 'center' }}>
                 <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>Filter Candidate:</span>
@@ -1114,15 +1294,17 @@ export default function OutreachPage() {
                   type="button"
                   onClick={() => handleCandidateFilter(null)}
                   style={{
-                    padding: '4px 10px',
+                    padding: '5px 12px',
                     borderRadius: '6px',
                     backgroundColor: selectedCandidateFilter === null ? '#4f46e5' : '#ffffff',
                     color: selectedCandidateFilter === null ? '#ffffff' : '#334155',
                     border: '1px solid',
                     borderColor: selectedCandidateFilter === null ? '#4f46e5' : '#cbd5e1',
                     fontSize: '12px',
-                    fontWeight: '500',
+                    fontWeight: selectedCandidateFilter === null ? '600' : '500',
                     cursor: 'pointer',
+                    boxShadow: selectedCandidateFilter === null ? '0 1px 2px rgba(79, 70, 229, 0.2)' : 'none',
+                    transition: 'all 0.15s ease',
                   }}
                 >
                   All Candidates
@@ -1137,21 +1319,44 @@ export default function OutreachPage() {
                       type="button"
                       onClick={() => handleCandidateFilter(s.candidate_id)}
                       style={{
-                        padding: '4px 10px',
+                        padding: '5px 12px',
                         borderRadius: '6px',
                         backgroundColor: isSelectedFilter ? '#4f46e5' : '#ffffff',
                         color: isSelectedFilter ? '#ffffff' : '#334155',
                         border: '1px solid',
                         borderColor: isSelectedFilter ? '#4f46e5' : '#cbd5e1',
                         fontSize: '12px',
-                        fontWeight: '500',
+                        fontWeight: isSelectedFilter ? '600' : '500',
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '6px',
+                        boxShadow: isSelectedFilter ? '0 1px 2px rgba(79, 70, 229, 0.2)' : 'none',
+                        transition: 'all 0.15s ease',
                       }}
                     >
-                      <User size={13} /> {s.candidate_name} — <strong>{s.sent_today_count ?? 0}/{s.daily_limit ?? settings?.max_emails_per_candidate_per_day ?? 5} sent today</strong> | <strong>{currentSelectedCount}</strong> selected / {s.eligible_count ?? 0} eligible
+                      <User size={13} style={{ color: isSelectedFilter ? '#ffffff' : '#4f46e5' }} />
+                      <span>{s.candidate_name}</span>
+                      <span style={{
+                        fontSize: '11px',
+                        opacity: 0.9,
+                        backgroundColor: isSelectedFilter ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        color: isSelectedFilter ? '#ffffff' : '#475569',
+                      }}>
+                        {s.sent_today_count ?? 0}/{s.daily_limit ?? settings?.max_emails_per_candidate_per_day ?? 5} sent
+                      </span>
+                      <span style={{
+                        fontSize: '11px',
+                        opacity: 0.9,
+                        backgroundColor: isSelectedFilter ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        color: isSelectedFilter ? '#ffffff' : '#475569',
+                      }}>
+                        {currentSelectedCount} sel / {s.eligible_count ?? 0} elig
+                      </span>
                     </button>
                   );
                 })}

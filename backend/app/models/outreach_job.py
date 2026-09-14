@@ -62,6 +62,17 @@ class OutreachJob(Base):
         nullable=True,
     )
 
+    batch_id: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        index=True,
+    )
+
+    batch_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
     email_log_id: Mapped[int | None] = mapped_column(
         ForeignKey("email_logs.id"),
         nullable=True,
