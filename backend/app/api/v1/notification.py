@@ -14,19 +14,27 @@ router = APIRouter(
 )
 
 
+from sqlalchemy.orm import joinedload
+
 @router.get("")
 def get_notifications(
+    limit: int = 200,
     db: Session = Depends(get_db),
 ):
     notifications = db.scalars(
         select(Notification)
+        .options(
+            joinedload(Notification.candidate),
+            joinedload(Notification.employer),
+        )
         .order_by(Notification.created_at.desc(), Notification.id.desc())
-    ).all()
+        .limit(limit)
+    ).unique().all()
 
     result = []
     for n in notifications:
-        cand = db.get(Candidate, n.candidate_id) if n.candidate_id else None
-        emp = db.get(Employer, n.employer_id) if n.employer_id else None
+        cand = n.candidate
+        emp = n.employer
 
         # Extract subject line from notification message if available
         subject = None

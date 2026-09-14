@@ -35,6 +35,9 @@ def get_email_logs(
         emp = log.employer
         gm = log.gmail_account
 
+        raw_body = getattr(log, "body", None)
+        body_summary = raw_body[:2000] if raw_body and len(raw_body) > 2000 else raw_body
+
         result.append({
             "id": log.id,
             "candidate_id": log.candidate_id,
@@ -49,7 +52,7 @@ def get_email_logs(
             "direction": getattr(log, "direction", "outgoing"),
             "gmail_message_id": getattr(log, "gmail_message_id", None),
             "gmail_thread_id": getattr(log, "gmail_thread_id", None),
-            "body": getattr(log, "body", None),
+            "body": body_summary,
             "snippet": getattr(log, "snippet", None),
             "candidate_cv_path": cand.cv_file_path if cand else None,
             "sent_at": log.sent_at.isoformat() if log.sent_at else None,

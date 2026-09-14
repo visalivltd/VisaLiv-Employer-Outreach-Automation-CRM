@@ -921,18 +921,47 @@ export default function EmailTrackingPage() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           {/* Sync Status Badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#475569', background: '#ffffff', padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e', display: 'inline-block' }} />
+          <div
+            onClick={handleRefreshKeepFilters}
+            title="Click to sync Gmail emails now"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '12px',
+              color: '#475569',
+              background: '#ffffff',
+              padding: '6px 12px',
+              borderRadius: '8px',
+              border: '1px solid #cbd5e1',
+              cursor: syncing ? 'wait' : 'pointer',
+              userSelect: 'none',
+            }}
+          >
+            <span
+              style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: syncing ? '#eab308' : '#22c55e',
+                display: 'inline-block',
+                boxShadow: syncing ? '0 0 6px rgba(234, 179, 8, 0.6)' : 'none',
+              }}
+            />
             <span>
-              <strong>Email sync active</strong>
+              <strong>{syncing ? 'Syncing emails...' : 'Email sync active'}</strong>
             </span>
             <button
               type="button"
-              onClick={fetchData}
-              title="Sync Emails"
-              style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', padding: '2px', marginLeft: '4px' }}
+              disabled={syncing}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRefreshKeepFilters();
+              }}
+              title="Sync Emails Now"
+              style={{ border: 'none', background: 'none', cursor: syncing ? 'wait' : 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', padding: '2px', marginLeft: '4px' }}
             >
-              <RefreshCw size={14} className={syncing ? 'spin' : ''} />
+              <RefreshCw size={14} className={syncing ? 'spin' : ''} style={{ transition: 'transform 0.3s' }} />
             </button>
           </div>
 
