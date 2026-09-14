@@ -622,8 +622,11 @@ class OutreachService:
         final_body = body.strip() if body and body.strip() else draft_body
 
         attachment_paths = []
-        if candidate and candidate.cv_file_path:
-            attachment_paths.append(candidate.cv_file_path)
+        if candidate and candidate.cv_file_path and candidate.cv_file_path.strip():
+            attachment_paths.append(candidate.cv_file_path.strip())
+        else:
+            cand_name = candidate.full_name if candidate else "Candidate"
+            raise ValueError(f"Candidate '{cand_name}' is missing a CV file. Email cannot be sent without CV attachment.")
 
         return EmailService.send_and_log(
             db=db,
@@ -633,7 +636,7 @@ class OutreachService:
             to_email=employer.email,
             subject=final_subject,
             body=final_body,
-            attachment_paths=attachment_paths if attachment_paths else None,
+            attachment_paths=attachment_paths,
         )
 
     @staticmethod
@@ -704,6 +707,17 @@ class OutreachService:
                         "employer_id": employer_id,
                         "status": "skipped",
                         "reason": "Candidate missing, inactive, or Gmail account not connected",
+                        "reason_code": ReasonCode.CANDIDATE_MISSING.value,
+                    })
+                    continue
+
+                if not cand.cv_file_path or not cand.cv_file_path.strip():
+                    skipped_count += 1
+                    results.append({
+                        "candidate_id": candidate_id,
+                        "employer_id": employer_id,
+                        "status": "skipped",
+                        "reason": f"Candidate '{cand.full_name}' is missing a CV file. Email cannot be sent without CV attachment.",
                         "reason_code": ReasonCode.CANDIDATE_MISSING.value,
                     })
                     continue
@@ -1343,6 +1357,13 @@ class OutreachService:
                 job.error_message = "Gmail account not connected"
                 db.commit()
                 skipped_cnt += 1
+                continue
+
+            if not cand.cv_file_path or not cand.cv_file_path.strip():
+                job.status = "failed"
+                job.error_message = f"Candidate '{cand.full_name}' is missing a CV file. Email cannot be sent without CV attachment."
+                db.commit()
+                failed_cnt += 1
                 continue
 
             try:
