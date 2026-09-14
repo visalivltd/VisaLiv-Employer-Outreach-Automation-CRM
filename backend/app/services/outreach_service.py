@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func, update, or_, and_
 from sqlalchemy.orm import Session, joinedload
 
 from pathlib import Path
