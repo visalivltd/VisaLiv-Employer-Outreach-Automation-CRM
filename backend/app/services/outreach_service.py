@@ -334,21 +334,27 @@ class OutreachService:
             active_candidates = all_active_candidates
 
         total_employers = db.scalar(
-            select(func.count(Employer.id)).where(Employer.is_active.is_(True))
-        ) or 0
-
-        start_offset = (page - 1) * page_size
-        all_active_employers = db.scalars(
-            select(Employer)
-            .where(
+            select(func.count(Employer.id)).where(
                 Employer.is_active.is_(True),
                 Employer.email.isnot(None),
                 Employer.email != "",
             )
-            .order_by(Employer.id)
-        ).all()
+        ) or 0
 
-        paginated_employers = all_active_employers[start_offset : start_offset + page_size]
+        start_offset = (page - 1) * page_size
+        emp_stmt = select(Employer).where(
+            Employer.is_active.is_(True),
+            Employer.email.isnot(None),
+            Employer.email != "",
+        ).order_by(Employer.id)
+
+        needs_full_employers = only_eligible or candidate_ids is not None or candidate_id is not None
+        if needs_full_employers:
+            all_active_employers = db.scalars(emp_stmt).all()
+            paginated_employers = all_active_employers[start_offset : start_offset + page_size]
+        else:
+            paginated_employers = db.scalars(emp_stmt.offset(start_offset).limit(page_size)).all()
+            all_active_employers = paginated_employers
 
         emails_sent_today = db.scalar(
             select(func.count(EmailLog.id)).where(
@@ -387,6 +393,18 @@ class OutreachService:
                     EmailLog.candidate_id.in_(candidate_ids),
                     EmailLog.status == "sent",
                     EmailLog.sent_at >= start_of_today,
+                )
+                .group_by(EmailLog.candidate_id)
+            ).all()
+        )
+
+        # Single bulk query for all-time sent emails per candidate
+        all_time_sent_map = dict(
+            db.execute(
+                select(EmailLog.candidate_id, func.count(EmailLog.id))
+                .where(
+                    EmailLog.candidate_id.in_(candidate_ids),
+                    EmailLog.status == "sent",
                 )
                 .group_by(EmailLog.candidate_id)
             ).all()
@@ -572,12 +590,7 @@ class OutreachService:
                     "reason_code": res.reason_code.value,
                 })
 
-            cand_all_time_sent = db.scalar(
-                select(func.count(EmailLog.id)).where(
-                    EmailLog.candidate_id == candidate.id,
-                    EmailLog.status == "sent",
-                )
-            ) or 0
+            cand_all_time_sent = all_time_sent_map.get(candidate.id, 0)
 
             candidate_summaries.append({
                 "candidate_id": candidate.id,

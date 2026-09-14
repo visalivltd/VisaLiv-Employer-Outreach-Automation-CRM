@@ -583,30 +583,26 @@ export default function OutreachPage() {
   };
 
   // Auto-poll lightweight queue summary and batches when background worker jobs are pending/processing (prevents browser freezes)
-  useEffect(() => {
-    const queueSum = previewData?.queue_summary;
-    const hasActiveBatches = Array.isArray(batches) && batches.some((b) => b.status === 'processing' || b.status === 'pending' || b.pending_count > 0);
+  const pendingCount = previewData?.queue_summary?.pending_count ?? 0;
+  const processingCount = previewData?.queue_summary?.processing_count ?? 0;
+  const hasActiveBatches = Array.isArray(batches) && batches.some((b) => b && (b.status === 'processing' || b.status === 'pending' || (b.pending_count ?? 0) > 0));
+  const hasActiveJobsOrBatches = pendingCount > 0 || processingCount > 0 || hasActiveBatches;
 
-    if ((queueSum && (queueSum.pending_count > 0 || queueSum.processing_count > 0)) || hasActiveBatches) {
+  useEffect(() => {
+    if (hasActiveJobsOrBatches) {
       const pollQueueStatus = async () => {
         try {
-          let baseUrl = getApiUrl();
-          let res = await fetch(`${baseUrl}/outreach/process-jobs`, { method: 'POST' });
-          if (!res.ok && !baseUrl.includes('/api/v1')) {
-            await fetch(`${baseUrl}/api/v1/outreach/process-jobs`, { method: 'POST' });
-          }
-        } catch (err) {
-          console.error('Trigger process-jobs error:', err);
-        } finally {
           await refreshQueueSummary();
           await fetchBatches();
+        } catch (err) {
+          console.error('Trigger polling error:', err);
         }
       };
 
-      const timer = setInterval(pollQueueStatus, 15000);
+      const timer = setInterval(pollQueueStatus, 10000);
       return () => clearInterval(timer);
     }
-  }, [previewData?.queue_summary?.pending_count, previewData?.queue_summary?.processing_count, batches]);
+  }, [hasActiveJobsOrBatches]);
 
   const handleStartOutreach = async () => {
     try {
