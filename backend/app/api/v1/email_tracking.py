@@ -124,8 +124,14 @@ def send_email_from_tracking(
 
     # Prepare attachments
     attachments = []
-    if req.attach_cv and candidate.cv_file_path:
-        attachments.append(candidate.cv_file_path)
+    if req.attach_cv:
+        if candidate.cv_file_path and candidate.cv_file_path.strip():
+            attachments.append(candidate.cv_file_path.strip())
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Candidate '{candidate.full_name}' is missing a CV file on server. Please upload a CV to candidate profile before sending email."
+            )
 
     if req.custom_attachment_paths:
         for p in req.custom_attachment_paths:
