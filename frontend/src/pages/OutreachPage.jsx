@@ -51,6 +51,7 @@ export default function OutreachPage() {
   const [selectedItemsMap, setSelectedItemsMap] = useState(new Map());
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showCancelConfirmModal, setShowCancelConfirmModal] = useState(false);
+  const [showMoreCandidatesDropdown, setShowMoreCandidatesDropdown] = useState(false);
   const [cancellingJobs, setCancellingJobs] = useState(false);
 
   const [candidateId, setCandidateId] = useState('');
@@ -582,30 +583,26 @@ export default function OutreachPage() {
   };
 
   // Auto-poll lightweight queue summary and batches when background worker jobs are pending/processing (prevents browser freezes)
-  useEffect(() => {
-    const queueSum = previewData?.queue_summary;
-    const hasActiveBatches = Array.isArray(batches) && batches.some((b) => b.status === 'processing' || b.status === 'pending' || b.pending_count > 0);
+  const pendingCount = previewData?.queue_summary?.pending_count ?? 0;
+  const processingCount = previewData?.queue_summary?.processing_count ?? 0;
+  const hasActiveBatches = Array.isArray(batches) && batches.some((b) => b && (b.status === 'processing' || b.status === 'pending' || (b.pending_count ?? 0) > 0));
+  const hasActiveJobsOrBatches = pendingCount > 0 || processingCount > 0 || hasActiveBatches;
 
-    if ((queueSum && (queueSum.pending_count > 0 || queueSum.processing_count > 0)) || hasActiveBatches) {
+  useEffect(() => {
+    if (hasActiveJobsOrBatches) {
       const pollQueueStatus = async () => {
         try {
-          let baseUrl = getApiUrl();
-          let res = await fetch(`${baseUrl}/outreach/process-jobs`, { method: 'POST' });
-          if (!res.ok && !baseUrl.includes('/api/v1')) {
-            await fetch(`${baseUrl}/api/v1/outreach/process-jobs`, { method: 'POST' });
-          }
-        } catch (err) {
-          console.error('Trigger process-jobs error:', err);
-        } finally {
           await refreshQueueSummary();
           await fetchBatches();
+        } catch (err) {
+          console.error('Trigger polling error:', err);
         }
       };
 
-      const timer = setInterval(pollQueueStatus, 15000);
+      const timer = setInterval(pollQueueStatus, 10000);
       return () => clearInterval(timer);
     }
-  }, [previewData?.queue_summary?.pending_count, previewData?.queue_summary?.processing_count, batches]);
+  }, [hasActiveJobsOrBatches]);
 
   const handleStartOutreach = async () => {
     try {
@@ -685,18 +682,21 @@ export default function OutreachPage() {
             skippedCount > 0 ? `, ${skippedCount} skipped` : ''
           }.`
         );
+        setSelectedItemsMap(new Map());
+        setShowConfirmModal(false);
+        await loadPreview(page, selectedCandidateFilters);
       } else {
         if (data.success) {
-          setMessage(data.message || `Outreach jobs queued successfully: ${data.queued} scheduled, ${data.skipped} skipped.`);
+          setMessage(data.message || `Outreach batch #${data.batch_id || ''} started successfully in background.`);
+          setSelectedItemsMap(new Map());
+          setShowConfirmModal(false);
+          await fetchBatches();
+          await refreshQueueSummary();
         } else {
           setError(data.message || 'Failed to queue outreach jobs');
+          setShowConfirmModal(false);
         }
       }
-
-      setSelectedItemsMap(new Map());
-      setShowConfirmModal(false);
-      await loadData();
-      await loadPreview(page, selectedCandidateFilters);
     } catch (err) {
       setError(err.message || 'Failed to execute outreach campaign');
     } finally {
@@ -1165,85 +1165,174 @@ export default function OutreachPage() {
               </div>
             )}
 
-            {/* CANDIDATE SUMMARY CHIPS (PERSISTENT SIDE-BY-SIDE MULTI-SELECT) */}
-            {Array.isArray(previewData?.candidate_summaries) && previewData.candidate_summaries.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>
-                  Filter Candidates ({selectedCandidateFilters.length > 0 ? `${selectedCandidateFilters.length} Selected` : 'All'}):
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleCandidateFilter(null)}
-                  style={{
-                    padding: '5px 12px',
-                    borderRadius: '6px',
-                    backgroundColor: selectedCandidateFilters.length === 0 ? '#2563eb' : '#ffffff',
-                    color: selectedCandidateFilters.length === 0 ? '#ffffff' : '#334155',
-                    border: '1px solid',
-                    borderColor: selectedCandidateFilters.length === 0 ? '#2563eb' : '#cbd5e1',
-                    fontSize: '12px',
-                    fontWeight: selectedCandidateFilters.length === 0 ? '600' : '500',
-                    cursor: 'pointer',
-                    boxShadow: selectedCandidateFilters.length === 0 ? '0 1px 2px rgba(37, 99, 235, 0.2)' : 'none',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  All Candidates
-                </button>
-                {previewData.candidate_summaries.map((s, idx) => {
-                  if (!s) return null;
-                  const currentSelectedCount = getCandidateSelectedCount(s.candidate_id);
-                  const isSelectedFilter = selectedCandidateFilters.includes(s.candidate_id);
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => handleCandidateFilter(s.candidate_id)}
-                      style={{
-                        padding: '5px 12px',
-                        borderRadius: '6px',
-                        backgroundColor: isSelectedFilter ? '#2563eb' : '#ffffff',
-                        color: isSelectedFilter ? '#ffffff' : '#334155',
-                        border: '1px solid',
-                        borderColor: isSelectedFilter ? '#2563eb' : '#cbd5e1',
-                        fontSize: '12px',
-                        fontWeight: isSelectedFilter ? '600' : '500',
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        boxShadow: isSelectedFilter ? '0 1px 2px rgba(37, 99, 235, 0.2)' : 'none',
-                        transition: 'all 0.15s ease',
-                      }}
-                    >
-                      <User size={13} style={{ color: isSelectedFilter ? '#ffffff' : '#2563eb' }} />
-                      <span>{s.candidate_name}</span>
-                      <span style={{
-                        fontSize: '11px',
-                        opacity: 0.9,
-                        backgroundColor: isSelectedFilter ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
-                        padding: '1px 6px',
-                        borderRadius: '4px',
-                        color: isSelectedFilter ? '#ffffff' : '#475569',
-                      }}>
-                        {s.sent_today_count ?? 0}/{s.daily_limit ?? settings?.max_emails_per_candidate_per_day ?? 5} sent
-                      </span>
-                      <span style={{
-                        fontSize: '11px',
-                        opacity: 0.9,
-                        backgroundColor: isSelectedFilter ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
-                        padding: '1px 6px',
-                        borderRadius: '4px',
-                        color: isSelectedFilter ? '#ffffff' : '#475569',
-                      }}>
-                        {currentSelectedCount} sel / {s.eligible_count ?? 0} elig
-                      </span>
-                      {isSelectedFilter && (
-                        <span style={{ fontSize: '11px', marginLeft: '2px', opacity: 0.8 }}>✕</span>
+            {/* CANDIDATE SUMMARY CHIPS (PERSISTENT SIDE-BY-SIDE MULTI-SELECT WITH +N DROPDOWN) */}
+            {Array.isArray(previewData?.candidate_summaries) && previewData.candidate_summaries.length > 0 && (() => {
+              const allSummaries = previewData.candidate_summaries.filter(Boolean);
+              const visibleChips = allSummaries.slice(0, 5);
+              const overflowChips = allSummaries.slice(5);
+
+              return (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', alignItems: 'center' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>
+                    Filter Candidates ({selectedCandidateFilters.length > 0 ? `${selectedCandidateFilters.length} Selected` : 'All'}):
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleCandidateFilter(null)}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      backgroundColor: selectedCandidateFilters.length === 0 ? '#2563eb' : '#ffffff',
+                      color: selectedCandidateFilters.length === 0 ? '#ffffff' : '#334155',
+                      border: '1px solid',
+                      borderColor: selectedCandidateFilters.length === 0 ? '#2563eb' : '#cbd5e1',
+                      fontSize: '12px',
+                      fontWeight: selectedCandidateFilters.length === 0 ? '600' : '500',
+                      cursor: 'pointer',
+                      boxShadow: selectedCandidateFilters.length === 0 ? '0 1px 2px rgba(37, 99, 235, 0.2)' : 'none',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    All Candidates
+                  </button>
+                  {visibleChips.map((s, idx) => {
+                    const currentSelectedCount = getCandidateSelectedCount(s.candidate_id);
+                    const isSelectedFilter = selectedCandidateFilters.includes(s.candidate_id);
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleCandidateFilter(s.candidate_id)}
+                        style={{
+                          padding: '5px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: isSelectedFilter ? '#2563eb' : '#ffffff',
+                          color: isSelectedFilter ? '#ffffff' : '#334155',
+                          border: '1px solid',
+                          borderColor: isSelectedFilter ? '#2563eb' : '#cbd5e1',
+                          fontSize: '12px',
+                          fontWeight: isSelectedFilter ? '600' : '500',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: isSelectedFilter ? '0 1px 2px rgba(37, 99, 235, 0.2)' : 'none',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <User size={13} style={{ color: isSelectedFilter ? '#ffffff' : '#2563eb' }} />
+                        <span>{s.candidate_name}</span>
+                        <span style={{
+                          fontSize: '11px',
+                          opacity: 0.9,
+                          backgroundColor: isSelectedFilter ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          color: isSelectedFilter ? '#ffffff' : '#475569',
+                        }}>
+                          {s.sent_today_count ?? 0}/{s.daily_limit ?? settings?.max_emails_per_candidate_per_day ?? 5} sent
+                        </span>
+                        <span style={{
+                          fontSize: '11px',
+                          opacity: 0.9,
+                          backgroundColor: isSelectedFilter ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          color: isSelectedFilter ? '#ffffff' : '#475569',
+                        }}>
+                          {currentSelectedCount} sel / {s.eligible_count ?? 0} elig
+                        </span>
+                        {isSelectedFilter && (
+                          <span style={{ fontSize: '11px', marginLeft: '2px', opacity: 0.8 }}>✕</span>
+                        )}
+                      </button>
+                    );
+                  })}
+
+                  {overflowChips.length > 0 && (
+                    <div style={{ position: 'relative', display: 'inline-block' }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowMoreCandidatesDropdown(!showMoreCandidatesDropdown)}
+                        style={{
+                          padding: '5px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#1e40af',
+                          border: '1px solid #93c5fd',
+                          fontSize: '12px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: '0 1px 2px rgba(30, 64, 175, 0.1)',
+                        }}
+                      >
+                        <User size={13} style={{ color: '#1e40af' }} />
+                        <span>+{overflowChips.length} Candidates</span>
+                        <span style={{ fontSize: '10px' }}>{showMoreCandidatesDropdown ? '▲' : '▼'}</span>
+                      </button>
+
+                      {showMoreCandidatesDropdown && (
+                        <div style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          marginTop: '6px',
+                          zIndex: 50,
+                          backgroundColor: '#ffffff',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '8px',
+                          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                          padding: '8px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px',
+                          maxHeight: '280px',
+                          overflowY: 'auto',
+                          minWidth: '280px',
+                        }}>
+                          {overflowChips.map((s, idx) => {
+                            const isSelectedFilter = selectedCandidateFilters.includes(s.candidate_id);
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => {
+                                  handleCandidateFilter(s.candidate_id);
+                                }}
+                                style={{
+                                  padding: '6px 10px',
+                                  borderRadius: '6px',
+                                  backgroundColor: isSelectedFilter ? '#2563eb' : '#f8fafc',
+                                  color: isSelectedFilter ? '#ffffff' : '#334155',
+                                  border: '1px solid',
+                                  borderColor: isSelectedFilter ? '#2563eb' : '#e2e8f0',
+                                  fontSize: '12px',
+                                  fontWeight: isSelectedFilter ? '600' : '500',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: '8px',
+                                  textAlign: 'left',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <User size={13} style={{ color: isSelectedFilter ? '#ffffff' : '#2563eb' }} />
+                                  <span>{s.candidate_name}</span>
+                                </div>
+                                <span style={{ fontSize: '11px', opacity: 0.85 }}>
+                                  {s.sent_today_count ?? 0}/{s.daily_limit ?? 5} sent
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
-                    </button>
-                  );
-                })}
+                    </div>
+                  )}
                 {selectedCandidateFilters.length > 0 && (
                   <button
                     type="button"
@@ -1264,7 +1353,8 @@ export default function OutreachPage() {
                   </button>
                 )}
               </div>
-            )}
+            );
+          })()}
 
             {/* CANDIDATE HIGHLIGHT SUMMARY CARD (Matching Design Mockup) */}
             {selectedCandidateFilters.length > 0 && (() => {
