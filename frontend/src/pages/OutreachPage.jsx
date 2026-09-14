@@ -1357,7 +1357,8 @@ export default function OutreachPage() {
                   </button>
                 )}
               </div>
-            )}
+            );
+          })()}
 
             {/* CANDIDATE HIGHLIGHT SUMMARY CARD (Matching Design Mockup) */}
             {selectedCandidateFilters.length > 0 && (() => {
