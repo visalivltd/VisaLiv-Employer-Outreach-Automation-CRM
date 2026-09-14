@@ -145,6 +145,16 @@ def get_outreach_batches(
     return OutreachService.get_outreach_batches(db)
 
 
+@router.get(
+    "/batches/{batch_id}/status",
+)
+def get_batch_status(
+    batch_id: str,
+    db: Session = Depends(get_db),
+):
+    return OutreachService.get_batch_status(db, batch_id)
+
+
 @router.post(
     "/cancel-batch/{batch_id}",
 )

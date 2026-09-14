@@ -12,6 +12,7 @@ class OutreachJob(Base):
     __table_args__ = (
         Index("idx_outreach_jobs_status_sched", "status", "scheduled_at"),
         Index("idx_outreach_jobs_cand_emp_status", "candidate_id", "employer_id", "status"),
+        Index("idx_outreach_jobs_batch_status", "batch_id", "status"),
     )
 
     id: Mapped[int] = mapped_column(
