@@ -86,8 +86,8 @@ class OutreachService:
 
     @staticmethod
     def get_candidate_sent_today(db: Session, candidate_id: int, start_of_today: datetime) -> int:
-        """Count of automated OutreachJobs sent today for a candidate (excluding manual emails)."""
-        return db.scalar(
+        """Count of automated outreach emails sent today for a candidate."""
+        job_count = db.scalar(
             select(func.count(OutreachJob.id)).where(
                 OutreachJob.candidate_id == candidate_id,
                 OutreachJob.status == "sent",
@@ -97,6 +97,26 @@ class OutreachService:
                 )
             )
         ) or 0
+
+        log_count = db.scalar(
+            select(func.count(EmailLog.id)).where(
+                EmailLog.candidate_id == candidate_id,
+                EmailLog.status == "sent",
+                EmailLog.direction == "outgoing",
+                or_(
+                    EmailLog.sent_at >= start_of_today,
+                    and_(EmailLog.sent_at.is_(None), EmailLog.created_at >= start_of_today)
+                ),
+                ~EmailLog.id.in_(
+                    select(OutreachJob.email_log_id).where(
+                        OutreachJob.candidate_id == candidate_id,
+                        OutreachJob.email_log_id.is_not(None)
+                    )
+                )
+            )
+        ) or 0
+
+        return job_count + log_count
 
     @staticmethod
     def get_candidate_pending_today(
