@@ -221,6 +221,21 @@ def preview_employer_import(
         name_lower = service_name.lower()
         email_lower = primary_email.lower() if primary_email else None
 
+        is_sys_email = False
+        if email_lower:
+            is_sys_email = (
+                email_lower.startswith("no-reply@")
+                or email_lower.startswith("noreply@")
+                or email_lower.startswith("donotreply@")
+                or email_lower.startswith("do-not-reply@")
+                or email_lower.startswith("postmaster@")
+                or email_lower.startswith("replycomms")
+                or "mailer-daemon" in email_lower
+                or "match.indeed.com" in email_lower
+                or "recruit.trac.jobs" in email_lower
+                or "trac.jobs" in email_lower
+            )
+
         # Check duplicate
         is_duplicate = False
         dup_reason = ""
@@ -231,7 +246,11 @@ def preview_employer_import(
             is_duplicate = True
             dup_reason = f"Service Name '{service_name}' already exists"
 
-        if is_duplicate:
+        if is_sys_email:
+            invalid_rows_count += 1
+            status = "Invalid"
+            reason = "System / Portal bot notification email (skipped)"
+        elif is_duplicate:
             duplicate_count += 1
             status = "Duplicate"
             reason = dup_reason

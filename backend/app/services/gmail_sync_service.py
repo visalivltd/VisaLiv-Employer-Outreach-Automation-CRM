@@ -274,18 +274,25 @@ def sync_incoming_replies(db: Session) -> dict:
 
                         body_text = extract_body_from_gmail_payload(m_detail.get("payload")) or snippet
 
-                        # System / Security / Bounce sender detection
+                        # System / Security / Bounce / Portal bot sender detection
                         system_senders = {
                             "no-reply@accounts.google.com",
                             "mailer-daemon@googlemail.com",
                             "google-noreply@google.com",
+                            "donotreply@match.indeed.com",
                         }
                         is_system_sender = (
                             sender_email in system_senders
                             or sender_email.startswith("no-reply@")
                             or sender_email.startswith("noreply@")
+                            or sender_email.startswith("donotreply@")
+                            or sender_email.startswith("do-not-reply@")
                             or sender_email.startswith("postmaster@")
+                            or sender_email.startswith("replycomms")
                             or "mailer-daemon" in sender_email
+                            or "match.indeed.com" in sender_email
+                            or "recruit.trac.jobs" in sender_email
+                            or "trac.jobs" in sender_email
                         )
 
                         print(f"[INCOMING EMAIL FOUND] gmail_email: {cand_gmail} | from: {sender_email} | to: {recipient_email} | subject: {subject} | thread_id: {msg_thread_id}", flush=True)
