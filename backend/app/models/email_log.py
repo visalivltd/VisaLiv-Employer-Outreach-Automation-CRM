@@ -1,4 +1,4 @@
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -7,6 +7,10 @@ from app.db.base import Base
 
 class EmailLog(Base):
     __tablename__ = "email_logs"
+    __table_args__ = (
+        Index("idx_email_logs_cand_emp_status", "candidate_id", "employer_id", "status"),
+        Index("idx_email_logs_cand_status_sent_at", "candidate_id", "status", "sent_at"),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,

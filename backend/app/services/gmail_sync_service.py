@@ -31,49 +31,50 @@ def extract_email_address(header_value: str | None) -> str:
 
 
 def extract_body_from_gmail_payload(payload: dict) -> str:
-    """Recursively extracts plain text (or html fallback) body from Gmail API payload."""
+    """Recursively extracts html (or plain text fallback) body from Gmail API payload."""
     if not payload:
         return ""
 
+    body_html = ""
     body_text = ""
 
     def _parse_parts(parts):
-        nonlocal body_text
+        nonlocal body_html, body_text
         for part in parts:
             mime_type = part.get("mimeType", "")
             data = part.get("body", {}).get("data")
-            if mime_type == "text/plain" and data:
+            if data:
                 try:
-                    body_text = base64.urlsafe_b64decode(data.encode("ASCII")).decode("utf-8", errors="replace")
-                    return True
+                    decoded = base64.urlsafe_b64decode(data.encode("ASCII")).decode("utf-8", errors="replace")
+                    if mime_type == "text/html" and not body_html:
+                        body_html = decoded
+                    elif mime_type == "text/plain" and not body_text:
+                        body_text = decoded
                 except Exception:
                     pass
-            elif part.get("parts"):
-                if _parse_parts(part.get("parts")):
-                    return True
-        return False
+            if part.get("parts"):
+                _parse_parts(part.get("parts"))
 
-    data = payload.get("body", {}).get("data")
     mime_type = payload.get("mimeType", "")
-    if mime_type == "text/plain" and data:
+    data = payload.get("body", {}).get("data")
+    if data:
         try:
-            return base64.urlsafe_b64decode(data.encode("ASCII")).decode("utf-8", errors="replace")
+            decoded = base64.urlsafe_b64decode(data.encode("ASCII")).decode("utf-8", errors="replace")
+            if mime_type == "text/html":
+                body_html = decoded
+            elif mime_type == "text/plain":
+                body_text = decoded
         except Exception:
             pass
 
     if payload.get("parts"):
         _parse_parts(payload.get("parts"))
 
-    if not body_text and payload.get("parts"):
-        for part in payload.get("parts"):
-            data = part.get("body", {}).get("data")
-            if data:
-                try:
-                    return base64.urlsafe_b64decode(data.encode("ASCII")).decode("utf-8", errors="replace")
-                except Exception:
-                    pass
+    import re
+    if body_html and re.search(r"<(table|img|iframe|style|svg|button|form|header|footer)[^>]*>", body_html, re.IGNORECASE):
+        return body_html
+    return body_text or body_html
 
-    return body_text
 
 
 def sync_incoming_replies(db: Session) -> dict:
@@ -274,18 +275,25 @@ def sync_incoming_replies(db: Session) -> dict:
 
                         body_text = extract_body_from_gmail_payload(m_detail.get("payload")) or snippet
 
-                        # System / Security / Bounce sender detection
+                        # System / Security / Bounce / Portal bot sender detection
                         system_senders = {
                             "no-reply@accounts.google.com",
                             "mailer-daemon@googlemail.com",
                             "google-noreply@google.com",
+                            "donotreply@match.indeed.com",
                         }
                         is_system_sender = (
                             sender_email in system_senders
                             or sender_email.startswith("no-reply@")
                             or sender_email.startswith("noreply@")
+                            or sender_email.startswith("donotreply@")
+                            or sender_email.startswith("do-not-reply@")
                             or sender_email.startswith("postmaster@")
+                            or sender_email.startswith("replycomms")
                             or "mailer-daemon" in sender_email
+                            or "match.indeed.com" in sender_email
+                            or "recruit.trac.jobs" in sender_email
+                            or "trac.jobs" in sender_email
                         )
 
                         print(f"[INCOMING EMAIL FOUND] gmail_email: {cand_gmail} | from: {sender_email} | to: {recipient_email} | subject: {subject} | thread_id: {msg_thread_id}", flush=True)

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -9,6 +9,10 @@ from app.db.base import Base
 
 class OutreachJob(Base):
     __tablename__ = "outreach_jobs"
+    __table_args__ = (
+        Index("idx_outreach_jobs_status_sched", "status", "scheduled_at"),
+        Index("idx_outreach_jobs_cand_emp_status", "candidate_id", "employer_id", "status"),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -55,6 +59,17 @@ class OutreachJob(Base):
 
     error_message: Mapped[str | None] = mapped_column(
         Text,
+        nullable=True,
+    )
+
+    batch_id: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        index=True,
+    )
+
+    batch_name: Mapped[str | None] = mapped_column(
+        String(255),
         nullable=True,
     )
 

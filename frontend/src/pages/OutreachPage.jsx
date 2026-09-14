@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User, Sliders, Zap } from 'lucide-react';
+import { Send, Target, Mail, Play, RefreshCw, CheckCircle2, XCircle, AlertCircle, Trash2, ChevronLeft, ChevronRight, User, Sliders, Zap, Layers, StopCircle } from 'lucide-react';
 
 import { getApiUrl } from '../config/api';
 
@@ -29,6 +29,9 @@ export default function OutreachPage() {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [startingBatch, setStartingBatch] = useState(false);
 
+  const [batches, setBatches] = useState([]);
+  const [loadingBatches, setLoadingBatches] = useState(false);
+
   // Outreach Settings State
   const [settings, setSettings] = useState({
     max_emails_per_candidate_per_day: 5,
@@ -42,7 +45,7 @@ export default function OutreachPage() {
   // Pagination & Filter States
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const [selectedCandidateFilter, setSelectedCandidateFilter] = useState(null);
+  const [selectedCandidateFilters, setSelectedCandidateFilters] = useState([]);
 
   // Selected items stored as a Map (key -> item) across pages
   const [selectedItemsMap, setSelectedItemsMap] = useState(new Map());
@@ -138,6 +141,49 @@ export default function OutreachPage() {
   };
 
 
+  const fetchBatches = async () => {
+    try {
+      setLoadingBatches(true);
+      let baseUrl = getApiUrl();
+      let res = await fetch(`${baseUrl}/outreach/batches`);
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1/outreach/batches`);
+      }
+      if (res.ok) {
+        const data = await res.json();
+        setBatches(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch outreach batches:', err);
+    } finally {
+      setLoadingBatches(false);
+    }
+  };
+
+  const handleCancelBatch = async (batchId) => {
+    try {
+      setError('');
+      let baseUrl = getApiUrl();
+      let res = await fetch(`${baseUrl}/outreach/cancel-batch/${batchId}`, {
+        method: 'POST',
+      });
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1/outreach/cancel-batch/${batchId}`, {
+          method: 'POST',
+        });
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(getErrorMessage(data, 'Failed to cancel batch'));
+
+      setMessage(data.message || `Batch cancelled successfully.`);
+      await fetchBatches();
+      await loadPreview(page, selectedCandidateFilter);
+      await refreshQueueSummary();
+    } catch (err) {
+      setError(err.message || 'Failed to cancel batch');
+    }
+  };
+
   const loadData = async () => {
     try {
       setLoadingData(true);
@@ -147,6 +193,7 @@ export default function OutreachPage() {
         fetch(`${getApiUrl()}/email-drafts`),
         fetch(`${getApiUrl()}/dashboard`),
         loadSettings(),
+        fetchBatches(),
       ]);
 
       if (candRes.ok) setCandidates(await candRes.json().catch(() => []));
@@ -163,17 +210,17 @@ export default function OutreachPage() {
 
   useEffect(() => {
     loadData();
-    loadPreview(1, null);
+    loadPreview(1, []);
   }, []);
 
-  const loadPreview = async (targetPage = page, targetCandId = selectedCandidateFilter) => {
+  const loadPreview = async (targetPage = page, targetCandFilters = selectedCandidateFilters) => {
     try {
       setLoadingPreview(true);
       setError('');
       let baseUrl = getApiUrl();
       let query = `page=${targetPage}&page_size=${pageSize}`;
-      if (targetCandId) {
-        query += `&candidate_id=${targetCandId}`;
+      if (Array.isArray(targetCandFilters) && targetCandFilters.length > 0) {
+        query += `&candidate_ids=${targetCandFilters.join(',')}`;
       }
 
       let res = await fetch(`${baseUrl}/outreach/preview?${query}`);
@@ -225,21 +272,30 @@ export default function OutreachPage() {
   const handlePageChange = (newPage) => {
     const totalPages = Math.ceil((previewData?.total || 0) / pageSize) || 1;
     if (newPage >= 1 && newPage <= totalPages) {
-      loadPreview(newPage, selectedCandidateFilter);
+      loadPreview(newPage, selectedCandidateFilters);
     }
   };
 
   const handleCandidateFilter = (candId) => {
-    const nextFilter = selectedCandidateFilter === candId ? null : candId;
-    setSelectedCandidateFilter(nextFilter);
+    let nextFilters;
+    if (candId === null) {
+      nextFilters = [];
+    } else {
+      if (selectedCandidateFilters.includes(candId)) {
+        nextFilters = selectedCandidateFilters.filter((id) => id !== candId);
+      } else {
+        nextFilters = [...selectedCandidateFilters, candId];
+      }
+    }
+    setSelectedCandidateFilters(nextFilters);
     setPage(1);
 
-    // Filter selectedItemsMap so that switching candidate filter prunes items of other candidates
-    if (nextFilter !== null) {
+    if (nextFilters.length > 0) {
+      const filterSet = new Set(nextFilters);
       setSelectedItemsMap((prevMap) => {
         const nextMap = new Map();
         for (const [key, item] of prevMap.entries()) {
-          if (item.candidate_id === nextFilter) {
+          if (item && filterSet.has(item.candidate_id)) {
             nextMap.set(key, item);
           }
         }
@@ -247,7 +303,7 @@ export default function OutreachPage() {
       });
     }
 
-    loadPreview(1, nextFilter);
+    loadPreview(1, nextFilters);
   };
 
   // Memoized: Compute Ready, Queued, and Skipped stats & send times for currently selected items
@@ -525,10 +581,12 @@ export default function OutreachPage() {
     }
   };
 
-  // Auto-poll lightweight queue summary when background worker jobs are pending/processing (prevents browser freezes)
+  // Auto-poll lightweight queue summary and batches when background worker jobs are pending/processing (prevents browser freezes)
   useEffect(() => {
     const queueSum = previewData?.queue_summary;
-    if (queueSum && (queueSum.pending_count > 0 || queueSum.processing_count > 0)) {
+    const hasActiveBatches = Array.isArray(batches) && batches.some((b) => b.status === 'processing' || b.status === 'pending' || b.pending_count > 0);
+
+    if ((queueSum && (queueSum.pending_count > 0 || queueSum.processing_count > 0)) || hasActiveBatches) {
       const pollQueueStatus = async () => {
         try {
           let baseUrl = getApiUrl();
@@ -540,13 +598,14 @@ export default function OutreachPage() {
           console.error('Trigger process-jobs error:', err);
         } finally {
           await refreshQueueSummary();
+          await fetchBatches();
         }
       };
 
       const timer = setInterval(pollQueueStatus, 15000);
       return () => clearInterval(timer);
     }
-  }, [previewData?.queue_summary?.pending_count, previewData?.queue_summary?.processing_count]);
+  }, [previewData?.queue_summary?.pending_count, previewData?.queue_summary?.processing_count, batches]);
 
   const handleStartOutreach = async () => {
     try {
@@ -587,8 +646,8 @@ export default function OutreachPage() {
           });
         }
       } else {
-        let endpoint = selectedCandidateFilter
-          ? `/outreach/start?candidate_id=${selectedCandidateFilter}`
+        let endpoint = (Array.isArray(selectedCandidateFilters) && selectedCandidateFilters.length > 0)
+          ? `/outreach/start?candidate_ids=${selectedCandidateFilters.join(',')}`
           : `/outreach/start`;
 
         res = await fetch(`${baseUrl}${endpoint}`, {
@@ -637,7 +696,7 @@ export default function OutreachPage() {
       setSelectedItemsMap(new Map());
       setShowConfirmModal(false);
       await loadData();
-      await loadPreview(page, selectedCandidateFilter);
+      await loadPreview(page, selectedCandidateFilters);
     } catch (err) {
       setError(err.message || 'Failed to execute outreach campaign');
     } finally {
@@ -660,8 +719,8 @@ export default function OutreachPage() {
       setCancellingJobs(true);
       setError('');
       const baseUrl = getApiUrl();
-      let endpoint = selectedCandidateFilter
-        ? `/outreach/cancel-jobs?candidate_id=${selectedCandidateFilter}`
+      let endpoint = (Array.isArray(selectedCandidateFilters) && selectedCandidateFilters.length > 0)
+        ? `/outreach/cancel-jobs?candidate_ids=${selectedCandidateFilters.join(',')}`
         : `/outreach/cancel-jobs`;
 
       let res = await fetch(`${baseUrl}${endpoint}`, {
@@ -682,7 +741,7 @@ export default function OutreachPage() {
       setMessage(data.message || `Successfully cancelled ${data.cancelled_count || 0} pending outreach job(s).`);
       setShowCancelConfirmModal(false);
       await loadData();
-      await loadPreview(page, selectedCandidateFilter);
+      await loadPreview(page, selectedCandidateFilters);
     } catch (err) {
       setError(err.message || 'Failed to cancel pending outreach jobs');
     } finally {
@@ -1106,23 +1165,27 @@ export default function OutreachPage() {
               </div>
             )}
 
-            {/* CANDIDATE SUMMARY CHIPS */}
+            {/* CANDIDATE SUMMARY CHIPS (PERSISTENT SIDE-BY-SIDE MULTI-SELECT) */}
             {Array.isArray(previewData?.candidate_summaries) && previewData.candidate_summaries.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>Filter Candidate:</span>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginRight: '4px' }}>
+                  Filter Candidates ({selectedCandidateFilters.length > 0 ? `${selectedCandidateFilters.length} Selected` : 'All'}):
+                </span>
                 <button
                   type="button"
                   onClick={() => handleCandidateFilter(null)}
                   style={{
-                    padding: '4px 10px',
+                    padding: '5px 12px',
                     borderRadius: '6px',
-                    backgroundColor: selectedCandidateFilter === null ? '#4f46e5' : '#ffffff',
-                    color: selectedCandidateFilter === null ? '#ffffff' : '#334155',
+                    backgroundColor: selectedCandidateFilters.length === 0 ? '#2563eb' : '#ffffff',
+                    color: selectedCandidateFilters.length === 0 ? '#ffffff' : '#334155',
                     border: '1px solid',
-                    borderColor: selectedCandidateFilter === null ? '#4f46e5' : '#cbd5e1',
+                    borderColor: selectedCandidateFilters.length === 0 ? '#2563eb' : '#cbd5e1',
                     fontSize: '12px',
-                    fontWeight: '500',
+                    fontWeight: selectedCandidateFilters.length === 0 ? '600' : '500',
                     cursor: 'pointer',
+                    boxShadow: selectedCandidateFilters.length === 0 ? '0 1px 2px rgba(37, 99, 235, 0.2)' : 'none',
+                    transition: 'all 0.15s ease',
                   }}
                 >
                   All Candidates
@@ -1130,31 +1193,321 @@ export default function OutreachPage() {
                 {previewData.candidate_summaries.map((s, idx) => {
                   if (!s) return null;
                   const currentSelectedCount = getCandidateSelectedCount(s.candidate_id);
-                  const isSelectedFilter = selectedCandidateFilter === s.candidate_id;
+                  const isSelectedFilter = selectedCandidateFilters.includes(s.candidate_id);
                   return (
                     <button
                       key={idx}
                       type="button"
                       onClick={() => handleCandidateFilter(s.candidate_id)}
                       style={{
-                        padding: '4px 10px',
+                        padding: '5px 12px',
                         borderRadius: '6px',
-                        backgroundColor: isSelectedFilter ? '#4f46e5' : '#ffffff',
+                        backgroundColor: isSelectedFilter ? '#2563eb' : '#ffffff',
                         color: isSelectedFilter ? '#ffffff' : '#334155',
                         border: '1px solid',
-                        borderColor: isSelectedFilter ? '#4f46e5' : '#cbd5e1',
+                        borderColor: isSelectedFilter ? '#2563eb' : '#cbd5e1',
                         fontSize: '12px',
-                        fontWeight: '500',
+                        fontWeight: isSelectedFilter ? '600' : '500',
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '6px',
+                        boxShadow: isSelectedFilter ? '0 1px 2px rgba(37, 99, 235, 0.2)' : 'none',
+                        transition: 'all 0.15s ease',
                       }}
                     >
-                      <User size={13} /> {s.candidate_name} — <strong>{s.sent_today_count ?? 0}/{s.daily_limit ?? settings?.max_emails_per_candidate_per_day ?? 5} sent today</strong> | <strong>{currentSelectedCount}</strong> selected / {s.eligible_count ?? 0} eligible
+                      <User size={13} style={{ color: isSelectedFilter ? '#ffffff' : '#2563eb' }} />
+                      <span>{s.candidate_name}</span>
+                      <span style={{
+                        fontSize: '11px',
+                        opacity: 0.9,
+                        backgroundColor: isSelectedFilter ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        color: isSelectedFilter ? '#ffffff' : '#475569',
+                      }}>
+                        {s.sent_today_count ?? 0}/{s.daily_limit ?? settings?.max_emails_per_candidate_per_day ?? 5} sent
+                      </span>
+                      <span style={{
+                        fontSize: '11px',
+                        opacity: 0.9,
+                        backgroundColor: isSelectedFilter ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        color: isSelectedFilter ? '#ffffff' : '#475569',
+                      }}>
+                        {currentSelectedCount} sel / {s.eligible_count ?? 0} elig
+                      </span>
+                      {isSelectedFilter && (
+                        <span style={{ fontSize: '11px', marginLeft: '2px', opacity: 0.8 }}>✕</span>
+                      )}
                     </button>
                   );
                 })}
+                {selectedCandidateFilters.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleCandidateFilter(null)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      backgroundColor: '#fef2f2',
+                      color: '#dc2626',
+                      border: '1px solid #fca5a5',
+                      fontSize: '11.5px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      marginLeft: 'auto',
+                    }}
+                  >
+                    Reset Filter
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* CANDIDATE HIGHLIGHT SUMMARY CARD (Matching Design Mockup) */}
+            {selectedCandidateFilters.length > 0 && (() => {
+              const activeCandSummary = previewData?.candidate_summaries?.find(
+                (s) => s && selectedCandidateFilters.includes(s.candidate_id)
+              );
+              if (!activeCandSummary) return null;
+
+              const initials = activeCandSummary.candidate_name
+                ? activeCandSummary.candidate_name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()
+                : 'CN';
+
+              const lastOutreachStr = activeCandSummary.last_sent_at
+                ? new Date(activeCandSummary.last_sent_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+                : 'No recent outreach';
+
+              return (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1.6fr 1fr 1fr 1fr 1.6fr',
+                  gap: '16px',
+                  alignItems: 'center',
+                  padding: '16px 20px',
+                  backgroundColor: '#f0f7ff',
+                  borderRadius: '12px',
+                  border: '1px solid #bfdbfe',
+                  marginBottom: '20px',
+                  boxShadow: '0 2px 4px rgba(37, 99, 235, 0.04)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{
+                      width: '46px',
+                      height: '46px',
+                      borderRadius: '50%',
+                      backgroundColor: '#2563eb',
+                      color: '#ffffff',
+                      fontWeight: 700,
+                      fontSize: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      boxShadow: '0 2px 6px rgba(37, 99, 235, 0.25)',
+                    }}>
+                      {initials}
+                    </div>
+                    <div>
+                      <strong style={{ fontSize: '15px', color: '#0f172a', display: 'block', fontWeight: 700 }}>
+                        {activeCandSummary.candidate_name}
+                      </strong>
+                      <span style={{ fontSize: '12.5px', color: '#475569' }}>
+                        {activeCandSummary.candidate_email || 'No email registered'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ borderLeft: '1px solid #dbeafe', paddingLeft: '16px' }}>
+                    <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block', fontWeight: 500 }}>Total Applications</span>
+                    <strong style={{ fontSize: '18px', color: '#0f172a', fontWeight: 700 }}>
+                      {activeCandSummary.eligible_count ?? 0}
+                    </strong>
+                  </div>
+
+                  <div style={{ borderLeft: '1px solid #dbeafe', paddingLeft: '16px' }}>
+                    <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block', fontWeight: 500 }}>Emails Sent</span>
+                    <strong style={{ fontSize: '18px', color: '#16a34a', fontWeight: 700 }}>
+                      {activeCandSummary.emails_sent_count ?? activeCandSummary.sent_today_count ?? 0}
+                    </strong>
+                  </div>
+
+                  <div style={{ borderLeft: '1px solid #dbeafe', paddingLeft: '16px' }}>
+                    <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block', fontWeight: 500 }}>Responses</span>
+                    <strong style={{ fontSize: '18px', color: '#2563eb', fontWeight: 700 }}>
+                      0
+                    </strong>
+                  </div>
+
+                  <div style={{ borderLeft: '1px solid #dbeafe', paddingLeft: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block', fontWeight: 500 }}>Last Outreach</span>
+                    <strong style={{ fontSize: '13px', color: '#1e293b', fontWeight: 600, marginBottom: '4px' }}>
+                      {lastOutreachStr}
+                    </strong>
+                    <a
+                      href="/candidates"
+                      style={{ fontSize: '12px', color: '#2563eb', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      View in Real Candidates ↗
+                    </a>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ACTIVE & RECENT OUTREACH BATCHES CARD (Matching Mockup Table Design) */}
+            {Array.isArray(batches) && batches.length > 0 && (
+              <div style={{
+                marginBottom: '24px',
+                padding: '20px',
+                backgroundColor: '#ffffff',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Layers size={20} style={{ color: '#2563eb' }} /> Outreach Batches
+                    </h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+                      Track your automated outreach campaigns. Each batch runs independently and updates progress in real time.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={fetchBatches}
+                    disabled={loadingBatches}
+                    className="secondary-button"
+                    style={{ padding: '6px 14px', fontSize: '12.5px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <RefreshCw size={14} className={loadingBatches ? 'spin' : ''} />
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="outreach-table-wrapper">
+                  <table className="outreach-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: '40px', textAlign: 'center' }}>#</th>
+                        <th style={{ width: '22%' }}>Batch Name</th>
+                        <th style={{ width: '16%' }}>Created At</th>
+                        <th style={{ width: '9%' }}>Candidates</th>
+                        <th style={{ width: '9%' }}>Total Emails</th>
+                        <th style={{ width: '7%' }}>Sent</th>
+                        <th style={{ width: '7%' }}>Pending</th>
+                        <th style={{ width: '7%' }}>Failed</th>
+                        <th style={{ width: '7%' }}>Skipped</th>
+                        <th style={{ width: '14%' }}>Progress</th>
+                        <th style={{ width: '10%' }}>Status</th>
+                        <th style={{ width: '9%', textAlign: 'center' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {batches.slice(0, 10).map((batch, index) => {
+                        const total = batch.total_jobs || 1;
+                        const percent = Math.min(100, Math.round(((batch.sent_count || 0) / total) * 100));
+                        const isRunning = batch.status === 'processing' || batch.status === 'pending' || batch.status === 'running' || (batch.pending_count > 0);
+
+                        let statusBadge = (
+                          <span className="visa-badge" style={{ backgroundColor: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', fontWeight: '600' }}>
+                            ✓ Completed
+                          </span>
+                        );
+
+                        if (isRunning) {
+                          statusBadge = (
+                            <span className="visa-badge" style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontWeight: '600' }}>
+                              <span className="spin" style={{ display: 'inline-block', marginRight: '4px' }}>⚙️</span> Processing
+                            </span>
+                          );
+                        } else if (batch.status === 'cancelled') {
+                          statusBadge = (
+                            <span className="visa-badge" style={{ backgroundColor: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', fontWeight: '600' }}>
+                              ✕ Cancelled
+                            </span>
+                          );
+                        }
+
+                        return (
+                          <tr key={batch.batch_id || index}>
+                            <td style={{ textAlign: 'center', fontWeight: 600, color: '#64748b' }}>{index + 1}</td>
+                            <td>
+                              <strong style={{ color: '#0f172a', fontSize: '13.5px' }}>{batch.batch_name}</strong>
+                            </td>
+                            <td style={{ fontSize: '12.5px', color: '#64748b' }}>
+                              {batch.created_at ? new Date(batch.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'N/A'}
+                            </td>
+                            <td style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                              {batch.candidate_count ?? 1}
+                            </td>
+                            <td style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                              {batch.total_jobs ?? 0}
+                            </td>
+                            <td style={{ fontSize: '13px', fontWeight: 700, color: '#16a34a' }}>
+                              {batch.sent_count ?? 0}
+                            </td>
+                            <td style={{ fontSize: '13px', fontWeight: 600, color: '#1d4ed8' }}>
+                              {batch.pending_count ?? 0}
+                            </td>
+                            <td style={{ fontSize: '13px', fontWeight: 600, color: batch.failed_count > 0 ? '#dc2626' : '#64748b' }}>
+                              {batch.failed_count ?? 0}
+                            </td>
+                            <td style={{ fontSize: '13px', color: '#64748b' }}>
+                              {batch.skipped_count ?? 0}
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ flex: 1, height: '6px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                                  <div style={{
+                                    height: '100%',
+                                    width: `${percent}%`,
+                                    backgroundColor: batch.status === 'completed' ? '#10b981' : isRunning ? '#3b82f6' : '#f59e0b',
+                                    transition: 'width 0.3s ease',
+                                  }} />
+                                </div>
+                                <span style={{ fontSize: '11.5px', fontWeight: 600, color: '#475569', minWidth: '28px' }}>
+                                  {percent}%
+                                </span>
+                              </div>
+                            </td>
+                            <td>{statusBadge}</td>
+                            <td style={{ textAlign: 'center' }}>
+                              {isRunning ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelBatch(batch.batch_id)}
+                                  style={{
+                                    padding: '4px 10px',
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                    color: '#dc2626',
+                                    backgroundColor: '#fef2f2',
+                                    border: '1px solid #fca5a5',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                  }}
+                                  title="Cancel remaining pending jobs for this batch"
+                                >
+                                  <StopCircle size={12} /> Cancel
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: '12px', color: '#94a3b8' }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 

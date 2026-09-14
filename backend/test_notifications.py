@@ -159,22 +159,22 @@ def test_notifications_full_flow(db):
         logs = db.scalars(select(EmailLog).where(EmailLog.direction == "incoming")).all()
         notifs = db.scalars(select(Notification)).all()
 
-        # All incoming emails imported without discarding missing employers (Requirement 11)
-        assert len(logs) == 3
-        assert len(notifs) == 3
+        # Only incoming emails for registered employers create Notification and incoming EmailLog
+        assert len(logs) == 2
+        assert len(notifs) == 2
 
         # Verify incoming EmailLogs fields
         l1 = logs[0]
         assert l1.direction == "incoming"
         assert l1.status == "received"
-        assert l1.gmail_message_id in ["reply_msg_101", "reply_msg_102", "unrelated_msg_201"]
+        assert l1.gmail_message_id in ["reply_msg_101", "reply_msg_102"]
 
         # Test 4: Notification starts unread (is_read == False)
         for n in notifs:
             assert n.is_read is False
 
         unread_count = db.scalar(select(func.count(Notification.id)).where(Notification.is_read.is_(False)))
-        assert unread_count == 3
+        assert unread_count == 2
 
         # Test 3: Re-syncing same Gmail message creates NO duplicates
         res_sync_2 = sync_incoming_replies(db)
@@ -182,7 +182,7 @@ def test_notifications_full_flow(db):
         assert res_sync_2["new_notifications"] == 0
 
         notifs_after = db.scalars(select(Notification)).all()
-        assert len(notifs_after) == 3
+        assert len(notifs_after) == 2
 
         # Test 5 & Test 6: Mark one notification read -> unread count decreases
         n1 = notifs[0]
@@ -190,7 +190,7 @@ def test_notifications_full_flow(db):
         db.commit()
 
         unread_count_after_1 = db.scalar(select(func.count(Notification.id)).where(Notification.is_read.is_(False)))
-        assert unread_count_after_1 == 2
+        assert unread_count_after_1 == 1
 
         # Test 7: Mark all read -> unread count becomes 0
         for n in notifs:

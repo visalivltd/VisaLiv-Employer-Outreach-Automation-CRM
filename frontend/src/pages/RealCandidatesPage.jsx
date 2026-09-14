@@ -110,6 +110,108 @@ export default function RealCandidatesPage() {
 
   const [sendingSummaries, setSendingSummaries] = useState(false);
 
+  // Email History Modal State
+  const [historyCand, setHistoryCand] = useState(null);
+  const [historyLogs, setHistoryLogs] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Custom Summary Edit & Send Modal State
+  const [customModalCand, setCustomModalCand] = useState(null);
+  const [customSubject, setCustomSubject] = useState('');
+  const [customBody, setCustomBody] = useState('');
+  const [customEmployers, setCustomEmployers] = useState([]);
+  const [newEmployerInput, setNewEmployerInput] = useState('');
+  const [sendingCustom, setSendingCustom] = useState(false);
+
+  const handleViewHistory = async (rc) => {
+    try {
+      setHistoryCand(rc);
+      setLoadingHistory(true);
+      setHistoryLogs([]);
+      const res = await fetch(`${API_URL}/real-candidates/${rc.id}/email-history`);
+      if (res.ok) {
+        const logs = await res.json();
+        setHistoryLogs(logs);
+      } else {
+        setError('Failed to fetch candidate email history');
+      }
+    } catch (err) {
+      console.error('History fetch error:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleOpenCustomSend = async (rc) => {
+    try {
+      setCustomModalCand(rc);
+      setCustomSubject(`Application Update — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`);
+      setCustomBody('');
+      setCustomEmployers([]);
+      setLoadingPreview(true);
+
+      const res = await fetch(`${API_URL}/real-candidates/${rc.id}/preview-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCustomSubject(data.subject || `Application Update — ${rc.name}`);
+        setCustomBody(data.body || '');
+        setCustomEmployers(data.employers_list || []);
+      }
+    } catch (err) {
+      console.error('Preview fetch error:', err);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const handleSendCustomSummary = async () => {
+    if (!customModalCand) return;
+    try {
+      setSendingCustom(true);
+      const res = await fetch(`${API_URL}/real-candidates/${customModalCand.id}/send-custom-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: customSubject,
+          body: customBody,
+          employers: customEmployers,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.sent) {
+        setSuccess(`Application update email sent successfully to ${customModalCand.name} (${customModalCand.email})!`);
+        setCustomModalCand(null);
+        setTimeout(() => setSuccess(''), 5000);
+      } else {
+        setError(data.reason || 'Failed to send custom summary email');
+      }
+    } catch (err) {
+      console.error('Send custom summary error:', err);
+      setError(err.message || 'Error sending custom summary email');
+    } finally {
+      setSendingCustom(false);
+    }
+  };
+
+  const handleToggleEmployer = (empName) => {
+    setCustomEmployers((prev) =>
+      prev.includes(empName) ? prev.filter((e) => e !== empName) : [...prev, empName]
+    );
+  };
+
+  const handleAddCustomEmployer = () => {
+    if (!newEmployerInput.trim()) return;
+    if (!customEmployers.includes(newEmployerInput.trim())) {
+      setCustomEmployers((prev) => [...prev, newEmployerInput.trim()]);
+    }
+    setNewEmployerInput('');
+  };
+
+
   const headerCheckboxRef = useRef(null);
 
   const fetchRealCandidates = async () => {
@@ -773,30 +875,45 @@ export default function RealCandidatesPage() {
                     </td>
 
                     <td style={{ padding: '14px 16px' }}>
-                      <div style={{ display: 'flex', gap: '8px' }}>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        <button
+                          onClick={() => handleOpenCustomSend(rc)}
+                          title="Preview, Edit & Send Summary Email"
+                          style={{ background: '#2563eb', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12.5px', fontWeight: '600' }}
+                        >
+                          <Send size={13} /> Send Update
+                        </button>
+                        <button
+                          onClick={() => handleViewHistory(rc)}
+                          title="View Past Email History"
+                          style={{ background: 'none', border: '1px solid #cbd5e1', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12.5px', fontWeight: '500' }}
+                        >
+                          <FileText size={13} /> History
+                        </button>
                         <button
                           onClick={() => handlePreviewSummary(rc)}
                           title="Preview Summary"
-                          style={{ background: 'none', border: '1px solid #cbd5e1', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#0284c7', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
+                          style={{ background: 'none', border: '1px solid #cbd5e1', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#0284c7', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12.5px' }}
                         >
-                          <Eye size={15} /> Preview
+                          <Eye size={13} /> Preview
                         </button>
                         <button
                           onClick={() => openEditModal(rc)}
                           title="Edit Real Candidate"
-                          style={{ background: 'none', border: '1px solid #cbd5e1', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#334155', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
+                          style={{ background: 'none', border: '1px solid #cbd5e1', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#334155', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12.5px' }}
                         >
-                          <Edit2 size={15} /> Edit
+                          <Edit2 size={13} /> Edit
                         </button>
                         <button
                           onClick={() => setDeletingRealCand(rc)}
                           title="Delete Real Candidate"
-                          style={{ background: 'none', border: '1px solid #fca5a5', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}
+                          style={{ background: 'none', border: '1px solid #fca5a5', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12.5px' }}
                         >
-                          <Trash2 size={15} /> Delete
+                          <Trash2 size={13} /> Delete
                         </button>
                       </div>
                     </td>
+
                   </tr>
                 );
               })
@@ -1130,6 +1247,165 @@ export default function RealCandidatesPage() {
           </div>
         </div>
       )}
+      {/* Email History Modal */}
+      {historyCand && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div style={{ backgroundColor: '#ffffff', borderRadius: '12px', width: '100%', maxWidth: '750px', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FileText size={20} color="#2563eb" /> Sent Email History
+                </h3>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>
+                  {historyCand.name} ({historyCand.email})
+                </span>
+              </div>
+              <button onClick={() => setHistoryCand(null)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {loadingHistory ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>Loading past email logs...</div>
+            ) : historyLogs.length === 0 ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic', fontSize: '14px' }}>
+                No past application update emails found for this candidate.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {historyLogs.map((log) => (
+                  <div key={log.id} style={{ border: '1px solid #cbd5e1', borderRadius: '8px', padding: '14px', backgroundColor: '#f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontWeight: '700', color: '#0f172a', fontSize: '14px' }}>{log.subject}</span>
+                      <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '500' }}>
+                        {log.sent_at ? new Date(log.sent_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : 'Unknown Date'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '12.5px', color: '#475569', backgroundColor: '#ffffff', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', whiteSpace: 'pre-wrap', maxHeight: '150px', overflowY: 'auto' }}>
+                      {log.snippet || log.body?.substring(0, 300) || 'Sent update email.'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button
+                type="button"
+                onClick={() => setHistoryCand(null)}
+                style={{ padding: '8px 18px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#334155', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}
+              >
+                Close History
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Summary Edit & Send Modal */}
+      {customModalCand && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div style={{ backgroundColor: '#ffffff', borderRadius: '12px', width: '100%', maxWidth: '750px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Send size={20} color="#2563eb" /> Send Custom Application Update Email
+                </h3>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>
+                  To: {customModalCand.name} ({customModalCand.email})
+                </span>
+              </div>
+              <button onClick={() => setCustomModalCand(null)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                Subject Line
+              </label>
+              <input
+                type="text"
+                value={customSubject}
+                onChange={(e) => setCustomSubject(e.target.value)}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
+                Employers List ({customEmployers.length}) — Check/Uncheck to Customize
+              </label>
+              <div style={{ border: '1px solid #cbd5e1', borderRadius: '6px', padding: '10px', maxHeight: '120px', overflowY: 'auto', backgroundColor: '#f8fafc', marginBottom: '8px' }}>
+                {customEmployers.length === 0 ? (
+                  <span style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>No employers added. Type below to add.</span>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {customEmployers.map((emp) => (
+                      <span key={emp} style={{ backgroundColor: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '500', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        {emp}
+                        <button onClick={() => handleToggleEmployer(emp)} style={{ background: 'none', border: 'none', color: '#1e40af', cursor: 'pointer', padding: 0 }}>
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  placeholder="Add another employer name..."
+                  value={newEmployerInput}
+                  onChange={(e) => setNewEmployerInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddCustomEmployer())}
+                  style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px', outline: 'none' }}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCustomEmployer}
+                  style={{ padding: '6px 12px', backgroundColor: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  + Add Employer
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                Email Content / Body
+              </label>
+              <textarea
+                rows={8}
+                value={customBody}
+                onChange={(e) => setCustomBody(e.target.value)}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none', boxSizing: 'border-box', fontFamily: 'monospace' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+              <button
+                type="button"
+                onClick={() => setCustomModalCand(null)}
+                disabled={sendingCustom}
+                style={{ padding: '9px 16px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#334155', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSendCustomSummary}
+                disabled={sendingCustom}
+                style={{ padding: '9px 18px', borderRadius: '6px', border: 'none', backgroundColor: '#2563eb', color: '#ffffff', fontWeight: '600', cursor: sendingCustom ? 'not-allowed' : 'pointer', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: sendingCustom ? 0.7 : 1 }}
+              >
+                <Send size={14} />
+                {sendingCustom ? 'Sending Update Email...' : 'Send Update Email Now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

@@ -181,32 +181,83 @@ def get_todays_applications_for_real_candidate(
     return list(db.scalars(statement).all())
 
 
+def get_real_candidate_email_history(
+    db: Session,
+    real_candidate_pk: int,
+) -> list[dict]:
+    real_cand = real_candidate_repository.get_real_candidate_by_id(db, real_candidate_pk)
+    if not real_cand:
+        return []
+
+    linked_cand_ids = [c.id for c in real_cand.candidates] if real_cand.candidates else []
+    if not linked_cand_ids:
+        return []
+
+    logs = list(
+        db.scalars(
+            select(EmailLog)
+            .where(
+                EmailLog.candidate_id.in_(linked_cand_ids),
+                EmailLog.direction == "outgoing",
+                EmailLog.status == "sent",
+                EmailLog.subject.startswith("Application Update"),
+            )
+            .order_by(EmailLog.sent_at.desc())
+        ).all()
+    )
+
+    history = []
+    for log in logs:
+        # Extract employer count or names from body snippet if present
+        history.append({
+            "id": log.id,
+            "sent_at": log.sent_at.isoformat() if log.sent_at else None,
+            "subject": log.subject,
+            "body": log.body,
+            "snippet": log.snippet,
+            "gmail_message_id": log.gmail_message_id,
+            "status": log.status,
+        })
+    return history
+
+
 def generate_summary_content(
     real_candidate: RealCandidate,
     target_date: date | None = None,
     applications: list[EmailLog] | None = None,
     custom_subject: str | None = None,
     custom_body: str | None = None,
+    automation_start_time: datetime | None = None,
+    employer_names_override: list[str] | None = None,
 ) -> tuple[str, str, list[str]]:
-    if target_date is None:
-        india_tz = timezone(timedelta(hours=5, minutes=30))
-        target_date = datetime.now(india_tz).date()
+    india_tz = timezone(timedelta(hours=5, minutes=30))
 
-    formatted_date = target_date.strftime("%d %B %Y")
+    if automation_start_time:
+        if automation_start_time.tzinfo is None:
+            automation_start_time = automation_start_time.replace(tzinfo=timezone.utc)
+        ist_start = automation_start_time.astimezone(india_tz)
+        formatted_date = ist_start.strftime("%d %B %Y, %I:%M %p IST")
+    elif target_date:
+        formatted_date = target_date.strftime("%d %B %Y")
+    else:
+        formatted_date = datetime.now(india_tz).strftime("%d %B %Y, %I:%M %p IST")
 
-    # Collect unique employer names applied to today
-    seen_employers = set()
-    employer_names = []
-    if applications:
-        for app_log in applications:
-            if app_log.employer:
-                emp_name = app_log.employer.service_name or app_log.employer.email or "Employer"
-            else:
-                emp_name = f"Employer #{app_log.employer_id}"
+    # Collect unique employer names applied to
+    if employer_names_override is not None:
+        employer_names = employer_names_override
+    else:
+        seen_employers = set()
+        employer_names = []
+        if applications:
+            for app_log in applications:
+                if app_log.employer:
+                    emp_name = app_log.employer.service_name or app_log.employer.email or "Employer"
+                else:
+                    emp_name = f"Employer #{app_log.employer_id}"
 
-            if emp_name not in seen_employers:
-                seen_employers.add(emp_name)
-                employer_names.append(emp_name)
+                if emp_name not in seen_employers:
+                    seen_employers.add(emp_name)
+                    employer_names.append(emp_name)
 
     bullet_list = "\n".join([f"• {emp}" for emp in employer_names]) if employer_names else "• None"
     employer_cards_html = _render_employer_cards(employer_names)
@@ -325,6 +376,7 @@ def send_daily_summary_for_real_candidate(
     real_candidate_pk: int,
     target_date: date | None = None,
     force: bool = False,
+    automation_start_time: datetime | None = None,
 ) -> dict:
     real_cand = real_candidate_repository.get_real_candidate_by_id(db, real_candidate_pk)
     if real_cand is None:
@@ -337,15 +389,15 @@ def send_daily_summary_for_real_candidate(
     if target_date is None:
         target_date = datetime.now(india_tz).date()
 
-    # 1. Idempotency Check
-    if not force and is_summary_already_sent_today(db, real_cand, target_date):
+    # 1. Idempotency Check (Only if not forced and not an instant automation trigger)
+    if not force and not automation_start_time and is_summary_already_sent_today(db, real_cand, target_date):
         return {
             "success": True,
             "sent": False,
             "reason": f"Daily summary already sent today ({target_date.strftime('%Y-%m-%d')}) for {real_cand.name}",
         }
 
-    # 2. Get applications sent today
+    # 2. Get applications sent today or during this automation session
     applications = get_todays_applications_for_real_candidate(db, real_cand, target_date)
     if not applications and not force:
         return {
@@ -357,8 +409,13 @@ def send_daily_summary_for_real_candidate(
     # 3. Resolve Gmail sender (support@visaliv.com)
     sender_account = resolve_summary_gmail_sender(db, real_cand)
 
-    # 4. Generate rendered content
-    subject, body, employer_names = generate_summary_content(real_cand, target_date, applications)
+    # 4. Generate rendered content with automation start time if present
+    subject, body, employer_names = generate_summary_content(
+        real_candidate=real_cand,
+        target_date=target_date,
+        applications=applications,
+        automation_start_time=automation_start_time,
+    )
 
     # 5. Send via GmailService
     gmail_service = GmailService(refresh_token=sender_account.refresh_token)
@@ -400,11 +457,72 @@ def send_daily_summary_for_real_candidate(
     }
 
 
+def send_custom_summary_for_real_candidate(
+    db: Session,
+    real_candidate_pk: int,
+    custom_subject: str,
+    custom_body: str,
+    employer_names_override: list[str] | None = None,
+) -> dict:
+    real_cand = real_candidate_repository.get_real_candidate_by_id(db, real_candidate_pk)
+    if real_cand is None:
+        raise ValueError("Real Candidate not found")
+
+    if not real_cand.email or not real_cand.email.strip():
+        return {"success": False, "sent": False, "reason": "Real Candidate has no email address configured"}
+
+    sender_account = resolve_summary_gmail_sender(db, real_cand)
+
+    subject, body, employer_names = generate_summary_content(
+        real_candidate=real_cand,
+        custom_subject=custom_subject,
+        custom_body=custom_body,
+        employer_names_override=employer_names_override,
+    )
+
+    gmail_service = GmailService(refresh_token=sender_account.refresh_token)
+    msg_id = gmail_service.send_email(
+        to_email=real_cand.email.strip(),
+        subject=subject,
+        body=body,
+        sender_email=sender_account.gmail_email,
+        is_html=True,
+    )
+
+    cand_id = real_cand.candidates[0].id if real_cand.candidates else 1
+
+    summary_log = EmailLog(
+        candidate_id=cand_id,
+        employer_id=1,
+        gmail_account_id=sender_account.id,
+        subject=subject,
+        body=body,
+        snippet=body[:150] if body else "",
+        status="sent",
+        direction="outgoing",
+        sent_at=datetime.now(timezone.utc),
+        gmail_message_id=msg_id,
+    )
+    db.add(summary_log)
+    db.commit()
+
+    return {
+        "success": True,
+        "sent": True,
+        "recipient": real_cand.email,
+        "sender": sender_account.gmail_email,
+        "applications_count": len(employer_names),
+        "employers": employer_names,
+        "gmail_message_id": msg_id,
+    }
+
+
 def send_all_daily_summaries(
     db: Session,
     target_date: date | None = None,
     real_candidate_ids: list[int] | None = None,
     force: bool = False,
+    automation_start_time: datetime | None = None,
 ) -> dict:
     all_cands = real_candidate_repository.get_real_candidates(db)
     if real_candidate_ids:
@@ -419,7 +537,13 @@ def send_all_daily_summaries(
 
     for real_cand in real_cands:
         try:
-            res = send_daily_summary_for_real_candidate(db, real_cand.id, target_date=target_date, force=force)
+            res = send_daily_summary_for_real_candidate(
+                db=db,
+                real_candidate_pk=real_cand.id,
+                target_date=target_date,
+                force=force,
+                automation_start_time=automation_start_time,
+            )
             if res.get("sent"):
                 sent_count += 1
             else:
@@ -436,3 +560,4 @@ def send_all_daily_summaries(
         "skipped_count": skipped_count,
         "details": results,
     }
+
