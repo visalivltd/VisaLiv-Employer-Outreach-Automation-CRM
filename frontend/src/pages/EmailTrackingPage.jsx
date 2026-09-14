@@ -76,19 +76,24 @@ const formatEmailBody = (rawBody) => {
   if (!rawBody) return '';
   let str = String(rawBody);
 
-  // Detect if body is already HTML (contains html tags)
-  const isHtml = /<[a-z][\s\S]*>/i.test(str);
+  // Detect if body contains complex rich HTML (tables, images, buttons, styles)
+  const isRichHtml = /<(table|img|iframe|style|svg|button|form|header|footer)[^>]*>/i.test(str);
 
-  if (isHtml) {
+  if (isRichHtml) {
     return str;
   }
 
-  // Plain text email: auto-link URLs and replace newlines with <br/>
+  // Regular email: auto-link URLs and ensure newlines \n are converted to <br/>
   const urlRegex = /(https?:\/\/[^\s<]+)/g;
-  const withLinks = str.replace(urlRegex, (url) => {
+  let formatted = str.replace(urlRegex, (url) => {
     return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; word-break: break-all; text-decoration: underline;">${url}</a>`;
   });
-  return withLinks.replace(/\n/g, '<br/>');
+
+  if (!/<br\s*\/?>/i.test(formatted)) {
+    formatted = formatted.replace(/\n/g, '<br/>');
+  }
+
+  return formatted;
 };
 
 export default function EmailTrackingPage() {
