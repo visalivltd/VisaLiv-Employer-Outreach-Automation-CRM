@@ -72,6 +72,25 @@ const headerTagStyle = (bg, color) => ({
   fontWeight: 700,
 });
 
+const formatEmailBody = (rawBody) => {
+  if (!rawBody) return '';
+  let str = String(rawBody);
+
+  // Detect if body is already HTML (contains html tags)
+  const isHtml = /<[a-z][\s\S]*>/i.test(str);
+
+  if (isHtml) {
+    return str;
+  }
+
+  // Plain text email: auto-link URLs and replace newlines with <br/>
+  const urlRegex = /(https?:\/\/[^\s<]+)/g;
+  const withLinks = str.replace(urlRegex, (url) => {
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; word-break: break-all; text-decoration: underline;">${url}</a>`;
+  });
+  return withLinks.replace(/\n/g, '<br/>');
+};
+
 export default function EmailTrackingPage() {
   const navigate = useNavigate();
 
@@ -1326,9 +1345,9 @@ export default function EmailTrackingPage() {
                 </div>
 
                 {/* Email Content Body */}
-                <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: '1.6', marginBottom: '24px' }}>
+                <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: '1.6', marginBottom: '24px', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                   {selectedConversation.latestMessage?.body ? (
-                    <div dangerouslySetInnerHTML={{ __html: selectedConversation.latestMessage.body.replace(/\n/g, '<br/>') }} />
+                    <div dangerouslySetInnerHTML={{ __html: formatEmailBody(selectedConversation.latestMessage.body) }} />
                   ) : (
                     <div>
                       <p>Dear Candidate,</p>
@@ -1340,25 +1359,45 @@ export default function EmailTrackingPage() {
                   )}
                 </div>
 
-                {/* Attachments Box */}
-                <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #f1f5f9' }}>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '10px' }}>
-                    Attachments (1)
-                  </div>
+                {/* Attachments Box (Only if real attachments exist) */}
+                {(() => {
+                  const msg = selectedConversation.latestMessage;
+                  const rawAtts = (msg && msg.attachments) || (msg && msg.attachment_paths) || [];
+                  const attachments = Array.isArray(rawAtts) ? rawAtts : [];
 
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '10px' }}>
-                      PDF
+                  if (!attachments || attachments.length === 0) return null;
+
+                  return (
+                    <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #f1f5f9' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '10px' }}>
+                        Attachments ({attachments.length})
+                      </div>
+
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                        {attachments.map((att, idx) => {
+                          const fileName = typeof att === 'string' ? att : att.filename || att.name || 'Attachment.pdf';
+                          const isPdf = fileName.toLowerCase().endsWith('.pdf');
+                          return (
+                            <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc' }}>
+                              <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: isPdf ? '#fee2e2' : '#dbeafe', color: isPdf ? '#dc2626' : '#1d4ed8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '10px' }}>
+                                {isPdf ? 'PDF' : 'FILE'}
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{fileName}</div>
+                                <div style={{ fontSize: '11px', color: '#94a3b8' }}>{att.size || 'Attachment'}</div>
+                              </div>
+                              {att.url && (
+                                <a href={att.url} download={fileName} target="_blank" rel="noopener noreferrer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#475569', marginLeft: '12px', display: 'inline-flex', alignItems: 'center' }}>
+                                  <Download size={16} />
+                                </a>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <div>
-                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>Job_Description.pdf</div>
-                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>245 KB</div>
-                    </div>
-                    <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#475569', marginLeft: '12px' }}>
-                      <Download size={16} />
-                    </button>
-                  </div>
-                </div>
+                  );
+                })()}
               </div>
 
               {/* Bottom Gmail-Style Rich Composer Pane */}

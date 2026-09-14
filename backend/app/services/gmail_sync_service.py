@@ -31,49 +31,47 @@ def extract_email_address(header_value: str | None) -> str:
 
 
 def extract_body_from_gmail_payload(payload: dict) -> str:
-    """Recursively extracts plain text (or html fallback) body from Gmail API payload."""
+    """Recursively extracts html (or plain text fallback) body from Gmail API payload."""
     if not payload:
         return ""
 
+    body_html = ""
     body_text = ""
 
     def _parse_parts(parts):
-        nonlocal body_text
+        nonlocal body_html, body_text
         for part in parts:
             mime_type = part.get("mimeType", "")
             data = part.get("body", {}).get("data")
-            if mime_type == "text/plain" and data:
+            if data:
                 try:
-                    body_text = base64.urlsafe_b64decode(data.encode("ASCII")).decode("utf-8", errors="replace")
-                    return True
+                    decoded = base64.urlsafe_b64decode(data.encode("ASCII")).decode("utf-8", errors="replace")
+                    if mime_type == "text/html" and not body_html:
+                        body_html = decoded
+                    elif mime_type == "text/plain" and not body_text:
+                        body_text = decoded
                 except Exception:
                     pass
-            elif part.get("parts"):
-                if _parse_parts(part.get("parts")):
-                    return True
-        return False
+            if part.get("parts"):
+                _parse_parts(part.get("parts"))
 
-    data = payload.get("body", {}).get("data")
     mime_type = payload.get("mimeType", "")
-    if mime_type == "text/plain" and data:
+    data = payload.get("body", {}).get("data")
+    if data:
         try:
-            return base64.urlsafe_b64decode(data.encode("ASCII")).decode("utf-8", errors="replace")
+            decoded = base64.urlsafe_b64decode(data.encode("ASCII")).decode("utf-8", errors="replace")
+            if mime_type == "text/html":
+                body_html = decoded
+            elif mime_type == "text/plain":
+                body_text = decoded
         except Exception:
             pass
 
     if payload.get("parts"):
         _parse_parts(payload.get("parts"))
 
-    if not body_text and payload.get("parts"):
-        for part in payload.get("parts"):
-            data = part.get("body", {}).get("data")
-            if data:
-                try:
-                    return base64.urlsafe_b64decode(data.encode("ASCII")).decode("utf-8", errors="replace")
-                except Exception:
-                    pass
+    return body_html or body_text
 
-    return body_text
 
 
 def sync_incoming_replies(db: Session) -> dict:

@@ -43,7 +43,7 @@ def get_employers(
     if active_only:
         statement = statement.where(Employer.is_active.is_(True))
     statement = statement.order_by(
-        Employer.import_order.asc().nullsfirst(),
+        Employer.import_order.asc().nullslast(),
         Employer.id.asc(),
     )
 
