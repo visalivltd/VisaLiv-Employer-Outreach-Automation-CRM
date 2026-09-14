@@ -480,12 +480,20 @@ class OutreachService:
             total_skipped += cand_skipped_count
 
             # Determine list of employers to evaluate:
-            # If only_eligible or filtering a specific candidate, skip contacted/cooldown employers automatically
+            # Efficient early-exit loop: Stop scanning as soon as page_size quota is filled
             if only_eligible or candidate_id is not None:
                 max_cand_limit = min(page_size, cand_remaining_quota) if (only_eligible and cand_remaining_quota > 0) else page_size
-                cand_employers = [
-                    emp for emp in all_active_employers if emp.id not in ineligible_set
-                ][start_offset : start_offset + max_cand_limit]
+                cand_employers = []
+                eligible_found_idx = 0
+                for emp in all_active_employers:
+                    if emp.id in ineligible_set:
+                        continue
+                    if eligible_found_idx < start_offset:
+                        eligible_found_idx += 1
+                        continue
+                    cand_employers.append(emp)
+                    if len(cand_employers) >= max_cand_limit:
+                        break
             else:
                 cand_employers = paginated_employers
 
