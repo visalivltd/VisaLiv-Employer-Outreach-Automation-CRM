@@ -196,8 +196,10 @@ class OutreachService:
             return EligibilityResult(False, ReasonCode.CANDIDATE_INACTIVE, "Candidate is inactive")
         if not candidate.gmail_account or not candidate.gmail_account.is_active:
             return EligibilityResult(False, ReasonCode.GMAIL_NOT_CONNECTED, "Gmail account not connected or inactive")
-        if not candidate.email_draft_id or not candidate.email_draft:
+        cand_draft = candidate.email_draft or (db.get(EmailDraft, candidate.email_draft_id) if candidate.email_draft_id else None)
+        if not cand_draft:
             return EligibilityResult(False, ReasonCode.DRAFT_MISSING, "Email draft not assigned to candidate")
+
 
         employer = db.get(Employer, employer_id)
         if employer is None:
@@ -654,15 +656,22 @@ class OutreachService:
         draft_obj = candidate.email_draft if candidate else None
         if candidate and not draft_obj and candidate.email_draft_id:
             draft_obj = db.get(EmailDraft, candidate.email_draft_id)
-        if candidate and not draft_obj:
-            draft_obj = db.scalars(select(EmailDraft).order_by(EmailDraft.id)).first()
+
+        cand_name = candidate.full_name if candidate else "Candidate"
+        if not draft_obj:
+            raise ValueError(f"Candidate '{cand_name}' has no assigned email draft. Email cannot be sent without draft.")
 
         draft_subj, draft_body = extract_draft_content(
             draft_obj,
-            candidate.full_name if candidate else "Candidate"
+            cand_name
         )
+
         final_subject = subject.strip() if subject and subject.strip() else draft_subj
         final_body = body.strip() if body and body.strip() else draft_body
+
+        if not final_body or not final_body.strip():
+            raise ValueError(f"Email draft content for Candidate '{cand_name}' is empty or unreadable. Email cannot be sent without valid draft.")
+
 
 
         attachment_paths = []
@@ -1073,8 +1082,10 @@ class OutreachService:
         jobs_to_add: list[OutreachJob] = []
 
         for cand in active_candidates:
-            if not cand.is_active or not cand.gmail_account or not cand.gmail_account.is_active or not cand.email_draft_id or not cand.email_draft:
+            cand_draft = cand.email_draft or (db.get(EmailDraft, cand.email_draft_id) if cand.email_draft_id else None)
+            if not cand.is_active or not cand.gmail_account or not cand.gmail_account.is_active or not cand.email_draft_id or not cand_draft:
                 continue
+
 
             actual_sent = sent_today_map.get(cand.id, 0)
             reserved_pending = pending_today_map.get(cand.id, 0)
