@@ -651,12 +651,19 @@ class OutreachService:
         if employer is None:
             raise ValueError("Employer does not exist")
 
+        draft_obj = candidate.email_draft if candidate else None
+        if candidate and not draft_obj and candidate.email_draft_id:
+            draft_obj = db.get(EmailDraft, candidate.email_draft_id)
+        if candidate and not draft_obj:
+            draft_obj = db.scalars(select(EmailDraft).order_by(EmailDraft.id)).first()
+
         draft_subj, draft_body = extract_draft_content(
-            candidate.email_draft if candidate else None,
+            draft_obj,
             candidate.full_name if candidate else "Candidate"
         )
         final_subject = subject.strip() if subject and subject.strip() else draft_subj
         final_body = body.strip() if body and body.strip() else draft_body
+
 
         attachment_paths = []
         if candidate and candidate.cv_file_path and candidate.cv_file_path.strip():

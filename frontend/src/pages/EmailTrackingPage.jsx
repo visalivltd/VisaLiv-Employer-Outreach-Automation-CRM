@@ -1020,6 +1020,47 @@ export default function EmailTrackingPage() {
             </button>
           </div>
 
+          {/* TOP HEADER DATE FILTER BAR */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '12px',
+            color: '#475569',
+            background: '#ffffff',
+            padding: '5px 12px',
+            borderRadius: '8px',
+            border: '1px solid #cbd5e1',
+          }}>
+            <Calendar size={14} color="#4f46e5" />
+            <span style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Date:</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              style={{ border: '1px solid #cbd5e1', borderRadius: '4px', padding: '3px 6px', fontSize: '11.5px', color: '#0f172a' }}
+              title="Start Date"
+            />
+            <span style={{ fontSize: '11px', color: '#64748b' }}>to</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              style={{ border: '1px solid #cbd5e1', borderRadius: '4px', padding: '3px 6px', fontSize: '11.5px', color: '#0f172a' }}
+              title="End Date"
+            />
+            {(startDate || endDate) && (
+              <button
+                type="button"
+                onClick={() => { setStartDate(''); setEndDate(''); }}
+                style={{ border: 'none', background: '#fef2f2', color: '#dc2626', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', marginLeft: '4px' }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+
           <button
             type="button"
             onClick={handleOpenCompose}
@@ -1263,37 +1304,8 @@ export default function EmailTrackingPage() {
                 </button>
               ))}
             </div>
-
-            {/* Date Range Picker Bar */}
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', backgroundColor: '#f8fafc', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-              <Calendar size={13} color="#4f46e5" />
-              <span style={{ fontSize: '11px', fontWeight: 600, color: '#334155' }}>Date:</span>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                style={{ border: '1px solid #cbd5e1', borderRadius: '4px', padding: '2px 4px', fontSize: '11px', color: '#0f172a' }}
-                title="Start Date"
-              />
-              <span style={{ fontSize: '11px', color: '#64748b' }}>to</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                style={{ border: '1px solid #cbd5e1', borderRadius: '4px', padding: '2px 4px', fontSize: '11px', color: '#0f172a' }}
-                title="End Date"
-              />
-              {(startDate || endDate) && (
-                <button
-                  type="button"
-                  onClick={() => { setStartDate(''); setEndDate(''); }}
-                  style={{ border: 'none', background: '#fef2f2', color: '#dc2626', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
-                >
-                  Clear Date
-                </button>
-              )}
-            </div>
           </div>
+
 
 
           {/* Email Cards List */}
