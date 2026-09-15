@@ -96,6 +96,36 @@ const formatEmailBody = (rawBody) => {
   return formatted;
 };
 
+const getInitials = (name) => {
+  if (!name) return 'CL';
+  const parts = String(name).trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+};
+
+const formatTimestamp = (dateVal) => {
+  if (!dateVal) return '-';
+  const d = dateVal instanceof Date ? dateVal : new Date(dateVal);
+  if (isNaN(d.getTime())) return '-';
+
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+
+  if (isToday) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } else {
+    return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+  }
+};
+
+const formatFullTimestamp = (dateVal) => {
+  if (!dateVal) return '-';
+  const d = dateVal instanceof Date ? dateVal : new Date(dateVal);
+  if (isNaN(d.getTime())) return '-';
+  return d.toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
+
+
 export default function EmailTrackingPage() {
   const navigate = useNavigate();
 
@@ -348,7 +378,7 @@ export default function EmailTrackingPage() {
 
     const list = Object.values(grouped).map((conv) => {
       conv.messages.sort(
-        (a, b) => new Date(a.created_at || a.sent_at) - new Date(b.created_at || b.sent_at)
+        (a, b) => new Date(a.sent_at || a.created_at) - new Date(b.sent_at || b.created_at)
       );
 
       const latestMessage = conv.messages[conv.messages.length - 1];
@@ -360,11 +390,12 @@ export default function EmailTrackingPage() {
         latestMessage,
         subject: cleanSubject,
         lastTimestamp: latestMessage
-          ? new Date(latestMessage.created_at || latestMessage.sent_at)
+          ? new Date(latestMessage.sent_at || latestMessage.created_at)
           : new Date(0),
         messageCount: conv.messages.length,
       };
     });
+
 
     return list;
   }, [logs, notifications]);
@@ -1043,6 +1074,39 @@ export default function EmailTrackingPage() {
 
           {/* Candidates Accordion List */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+            {/* ALL CANDIDATES SIDEBAR ITEM */}
+            <div
+              onClick={() => {
+                setSelectedCandidateId('all');
+                setExpandedCandidateId(null);
+              }}
+              style={{
+                padding: '10px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                cursor: 'pointer',
+                background: selectedCandidateId === 'all' ? '#dbeafe' : 'transparent',
+                borderBottom: '2px solid #e2e8f0',
+                transition: 'background 0.15s ease',
+              }}
+            >
+              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#4f46e5', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '13px', flexShrink: 0 }}>
+                🌟
+              </div>
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <div style={{ fontWeight: 700, fontSize: '13px', color: '#1e1b4b', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>All Candidates</span>
+                  <span style={{ fontSize: '11px', color: '#ffffff', background: '#4f46e5', padding: '1px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                    {conversations.length}
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: '#6366f1', fontWeight: 500 }}>
+                  View all emails & replies together
+                </div>
+              </div>
+            </div>
+
             {accountsList
               .filter((cand) =>
                 candidateSearchQuery
@@ -1051,6 +1115,7 @@ export default function EmailTrackingPage() {
                   : true
               )
               .map((cand) => {
+
                 const isExpanded = expandedCandidateId === cand.candidate_id;
                 const isSelectedCand = String(selectedCandidateId) === String(cand.candidate_id);
 
@@ -1173,7 +1238,7 @@ export default function EmailTrackingPage() {
             </div>
 
             {/* Filter Pills Bar */}
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
               {[
                 { id: 'all', label: `All (${conversations.length})` },
                 { id: 'unread', label: `Unread (${unreadCount})` },
@@ -1198,7 +1263,38 @@ export default function EmailTrackingPage() {
                 </button>
               ))}
             </div>
+
+            {/* Date Range Picker Bar */}
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', backgroundColor: '#f8fafc', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+              <Calendar size={13} color="#4f46e5" />
+              <span style={{ fontSize: '11px', fontWeight: 600, color: '#334155' }}>Date:</span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{ border: '1px solid #cbd5e1', borderRadius: '4px', padding: '2px 4px', fontSize: '11px', color: '#0f172a' }}
+                title="Start Date"
+              />
+              <span style={{ fontSize: '11px', color: '#64748b' }}>to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                style={{ border: '1px solid #cbd5e1', borderRadius: '4px', padding: '2px 4px', fontSize: '11px', color: '#0f172a' }}
+                title="End Date"
+              />
+              {(startDate || endDate) && (
+                <button
+                  type="button"
+                  onClick={() => { setStartDate(''); setEndDate(''); }}
+                  style={{ border: 'none', background: '#fef2f2', color: '#dc2626', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Clear Date
+                </button>
+              )}
+            </div>
           </div>
+
 
           {/* Email Cards List */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -1345,8 +1441,13 @@ export default function EmailTrackingPage() {
                   </div>
 
                   <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                    Thu, 5 Sep 2025, 10:47 AM
+                    {formatFullTimestamp(
+                      selectedConversation.latestMessage?.sent_at ||
+                      selectedConversation.latestMessage?.created_at ||
+                      selectedConversation.lastTimestamp
+                    )}
                   </div>
+
                 </div>
 
                 {/* Email Content Body */}
