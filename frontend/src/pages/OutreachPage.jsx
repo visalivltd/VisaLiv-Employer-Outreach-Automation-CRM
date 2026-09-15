@@ -54,6 +54,62 @@ export default function OutreachPage() {
   const [showMoreCandidatesDropdown, setShowMoreCandidatesDropdown] = useState(false);
   const [cancellingJobs, setCancellingJobs] = useState(false);
 
+  const [showFailedModal, setShowFailedModal] = useState(false);
+  const [failedJobs, setFailedJobs] = useState([]);
+  const [loadingFailedJobs, setLoadingFailedJobs] = useState(false);
+  const [retryingJobs, setRetryingJobs] = useState(false);
+  const [failedJobsSearch, setFailedJobsSearch] = useState('');
+
+  const fetchFailedJobs = async () => {
+    try {
+      setLoadingFailedJobs(true);
+      let baseUrl = getApiUrl();
+      let res = await fetch(`${baseUrl}/outreach/failed-jobs`);
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1/outreach/failed-jobs`);
+      }
+      if (res.ok) {
+        const data = await res.json();
+        setFailedJobs(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error("Error fetching failed outreach jobs:", err);
+    } finally {
+      setLoadingFailedJobs(false);
+    }
+  };
+
+  const handleOpenFailedModal = async () => {
+    setShowFailedModal(true);
+    await fetchFailedJobs();
+  };
+
+  const handleRetryFailedJobs = async (jobId = null) => {
+    try {
+      setRetryingJobs(true);
+      let baseUrl = getApiUrl();
+      let query = jobId ? `job_ids=${jobId}` : '';
+      let res = await fetch(`${baseUrl}/outreach/retry-failed-jobs?${query}`, { method: 'POST' });
+      if (!res.ok && !baseUrl.includes('/api/v1')) {
+        res = await fetch(`${baseUrl}/api/v1/outreach/retry-failed-jobs?${query}`, { method: 'POST' });
+      }
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setMessage(data.message || 'Successfully re-queued failed job(s) for retry.');
+        await fetchFailedJobs();
+        await refreshQueueSummary();
+        await loadPreview(page, selectedCandidateFilters);
+      } else {
+        setError(data.detail || 'Failed to retry outreach job');
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to retry outreach job');
+    } finally {
+      setRetryingJobs(false);
+    }
+  };
+
+
   const [candidateId, setCandidateId] = useState('');
   const [employerId, setEmployerId] = useState('');
   const [draftId, setDraftId] = useState('');
@@ -1124,8 +1180,29 @@ export default function OutreachPage() {
                     ⚙️ Background Worker Queue:
                   </span>
                   <span style={{ fontSize: '13px', color: '#475569', fontWeight: 500 }}>
-                    <strong style={{ color: '#1d4ed8' }}>{previewData.queue_summary.pending_count ?? 0}</strong> Pending | <strong style={{ color: '#16a34a' }}>{previewData.queue_summary.sent_count ?? 0}</strong> Sent | <strong style={{ color: '#dc2626' }}>{previewData.queue_summary.failed_count ?? 0}</strong> Failed | <strong style={{ color: '#64748b' }}>{previewData.queue_summary.skipped_count ?? 0}</strong> Skipped
+                    <strong style={{ color: '#1d4ed8' }}>{previewData.queue_summary.pending_count ?? 0}</strong> Pending | <strong style={{ color: '#16a34a' }}>{previewData.queue_summary.sent_count ?? 0}</strong> Sent | <button
+                      type="button"
+                      onClick={handleOpenFailedModal}
+                      style={{
+                        background: '#fef2f2',
+                        border: '1px solid #fecaca',
+                        borderRadius: '6px',
+                        padding: '2px 8px',
+                        color: '#dc2626',
+                        fontWeight: 700,
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        transition: 'all 0.15s ease'
+                      }}
+                      title="Click to view detailed failure reasons and retry options"
+                    >
+                      <XCircle size={13} /> {previewData.queue_summary.failed_count ?? 0} Failed (View Reasons)
+                    </button> | <strong style={{ color: '#64748b' }}>{previewData.queue_summary.skipped_count ?? 0}</strong> Skipped
                   </span>
+
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   {previewData.queue_summary.next_scheduled_at && (() => {
@@ -2049,6 +2126,178 @@ export default function OutreachPage() {
           </div>
         </div>
       )}
+      {/* FAILED OUTREACH JOBS DETAILS MODAL */}
+      {showFailedModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.7)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999, padding: '20px', backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff', borderRadius: '16px', maxWidth: '850px', width: '100%',
+            maxHeight: '85vh', display: 'flex', flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.3)', overflow: 'hidden', border: '1px solid #cbd5e1'
+          }}>
+            {/* MODAL HEADER */}
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: '#fef2f2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <XCircle size={22} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>Failed Outreach Emails & Failure Reasons</h3>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: '#64748b' }}>Detailed failure trace and one-click retry for failed background jobs</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFailedModal(false)}
+                style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '20px', padding: '4px' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* MODAL CONTROLS */}
+            <div style={{ padding: '16px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Search candidate or failure reason..."
+                value={failedJobsSearch}
+                onChange={(e) => setFailedJobsSearch(e.target.value)}
+                style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', width: '280px' }}
+              />
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={fetchFailedJobs}
+                  disabled={loadingFailedJobs}
+                  className="secondary-button"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
+                >
+                  <RefreshCw size={14} className={loadingFailedJobs ? 'spin' : ''} />
+                  Refresh List
+                </button>
+
+                {failedJobs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleRetryFailedJobs(null)}
+                    disabled={retryingJobs}
+                    className="primary-button"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#16a34a', fontSize: '13px' }}
+                  >
+                    <RefreshCw size={14} />
+                    {retryingJobs ? 'Re-queueing...' : `Retry All (${failedJobs.length} Jobs)`}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* MODAL BODY TABLE */}
+            <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
+              {loadingFailedJobs ? (
+                <p style={{ textAlign: 'center', padding: '20px', color: '#64748b' }}>Loading failed outreach jobs...</p>
+              ) : failedJobs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
+                  <CheckCircle2 size={40} style={{ color: '#16a34a', marginBottom: '12px' }} />
+                  <h4 style={{ margin: '0 0 6px 0', fontSize: '16px', color: '#0f172a' }}>No Failed Jobs Found</h4>
+                  <p style={{ margin: 0, fontSize: '13px' }}>All queued outreach emails are delivering smoothly!</p>
+                </div>
+              ) : (
+                <table className="data-table" style={{ width: '100%', fontSize: '13px' }}>
+                  <thead>
+                    <tr>
+                      <th>Job ID</th>
+                      <th>Candidate</th>
+                      <th>Target Employer</th>
+                      <th>Exact Failure Reason</th>
+                      <th>Failed At</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {failedJobs
+                      .filter((j) => {
+                        if (!failedJobsSearch) return true;
+                        const s = failedJobsSearch.toLowerCase();
+                        return (
+                          (j.candidate_name && j.candidate_name.toLowerCase().includes(s)) ||
+                          (j.employer_name && j.employer_name.toLowerCase().includes(s)) ||
+                          (j.error_message && j.error_message.toLowerCase().includes(s))
+                        );
+                      })
+                      .map((job) => (
+                        <tr key={job.job_id}>
+                          <td><strong>#{job.job_id}</strong></td>
+                          <td>
+                            <strong style={{ color: '#0f172a', display: 'block' }}>{job.candidate_name}</strong>
+                            {job.candidate_email && <span style={{ fontSize: '11px', color: '#64748b' }}>{job.candidate_email}</span>}
+                          </td>
+                          <td>
+                            <strong style={{ color: '#0f172a', display: 'block' }}>{job.employer_name}</strong>
+                            {job.employer_email && <span style={{ fontSize: '11px', color: '#64748b' }}>{job.employer_email}</span>}
+                          </td>
+                          <td>
+                            <span style={{
+                              padding: '5px 10px',
+                              borderRadius: '6px',
+                              backgroundColor: '#fef2f2',
+                              color: '#dc2626',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              border: '1px solid #fecaca',
+                              display: 'inline-block',
+                              maxWidth: '300px',
+                              wordBreak: 'break-word',
+                            }}>
+                              ⚠️ {job.error_message}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '12px', color: '#64748b' }}>
+                            {job.updated_at ? new Date(job.updated_at).toLocaleString() : '-'}
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => handleRetryFailedJobs(job.job_id)}
+                              disabled={retryingJobs}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                border: '1px solid #bbf7d0',
+                                backgroundColor: '#f0fdf4',
+                                color: '#166534',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Retry
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* MODAL FOOTER */}
+            <div style={{ padding: '14px 24px', backgroundColor: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setShowFailedModal(false)}
+                style={{ padding: '8px 18px', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#475569', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
+}

@@ -70,18 +70,34 @@ async def periodic_outreach_worker():
 async def lifespan(app: FastAPI):
     from app.db.base import Base
     from app.db.session import engine
-    # Ensure missing database tables (like oauth_states, outreach_jobs) are created
+    from app.core.redis import check_redis_online, close_redis_pool
+
+    # Ensure missing database tables are created
     try:
         Base.metadata.create_all(bind=engine)
     except Exception as exc:
         print(f"[STARTUP TABLE CREATE WARNING] {exc}", flush=True)
 
-    # Start background polling tasks on server startup
-    sync_task = asyncio.create_task(periodic_gmail_sync())
-    outreach_task = asyncio.create_task(periodic_outreach_worker())
+    redis_online = await check_redis_online()
+    sync_task = None
+    outreach_task = None
+
+    if redis_online:
+        print("[STARTUP QUEUE] Redis Queue is ONLINE. Background jobs delegated to Redis Worker.", flush=True)
+    else:
+        print("[STARTUP QUEUE] Redis is offline/disabled. Running in LOCAL FALLBACK MODE (in-memory background tasks).", flush=True)
+        sync_task = asyncio.create_task(periodic_gmail_sync())
+        outreach_task = asyncio.create_task(periodic_outreach_worker())
+
     yield
-    sync_task.cancel()
-    outreach_task.cancel()
+
+    if sync_task:
+        sync_task.cancel()
+    if outreach_task:
+        outreach_task.cancel()
+
+    await close_redis_pool()
+
 
 
 

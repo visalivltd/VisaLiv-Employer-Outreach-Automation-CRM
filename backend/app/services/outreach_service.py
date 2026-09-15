@@ -1655,3 +1655,68 @@ class OutreachService:
             "message": f"Cancelled {cancelled_count} pending outreach job(s).",
         }
 
+    @staticmethod
+    def get_failed_outreach_jobs(db: Session, batch_id: str | None = None, limit: int = 100) -> list[dict]:
+        """Fetch failed outreach jobs with associated Candidate and Employer details."""
+        stmt = (
+            select(OutreachJob)
+            .where(OutreachJob.status == "failed")
+            .options(joinedload(OutreachJob.candidate), joinedload(OutreachJob.employer))
+            .order_by(OutreachJob.updated_at.desc(), OutreachJob.id.desc())
+            .limit(limit)
+        )
+        if batch_id:
+            stmt = stmt.where(OutreachJob.batch_id == batch_id)
+
+        failed_jobs = db.scalars(stmt).all()
+        result = []
+        for job in failed_jobs:
+            cand_name = job.candidate.full_name if job.candidate else f"Candidate #{job.candidate_id}"
+            cand_email = job.candidate.email if job.candidate else None
+            emp_name = job.employer.company_name if job.employer else f"Employer #{job.employer_id}"
+            emp_email = job.employer.contact_email if job.employer else None
+
+            result.append({
+                "job_id": job.id,
+                "batch_id": job.batch_id,
+                "candidate_id": job.candidate_id,
+                "candidate_name": cand_name,
+                "candidate_email": cand_email,
+                "employer_id": job.employer_id,
+                "employer_name": emp_name,
+                "employer_email": emp_email,
+                "error_message": job.error_message or "Unknown failure reason",
+                "attempts": job.attempts,
+                "created_at": job.created_at.isoformat() if job.created_at else None,
+                "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+            })
+        return result
+
+    @staticmethod
+    def retry_failed_outreach_jobs(db: Session, job_ids: list[int] | None = None, batch_id: str | None = None) -> dict:
+        """Reset failed outreach jobs back to pending status for retry."""
+        stmt = select(OutreachJob).where(OutreachJob.status == "failed")
+        if job_ids:
+            stmt = stmt.where(OutreachJob.id.in_(job_ids))
+        elif batch_id:
+            stmt = stmt.where(OutreachJob.batch_id == batch_id)
+
+        failed_jobs = db.scalars(stmt).all()
+        now_utc = datetime.now(timezone.utc)
+        retried_count = 0
+
+        for job in failed_jobs:
+            job.status = "pending"
+            job.attempts = 0
+            job.error_message = None
+            job.scheduled_at = now_utc
+            retried_count += 1
+
+        db.commit()
+        return {
+            "success": True,
+            "retried_count": retried_count,
+            "message": f"Successfully re-queued {retried_count} failed job(s) for retry.",
+        }
+
+

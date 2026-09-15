@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     GCS_BUCKET_NAME: str | None = None
 
+    REDIS_URL: str = "redis://localhost:6379/0"
+    ENABLE_REDIS_QUEUE: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,
