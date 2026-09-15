@@ -87,37 +87,35 @@ class OutreachService:
 
     @staticmethod
     def get_candidate_sent_today(db: Session, candidate_id: int, start_of_today: datetime) -> int:
-        """Count of automated outreach emails sent today for a candidate."""
-        job_count = db.scalar(
-            select(func.count(OutreachJob.id)).where(
-                OutreachJob.candidate_id == candidate_id,
-                OutreachJob.status == "sent",
-                or_(
-                    OutreachJob.sent_at >= start_of_today,
-                    and_(OutreachJob.sent_at.is_(None), OutreachJob.created_at >= start_of_today)
-                )
-            )
-        ) or 0
-
-        log_count = db.scalar(
-            select(func.count(EmailLog.id)).where(
-                EmailLog.candidate_id == candidate_id,
-                EmailLog.status == "sent",
-                EmailLog.direction == "outgoing",
-                or_(
-                    EmailLog.sent_at >= start_of_today,
-                    and_(EmailLog.sent_at.is_(None), EmailLog.created_at >= start_of_today)
-                ),
-                ~EmailLog.id.in_(
-                    select(OutreachJob.email_log_id).where(
-                        OutreachJob.candidate_id == candidate_id,
-                        OutreachJob.email_log_id.is_not(None)
+        """Count of unique automated outreach emails sent today for a candidate."""
+        job_emp_ids = set(
+            db.scalars(
+                select(OutreachJob.employer_id).where(
+                    OutreachJob.candidate_id == candidate_id,
+                    OutreachJob.status == "sent",
+                    or_(
+                        OutreachJob.sent_at >= start_of_today,
+                        and_(OutreachJob.sent_at.is_(None), OutreachJob.created_at >= start_of_today)
                     )
                 )
-            )
-        ) or 0
+            ).all()
+        )
 
-        return job_count + log_count
+        log_emp_ids = set(
+            db.scalars(
+                select(EmailLog.employer_id).where(
+                    EmailLog.candidate_id == candidate_id,
+                    EmailLog.status == "sent",
+                    EmailLog.direction == "outgoing",
+                    or_(
+                        EmailLog.sent_at >= start_of_today,
+                        and_(EmailLog.sent_at.is_(None), EmailLog.created_at >= start_of_today)
+                    )
+                )
+            ).all()
+        )
+
+        return len(job_emp_ids | log_emp_ids)
 
     @staticmethod
     def get_candidate_pending_today(
@@ -608,9 +606,11 @@ class OutreachService:
                 "next_eligible_at": cand_next_eligible.isoformat() if cand_next_eligible else None,
             })
 
+        total_display_records = total_eligible if (only_eligible or candidate_id is not None or candidate_ids is not None) else (total_employers * len(active_candidates) if active_candidates else 0)
+
         return {
             "items": all_items,
-            "total": total_employers * len(active_candidates) if active_candidates else 0,
+            "total": total_display_records,
             "page": page,
             "page_size": page_size,
             "total_eligible": total_eligible,
