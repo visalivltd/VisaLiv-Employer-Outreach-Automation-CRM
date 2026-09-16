@@ -28,6 +28,8 @@ dependencies = [
     "pypdf>=5.0.0",
     "python-jose>=3.5.0",
     "python-multipart>=0.0.32",
+    "redis>=5.0.0",
+    "arq>=0.25.0",
     "sqlalchemy>=2.0.51",
     "uvicorn>=0.52.1",
 ]

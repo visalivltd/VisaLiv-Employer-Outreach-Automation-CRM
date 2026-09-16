@@ -153,7 +153,14 @@ def get_candidates(
     active_only: bool = False,
     db: Session = Depends(get_db),
 ):
-    return candidate_service.get_candidates(db, active_only=active_only)
+    candidates = candidate_service.get_candidates(db, active_only=active_only)
+    res = []
+    for c in candidates:
+        resp = CandidateResponse.model_validate(c)
+        if resp.cv_file_path and not storage_service.file_exists(resp.cv_file_path):
+            resp.cv_file_path = None
+        res.append(resp)
+    return res
 
 
 @router.get(
@@ -175,7 +182,11 @@ def get_candidate(
             detail="Candidate not found",
         )
 
-    return candidate
+    resp = CandidateResponse.model_validate(candidate)
+    if resp.cv_file_path and not storage_service.file_exists(resp.cv_file_path):
+        resp.cv_file_path = None
+
+    return resp
 
 
 @router.put(

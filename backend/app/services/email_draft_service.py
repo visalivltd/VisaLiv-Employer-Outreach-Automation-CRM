@@ -118,9 +118,10 @@ def extract_draft_content(draft: EmailDraft | None, candidate_full_name: str) ->
         else:
             body = draft.body.strip()
     else:
-        body = f"Dear Employer,\n\nPlease find attached the CV for {candidate_full_name}."
+        body = None
 
     return subject, body
+
 
 
 def create_email_draft(

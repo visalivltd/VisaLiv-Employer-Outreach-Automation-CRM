@@ -165,6 +165,38 @@ def cancel_batch_outreach(
     return OutreachService.cancel_batch_jobs(db, batch_id)
 
 
+@router.get(
+    "/failed-jobs",
+)
+def get_failed_outreach_jobs(
+    batch_id: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    return OutreachService.get_failed_outreach_jobs(
+        db=db,
+        batch_id=batch_id,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/retry-failed-jobs",
+)
+def retry_failed_outreach_jobs(
+    batch_id: str | None = Query(None),
+    job_ids: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    parsed_job_ids = [int(x.strip()) for x in job_ids.split(",") if x.strip().isdigit()] if job_ids else None
+    return OutreachService.retry_failed_outreach_jobs(
+        db=db,
+        job_ids=parsed_job_ids,
+        batch_id=batch_id,
+    )
+
+
+
 @router.post(
     "/send",
     status_code=status.HTTP_201_CREATED,

@@ -87,37 +87,35 @@ class OutreachService:
 
     @staticmethod
     def get_candidate_sent_today(db: Session, candidate_id: int, start_of_today: datetime) -> int:
-        """Count of automated outreach emails sent today for a candidate."""
-        job_count = db.scalar(
-            select(func.count(OutreachJob.id)).where(
-                OutreachJob.candidate_id == candidate_id,
-                OutreachJob.status == "sent",
-                or_(
-                    OutreachJob.sent_at >= start_of_today,
-                    and_(OutreachJob.sent_at.is_(None), OutreachJob.created_at >= start_of_today)
-                )
-            )
-        ) or 0
-
-        log_count = db.scalar(
-            select(func.count(EmailLog.id)).where(
-                EmailLog.candidate_id == candidate_id,
-                EmailLog.status == "sent",
-                EmailLog.direction == "outgoing",
-                or_(
-                    EmailLog.sent_at >= start_of_today,
-                    and_(EmailLog.sent_at.is_(None), EmailLog.created_at >= start_of_today)
-                ),
-                ~EmailLog.id.in_(
-                    select(OutreachJob.email_log_id).where(
-                        OutreachJob.candidate_id == candidate_id,
-                        OutreachJob.email_log_id.is_not(None)
+        """Count of unique automated outreach emails sent today for a candidate."""
+        job_emp_ids = set(
+            db.scalars(
+                select(OutreachJob.employer_id).where(
+                    OutreachJob.candidate_id == candidate_id,
+                    OutreachJob.status == "sent",
+                    or_(
+                        OutreachJob.sent_at >= start_of_today,
+                        and_(OutreachJob.sent_at.is_(None), OutreachJob.created_at >= start_of_today)
                     )
                 )
-            )
-        ) or 0
+            ).all()
+        )
 
-        return job_count + log_count
+        log_emp_ids = set(
+            db.scalars(
+                select(EmailLog.employer_id).where(
+                    EmailLog.candidate_id == candidate_id,
+                    EmailLog.status == "sent",
+                    EmailLog.direction == "outgoing",
+                    or_(
+                        EmailLog.sent_at >= start_of_today,
+                        and_(EmailLog.sent_at.is_(None), EmailLog.created_at >= start_of_today)
+                    )
+                )
+            ).all()
+        )
+
+        return len(job_emp_ids | log_emp_ids)
 
     @staticmethod
     def get_candidate_pending_today(
@@ -196,8 +194,10 @@ class OutreachService:
             return EligibilityResult(False, ReasonCode.CANDIDATE_INACTIVE, "Candidate is inactive")
         if not candidate.gmail_account or not candidate.gmail_account.is_active:
             return EligibilityResult(False, ReasonCode.GMAIL_NOT_CONNECTED, "Gmail account not connected or inactive")
-        if not candidate.email_draft_id or not candidate.email_draft:
+        cand_draft = candidate.email_draft or (db.get(EmailDraft, candidate.email_draft_id) if candidate.email_draft_id else None)
+        if not cand_draft:
             return EligibilityResult(False, ReasonCode.DRAFT_MISSING, "Email draft not assigned to candidate")
+
 
         employer = db.get(Employer, employer_id)
         if employer is None:
@@ -606,9 +606,11 @@ class OutreachService:
                 "next_eligible_at": cand_next_eligible.isoformat() if cand_next_eligible else None,
             })
 
+        total_display_records = total_eligible if (only_eligible or candidate_id is not None or candidate_ids is not None) else (total_employers * len(active_candidates) if active_candidates else 0)
+
         return {
             "items": all_items,
-            "total": total_employers * len(active_candidates) if active_candidates else 0,
+            "total": total_display_records,
             "page": page,
             "page_size": page_size,
             "total_eligible": total_eligible,
@@ -651,12 +653,26 @@ class OutreachService:
         if employer is None:
             raise ValueError("Employer does not exist")
 
+        draft_obj = candidate.email_draft if candidate else None
+        if candidate and not draft_obj and candidate.email_draft_id:
+            draft_obj = db.get(EmailDraft, candidate.email_draft_id)
+
+        cand_name = candidate.full_name if candidate else "Candidate"
+        if not draft_obj:
+            raise ValueError(f"Candidate '{cand_name}' has no assigned email draft. Email cannot be sent without draft.")
+
         draft_subj, draft_body = extract_draft_content(
-            candidate.email_draft if candidate else None,
-            candidate.full_name if candidate else "Candidate"
+            draft_obj,
+            cand_name
         )
+
         final_subject = subject.strip() if subject and subject.strip() else draft_subj
         final_body = body.strip() if body and body.strip() else draft_body
+
+        if not final_body or not final_body.strip():
+            raise ValueError(f"Email draft content for Candidate '{cand_name}' is empty or unreadable. Email cannot be sent without valid draft.")
+
+
 
         attachment_paths = []
         if candidate and candidate.cv_file_path and candidate.cv_file_path.strip():
@@ -1066,8 +1082,10 @@ class OutreachService:
         jobs_to_add: list[OutreachJob] = []
 
         for cand in active_candidates:
-            if not cand.is_active or not cand.gmail_account or not cand.gmail_account.is_active or not cand.email_draft_id or not cand.email_draft:
+            cand_draft = cand.email_draft or (db.get(EmailDraft, cand.email_draft_id) if cand.email_draft_id else None)
+            if not cand.is_active or not cand.gmail_account or not cand.gmail_account.is_active or not cand.email_draft_id or not cand_draft:
                 continue
+
 
             actual_sent = sent_today_map.get(cand.id, 0)
             reserved_pending = pending_today_map.get(cand.id, 0)
@@ -1654,4 +1672,127 @@ class OutreachService:
             "cancelled_count": cancelled_count,
             "message": f"Cancelled {cancelled_count} pending outreach job(s).",
         }
+
+    @staticmethod
+    def get_failed_outreach_jobs(db: Session, batch_id: str | None = None, limit: int = 100) -> list[dict]:
+        """Fetch failed outreach jobs and failed email logs with associated Candidate and Employer details."""
+        result = []
+        seen_keys = set()
+
+        # 1. Fetch failed OutreachJob records
+        job_stmt = (
+            select(OutreachJob)
+            .where(OutreachJob.status == "failed")
+            .options(joinedload(OutreachJob.candidate), joinedload(OutreachJob.employer))
+            .order_by(OutreachJob.updated_at.desc(), OutreachJob.id.desc())
+            .limit(limit)
+        )
+        if batch_id:
+            job_stmt = job_stmt.where(OutreachJob.batch_id == batch_id)
+
+        failed_jobs = db.scalars(job_stmt).all()
+        for job in failed_jobs:
+            cand_name = job.candidate.full_name if job.candidate else f"Candidate #{job.candidate_id}"
+            cand_email = job.candidate.email if job.candidate else None
+            emp_name = (job.employer.service_name or job.employer.email) if job.employer else f"Employer #{job.employer_id}"
+            emp_email = (job.employer.email or job.employer.hr_email) if job.employer else None
+
+            key = (job.candidate_id, job.employer_id)
+            seen_keys.add(key)
+
+            sort_t = job.updated_at or job.created_at or datetime.min
+            result.append({
+                "job_id": job.id,
+                "batch_id": job.batch_id,
+                "candidate_id": job.candidate_id,
+                "candidate_name": cand_name,
+                "candidate_email": cand_email,
+                "employer_id": job.employer_id,
+                "employer_name": emp_name,
+                "employer_email": emp_email,
+                "error_message": job.error_message or "Unknown failure reason",
+                "attempts": job.attempts,
+                "created_at": job.created_at.isoformat() if job.created_at else None,
+                "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+                "sort_time": sort_t,
+            })
+
+        # 2. Fetch failed EmailLog records (direct outreach failures)
+        log_stmt = (
+            select(EmailLog)
+            .where(EmailLog.status == "failed", EmailLog.direction == "outgoing")
+            .options(joinedload(EmailLog.candidate), joinedload(EmailLog.employer))
+            .order_by(EmailLog.created_at.desc(), EmailLog.id.desc())
+            .limit(limit)
+        )
+        failed_logs = db.scalars(log_stmt).all()
+        for log in failed_logs:
+            cand_name = log.candidate.full_name if log.candidate else f"Candidate #{log.candidate_id}"
+            cand_email = log.candidate.email if log.candidate else None
+            emp_name = (log.employer.service_name or log.employer.email) if log.employer else f"Employer #{log.employer_id}"
+            emp_email = (log.employer.email or log.employer.hr_email) if log.employer else None
+
+            key = (log.candidate_id, log.employer_id)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+
+            sort_t = log.created_at or datetime.min
+            result.append({
+                "job_id": f"log-{log.id}",
+                "batch_id": None,
+                "candidate_id": log.candidate_id,
+                "candidate_name": cand_name,
+                "candidate_email": cand_email,
+                "employer_id": log.employer_id,
+                "employer_name": emp_name,
+                "employer_email": emp_email,
+                "error_message": log.error_message or "Unknown failure reason",
+                "attempts": 1,
+                "created_at": log.created_at.isoformat() if log.created_at else None,
+                "updated_at": log.created_at.isoformat() if log.created_at else None,
+                "sort_time": sort_t,
+            })
+
+        result.sort(key=lambda x: x["sort_time"], reverse=True)
+        for item in result:
+            item.pop("sort_time", None)
+
+        return result[:limit]
+
+    @staticmethod
+    def retry_failed_outreach_jobs(db: Session, job_ids: list[int | str] | None = None, batch_id: str | None = None) -> dict:
+        """Reset failed outreach jobs back to pending status for retry."""
+        stmt = select(OutreachJob).where(OutreachJob.status == "failed")
+        if job_ids:
+            numeric_ids = [int(j) for j in job_ids if isinstance(j, int) or (isinstance(j, str) and j.isdigit())]
+            if numeric_ids:
+                stmt = stmt.where(OutreachJob.id.in_(numeric_ids))
+            else:
+                return {
+                    "success": True,
+                    "retried_count": 0,
+                    "message": "No retryable background jobs selected.",
+                }
+        elif batch_id:
+            stmt = stmt.where(OutreachJob.batch_id == batch_id)
+
+        failed_jobs = db.scalars(stmt).all()
+        now_utc = datetime.now(timezone.utc)
+        retried_count = 0
+
+        for job in failed_jobs:
+            job.status = "pending"
+            job.attempts = 0
+            job.error_message = None
+            job.scheduled_at = now_utc
+            retried_count += 1
+
+        db.commit()
+        return {
+            "success": True,
+            "retried_count": retried_count,
+            "message": f"Successfully re-queued {retried_count} failed job(s) for retry.",
+        }
+
 
