@@ -1361,9 +1361,22 @@ export default function EmailTrackingPage() {
 
                         {/* Tag Badges & Star */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: '10px', fontWeight: 700, backgroundColor: '#dbeafe', color: '#1d4ed8', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase' }}>
-                            Employer
-                          </span>
+                          {(() => {
+                            const isIncoming = conv.latestMessage?.direction === 'incoming';
+                            return (
+                              <span style={{
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                backgroundColor: isIncoming ? '#dcfce7' : '#dbeafe',
+                                color: isIncoming ? '#15803d' : '#1d4ed8',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                textTransform: 'uppercase'
+                              }}>
+                                {isIncoming ? 'Incoming' : 'Outgoing'}
+                              </span>
+                            );
+                          })()}
 
                           <button
                             onClick={(e) => {
@@ -1430,7 +1443,14 @@ export default function EmailTrackingPage() {
 
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <span style={headerTagStyle('#f1f5f9', '#475569')}>Inbox</span>
-                  <span style={headerTagStyle('#dbeafe', '#1d4ed8')}>Employer</span>
+                  {(() => {
+                    const isIncoming = selectedConversation.latestMessage?.direction === 'incoming';
+                    return (
+                      <span style={headerTagStyle(isIncoming ? '#dcfce7' : '#dbeafe', isIncoming ? '#15803d' : '#1d4ed8')}>
+                        {isIncoming ? 'Incoming' : 'Outgoing'}
+                      </span>
+                    );
+                  })()}
                   <span style={headerTagStyle('#e0e7ff', '#4338ca')}>{selectedConversation.candidate_name}</span>
                 </div>
               </div>
