@@ -20,9 +20,22 @@ class StorageService:
 
         if self.bucket_name:
             try:
+                import json
                 from google.cloud import storage
+                from google.oauth2 import service_account
 
-                self._gcs_client = storage.Client()
+                gcs_json_env = os.environ.get("GCS_CREDENTIALS_JSON") or getattr(settings, "GCS_CREDENTIALS_JSON", None)
+                gcs_file_env = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or getattr(settings, "GOOGLE_APPLICATION_CREDENTIALS", None)
+
+                if gcs_json_env and gcs_json_env.strip().startswith("{"):
+                    info = json.loads(gcs_json_env.strip())
+                    creds = service_account.Credentials.from_service_account_info(info)
+                    self._gcs_client = storage.Client(credentials=creds, project=info.get("project_id"))
+                elif gcs_file_env and Path(gcs_file_env).exists():
+                    self._gcs_client = storage.Client.from_service_account_json(gcs_file_env)
+                else:
+                    self._gcs_client = storage.Client()
+
                 self._gcs_bucket = self._gcs_client.bucket(self.bucket_name)
                 logger.info(f"Initialized StorageService with GCS bucket: '{self.bucket_name}'")
             except Exception as exc:
