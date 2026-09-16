@@ -1503,16 +1503,17 @@ export default function EmailTrackingPage() {
                   const attachments = Array.isArray(rawAtts) ? [...rawAtts] : [];
 
                   const cvPath = (msg && msg.candidate_cv_path) || selectedConversation.candidate_cv_path;
-                  if (cvPath && typeof cvPath === 'string') {
-                    const cvFileName = cvPath.split('/').pop().split('\\').pop() || `${selectedConversation.candidate_name || 'Candidate'}_CV.pdf`;
+                  if (cvPath && typeof cvPath === 'string' && cvPath.trim() !== '') {
+                    const cleanCandName = (selectedConversation.candidate_name || 'Candidate').trim().replace(/\s+/g, '_');
+                    const cvDisplayName = `${cleanCandName}_CV.pdf`;
                     const exists = attachments.some(a => {
                       const name = typeof a === 'string' ? a : (a.filename || a.name || '');
-                      return name.toLowerCase() === cvFileName.toLowerCase();
+                      return name.toLowerCase() === cvDisplayName.toLowerCase() || (typeof a === 'object' && a.path === cvPath);
                     });
                     if (!exists) {
                       attachments.unshift({
-                        filename: cvFileName,
-                        name: cvFileName,
+                        filename: cvDisplayName,
+                        name: cvDisplayName,
                         path: cvPath,
                         url: cvPath.startsWith('http') ? cvPath : `${API_BASE_URL}/${cvPath.replace(/^\/+/, '')}`,
                         size: 'Candidate CV',

@@ -153,7 +153,11 @@ def get_candidates(
     active_only: bool = False,
     db: Session = Depends(get_db),
 ):
-    return candidate_service.get_candidates(db, active_only=active_only)
+    candidates = candidate_service.get_candidates(db, active_only=active_only)
+    for c in candidates:
+        if c.cv_file_path and not storage_service.file_exists(c.cv_file_path):
+            c.cv_file_path = None
+    return candidates
 
 
 @router.get(
@@ -174,6 +178,9 @@ def get_candidate(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Candidate not found",
         )
+
+    if candidate.cv_file_path and not storage_service.file_exists(candidate.cv_file_path):
+        candidate.cv_file_path = None
 
     return candidate
 
