@@ -381,8 +381,8 @@ export default function EmailTrackingPage() {
       }
 
       const notifId = unreadMap.get(log.gmail_message_id) || unreadMap.get(log.id);
-      // Strictly INCOMING messages from employer generate unread status
-      const isUnread = log.direction === 'incoming' && (Boolean(notifId) || log.status === 'received');
+      // Strictly INCOMING messages with active unread notifications generate unread status
+      const isUnread = log.direction === 'incoming' && Boolean(notifId);
 
       if (isUnread) {
         grouped[key].has_unread = true;
