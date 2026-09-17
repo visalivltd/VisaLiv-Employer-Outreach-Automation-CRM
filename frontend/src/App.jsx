@@ -18,9 +18,14 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const toggleSidebar = () => {
-    setSidebarOpen(prev => !prev);
+    if (window.innerWidth < 1024) {
+      setSidebarOpen(prev => !prev);
+    } else {
+      setIsCollapsed(prev => !prev);
+    }
   };
 
   const closeSidebar = () => {
@@ -28,12 +33,12 @@ export default function App() {
   };
 
   return (
-    <div className="app-layout">
+    <div className={`app-layout ${isCollapsed ? 'sidebar-collapsed' : ''}`}>
       {/* Sidebar Navigation */}
-      <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />
+      <Sidebar isOpen={sidebarOpen} isCollapsed={isCollapsed} onClose={closeSidebar} />
 
       {/* Main Content Area */}
-      <div className="main-wrapper">
+      <div className={`main-wrapper ${isCollapsed ? 'full-width' : ''}`}>
         {/* Top Header */}
         <Header onToggleSidebar={toggleSidebar} />
 

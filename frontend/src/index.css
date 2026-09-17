@@ -397,6 +397,15 @@ body {
   transition: transform 0.3s ease;
 }
 
+@media (min-width: 1024px) {
+  .sidebar.collapsed {
+    transform: translateX(-100%);
+  }
+  .main-wrapper.full-width {
+    margin-left: 0;
+  }
+}
+
 @media (max-width: 1023px) {
   .sidebar {
     transform: translateX(-100%);

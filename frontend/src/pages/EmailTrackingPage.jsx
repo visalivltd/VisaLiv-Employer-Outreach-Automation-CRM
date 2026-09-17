@@ -555,6 +555,10 @@ export default function EmailTrackingPage() {
     () => conversations.filter((c) => c.has_unread).length,
     [conversations]
   );
+  const readCount = useMemo(
+    () => conversations.filter((c) => !c.has_unread).length,
+    [conversations]
+  );
   const incomingCount = useMemo(
     () => conversations.filter((c) => c.latestMessage?.direction === 'incoming').length,
     [conversations]
@@ -1060,6 +1064,39 @@ export default function EmailTrackingPage() {
             )}
           </div>
 
+          {/* GLOBAL EMAIL SEARCH BOX */}
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <Search size={15} style={{ position: 'absolute', left: '10px', color: '#94a3b8' }} />
+            <input
+              type="text"
+              placeholder="Search all emails by keyword, sender..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                paddingLeft: '32px',
+                paddingRight: searchQuery ? '30px' : '12px',
+                paddingTop: '8px',
+                paddingBottom: '8px',
+                fontSize: '12.5px',
+                borderRadius: '8px',
+                border: '1px solid #cbd5e1',
+                outline: 'none',
+                width: '240px',
+                backgroundColor: '#ffffff',
+                color: '#0f172a',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+              }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                style={{ position: 'absolute', right: '8px', border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center' }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
 
           <button
             type="button"
@@ -1283,6 +1320,7 @@ export default function EmailTrackingPage() {
               {[
                 { id: 'all', label: `All (${conversations.length})` },
                 { id: 'unread', label: `Unread (${unreadCount})` },
+                { id: 'read', label: `Read (${readCount})` },
                 { id: 'incoming', label: `Incoming (${incomingCount})` },
                 { id: 'outgoing', label: `Outgoing (${outgoingCount})` },
               ].map((tab) => (
@@ -1455,106 +1493,123 @@ export default function EmailTrackingPage() {
                 </div>
               </div>
 
-              {/* Message Body & Sender Info Scroll Container */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-                
-                {/* Sender Details Header */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '15px' }}>
-                      {getInitials(selectedConversation.employer_name)}
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '14px', color: '#0f172a' }}>
-                        {selectedConversation.employer_name} <span style={{ fontWeight: 400, color: '#64748b', fontSize: '12px' }}>&lt;{selectedConversation.employer_email}&gt;</span>
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#94a3b8' }}>to me ▾</div>
-                    </div>
-                  </div>
+              {/* OUTLOOK-STYLE THREADED CONVERSATION CHAIN SCROLL CONTAINER */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', background: '#f8fafc' }}>
+                {selectedConversation.messages && selectedConversation.messages.length > 0 ? (
+                  selectedConversation.messages.map((msg, idx) => {
+                    const isIncoming = msg.direction === 'incoming';
+                    const senderDisplayName = isIncoming
+                      ? selectedConversation.employer_name
+                      : selectedConversation.candidate_name;
+                    const senderEmailAddr = isIncoming
+                      ? selectedConversation.employer_email
+                      : selectedConversation.candidate_gmail;
+                    const recipientLabel = isIncoming ? 'to me' : `to ${selectedConversation.employer_name}`;
 
-                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                    {formatFullTimestamp(
-                      selectedConversation.latestMessage?.sent_at ||
-                      selectedConversation.latestMessage?.created_at ||
-                      selectedConversation.lastTimestamp
-                    )}
-                  </div>
+                    const rawAtts = (msg && msg.attachments) || (msg && msg.attachment_paths) || [];
+                    const messageAtts = Array.isArray(rawAtts) ? [...rawAtts] : [];
 
-                </div>
-
-                {/* Email Content Body */}
-                <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: '1.6', marginBottom: '24px', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-                  {selectedConversation.latestMessage?.body ? (
-                    <div dangerouslySetInnerHTML={{ __html: formatEmailBody(selectedConversation.latestMessage.body) }} />
-                  ) : (
-                    <div>
-                      <p>Dear Candidate,</p>
-                      <p>We are pleased to invite you to apply for the position at {selectedConversation.employer_name}.</p>
-                      <p>Please click the link below to complete your application:</p>
-                      <p><a href="#" style={{ color: '#2563eb' }}>https://visaliv.com/application-link</a></p>
-                      <p>Kind regards,<br />{selectedConversation.employer_name} Recruitment Team</p>
-                    </div>
-                  )}
-                </div>
-                {/* Attachments Box (Only if real attachments or candidate CV exist) */}
-                {(() => {
-                  const msg = selectedConversation.latestMessage;
-                  const rawAtts = (msg && msg.attachments) || (msg && msg.attachment_paths) || [];
-                  const attachments = Array.isArray(rawAtts) ? [...rawAtts] : [];
-
-                  const cvPath = (msg && msg.candidate_cv_path) || selectedConversation.candidate_cv_path;
-                  if (cvPath && typeof cvPath === 'string' && cvPath.trim() !== '') {
-                    const cleanCandName = (selectedConversation.candidate_name || 'Candidate').trim().replace(/\s+/g, '_');
-                    const cvDisplayName = `${cleanCandName}_CV.pdf`;
-                    const exists = attachments.some(a => {
-                      const name = typeof a === 'string' ? a : (a.filename || a.name || '');
-                      return name.toLowerCase() === cvDisplayName.toLowerCase() || (typeof a === 'object' && a.path === cvPath);
-                    });
-                    if (!exists) {
-                      attachments.unshift({
-                        filename: cvDisplayName,
-                        name: cvDisplayName,
-                        path: cvPath,
-                        url: cvPath.startsWith('http') ? cvPath : `${API_BASE_URL}/${cvPath.replace(/^\/+/, '')}`,
-                        size: 'Candidate CV',
+                    const cvPath = (msg && msg.candidate_cv_path) || selectedConversation.candidate_cv_path;
+                    if (cvPath && typeof cvPath === 'string' && cvPath.trim() !== '') {
+                      const cleanCandName = (selectedConversation.candidate_name || 'Candidate').trim().replace(/\s+/g, '_');
+                      const cvDisplayName = `${cleanCandName}_CV.pdf`;
+                      const exists = messageAtts.some(a => {
+                        const name = typeof a === 'string' ? a : (a.filename || a.name || '');
+                        return name.toLowerCase() === cvDisplayName.toLowerCase() || (typeof a === 'object' && a.path === cvPath);
                       });
+                      if (!exists && idx === 0) {
+                        messageAtts.unshift({
+                          filename: cvDisplayName,
+                          name: cvDisplayName,
+                          path: cvPath,
+                          url: cvPath.startsWith('http') ? cvPath : `${API_BASE_URL}/${cvPath.replace(/^\/+/, '')}`,
+                          size: 'Candidate CV',
+                        });
+                      }
                     }
-                  }
 
-                  if (!attachments || attachments.length === 0) return null;
-
-                  return (
-                    <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #f1f5f9' }}>
-                      <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '10px' }}>
-                        Attachments ({attachments.length})
-                      </div>
-
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                        {attachments.map((att, idx) => {
-                          const fileName = typeof att === 'string' ? att : att.filename || att.name || 'Attachment.pdf';
-                          const fileUrl = typeof att === 'object' && att.url ? att.url : (typeof att === 'string' && att.startsWith('http') ? att : (typeof att === 'string' ? `${API_BASE_URL}/${att.replace(/^\/+/, '')}` : null));
-                          const isPdf = fileName.toLowerCase().endsWith('.pdf');
-                          return (
-                            <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc' }}>
-                              <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: isPdf ? '#fee2e2' : '#dbeafe', color: isPdf ? '#dc2626' : '#1d4ed8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '10px' }}>
-                                {isPdf ? 'PDF' : 'FILE'}
-                              </div>
-                              <div>
-                                <div style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{fileName}</div>
-                                <div style={{ fontSize: '11px', color: '#94a3b8' }}>{att.size || 'Attachment'}</div>
-                              </div>
-                              {fileUrl && (
-                                <a href={fileUrl} download={fileName} target="_blank" rel="noopener noreferrer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#475569', marginLeft: '12px', display: 'inline-flex', alignItems: 'center' }}>
-                                  <Download size={16} />
-                                </a>
-                              )}
+                    return (
+                      <div
+                        key={msg.id || idx}
+                        style={{
+                          backgroundColor: '#ffffff',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '12px',
+                          padding: '20px',
+                          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                        }}
+                      >
+                        {/* Thread Message Card Header */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: isIncoming ? '#059669' : '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '14px' }}>
+                              {getInitials(senderDisplayName)}
                             </div>
-                          );
-                        })}
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: '14px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span>{senderDisplayName}</span>
+                                <span style={{ fontWeight: 400, color: '#64748b', fontSize: '12px' }}>&lt;{senderEmailAddr}&gt;</span>
+                                <span style={headerTagStyle(isIncoming ? '#dcfce7' : '#dbeafe', isIncoming ? '#15803d' : '#1d4ed8')}>
+                                  {isIncoming ? 'Incoming' : 'Outgoing'}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{recipientLabel}</div>
+                            </div>
+                          </div>
+
+                          <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 500 }}>
+                            {formatFullTimestamp(msg.sent_at || msg.created_at)}
+                          </div>
+                        </div>
+
+                        {/* Thread Message Card Body */}
+                        <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: '1.6', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                          {msg.body ? (
+                            <div dangerouslySetInnerHTML={{ __html: formatEmailBody(msg.body) }} />
+                          ) : (
+                            <p style={{ fontStyle: 'italic', color: '#94a3b8' }}>No content in message body</p>
+                          )}
+                        </div>
+
+                        {/* Thread Message Card Attachments */}
+                        {messageAtts.length > 0 && (
+                          <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #f1f5f9' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>
+                              Attachments ({messageAtts.length})
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                              {messageAtts.map((att, attIdx) => {
+                                const fileName = typeof att === 'string' ? att : att.filename || att.name || 'Attachment.pdf';
+                                const fileUrl = typeof att === 'object' && att.url ? att.url : (typeof att === 'string' && att.startsWith('http') ? att : (typeof att === 'string' ? `${API_BASE_URL}/${att.replace(/^\/+/, '')}` : null));
+                                const isPdf = fileName.toLowerCase().endsWith('.pdf');
+                                return (
+                                  <div key={attIdx} style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#f8fafc' }}>
+                                    <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: isPdf ? '#fee2e2' : '#dbeafe', color: isPdf ? '#dc2626' : '#1d4ed8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '9.5px' }}>
+                                      {isPdf ? 'PDF' : 'FILE'}
+                                    </div>
+                                    <div>
+                                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>{fileName}</div>
+                                      <div style={{ fontSize: '10.5px', color: '#94a3b8' }}>{att.size || 'Attachment'}</div>
+                                    </div>
+                                    {fileUrl && (
+                                      <a href={fileUrl} download={fileName} target="_blank" rel="noopener noreferrer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#475569', marginLeft: '8px', display: 'inline-flex', alignItems: 'center' }}>
+                                        <Download size={15} />
+                                      </a>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  );
-                })()}
+                    );
+                  })
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                    No messages found in thread
+                  </div>
+                )}
               </div>
 
               {/* Bottom Gmail-Style Rich Composer Pane */}
