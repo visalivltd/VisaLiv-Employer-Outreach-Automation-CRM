@@ -155,7 +155,23 @@ export default function EmailTrackingPage() {
   const [expandedCandidateId, setExpandedCandidateId] = useState(null);
   const [selectedFolder, setSelectedFolder] = useState('inbox');
   const [candidateSearchQuery, setCandidateSearchQuery] = useState('');
-  const [starredEmailIds, setStarredEmailIds] = useState(new Set());
+  const [starredEmailIds, setStarredEmailIds] = useState(() => {
+    try {
+      const saved = localStorage.getItem('visaliv_starred_emails');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('visaliv_starred_emails', JSON.stringify(Array.from(starredEmailIds)));
+    } catch (err) {
+      console.error('Failed to save starred emails:', err);
+    }
+  }, [starredEmailIds]);
+
   const [composerTab, setComposerTab] = useState('reply');
 
   // Selected Conversation Key for Reading Pane
@@ -435,8 +451,8 @@ export default function EmailTrackingPage() {
     return Object.values(map);
   }, [gmailAccounts, conversations]);
 
-  // FILTERED CONVERSATIONS WITH STRICT AND LOGIC
-  const filteredConversations = useMemo(() => {
+  // BASE SCOPED CONVERSATIONS ACCORDING TO CANDIDATE AND FOLDER SELECTION
+  const baseScopedConversations = useMemo(() => {
     let result = conversations;
 
     // 1. Candidate Filter
@@ -453,14 +469,23 @@ export default function EmailTrackingPage() {
       );
     }
 
-    // 3. Conversation Filter
+    // 3. Sub-Folder Filter (Inbox, Starred, Sent, Junk, Drafts, etc.)
+    if (selectedFolder === 'starred') {
+      result = result.filter(
+        (c) => starredEmailIds.has(c.key) || c.messages.some((m) => starredEmailIds.has(m.id))
+      );
+    } else if (selectedFolder === 'sent') {
+      result = result.filter((c) => c.messages.some((m) => m.direction === 'outgoing'));
+    }
+
+    // 4. Global Filters
     if (selectedConversationFilter !== 'all') {
       if (selectedConversationFilter === 'unread') {
         result = result.filter((c) => c.has_unread);
       } else if (selectedConversationFilter === 'read') {
         result = result.filter((c) => !c.has_unread);
       } else if (selectedConversationFilter === 'with_replies') {
-        result = result.filter((c) => c.messageCount > 1 || c.messages.some(m => m.direction === 'incoming'));
+        result = result.filter((c) => c.messageCount > 1 || c.messages.some((m) => m.direction === 'incoming'));
       } else if (selectedConversationFilter === 'outgoing') {
         result = result.filter((c) => c.latestMessage?.direction === 'outgoing');
       } else if (selectedConversationFilter === 'incoming') {
@@ -470,31 +495,19 @@ export default function EmailTrackingPage() {
       }
     }
 
-    // 4. Status Filter
     if (selectedStatusFilter !== 'all') {
       if (selectedStatusFilter === 'sent') {
-        result = result.filter((c) => c.messages.some(m => m.status === 'sent' || m.status === 'Sent'));
+        result = result.filter((c) => c.messages.some((m) => m.status === 'sent' || m.status === 'Sent'));
       } else if (selectedStatusFilter === 'received') {
-        result = result.filter((c) => c.messages.some(m => m.status === 'received' || m.direction === 'incoming'));
+        result = result.filter((c) => c.messages.some((m) => m.status === 'received' || m.direction === 'incoming'));
       } else if (selectedStatusFilter === 'failed') {
-        result = result.filter((c) => c.messages.some(m => m.status === 'failed' || m.status === 'Failed'));
+        result = result.filter((c) => c.messages.some((m) => m.status === 'failed' || m.status === 'Failed'));
       } else if (selectedStatusFilter === 'unread') {
         result = result.filter((c) => c.has_unread);
       }
     }
 
-    // 5. Middle Pane Filter Chips
-    if (filterChip === 'incoming') {
-      result = result.filter((c) => c.latestMessage?.direction === 'incoming');
-    } else if (filterChip === 'outgoing') {
-      result = result.filter((c) => c.latestMessage?.direction === 'outgoing');
-    } else if (filterChip === 'unread') {
-      result = result.filter((c) => c.has_unread);
-    } else if (filterChip === 'attachments') {
-      result = result.filter((c) => c.has_attachments);
-    }
-
-    // 6. Date Range Filter
+    // 5. Date Range Filter
     if (startDate) {
       const startMs = new Date(startDate).setHours(0, 0, 0, 0);
       result = result.filter((c) => {
@@ -510,7 +523,7 @@ export default function EmailTrackingPage() {
       });
     }
 
-    // 7. Search in Results
+    // 6. Search in Results
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       result = result.filter(
@@ -520,49 +533,73 @@ export default function EmailTrackingPage() {
           (c.employer_name || '').toLowerCase().includes(q) ||
           (c.employer_email || '').toLowerCase().includes(q) ||
           (c.subject || '').toLowerCase().includes(q) ||
-          c.messages.some((m) =>
-            (m.error_message || '').toLowerCase().includes(q)
+          c.messages.some(
+            (m) =>
+              (m.error_message || '').toLowerCase().includes(q) ||
+              (m.body || '').toLowerCase().includes(q)
           )
       );
     }
-
-    // Sort conversations
-    result.sort((a, b) => {
-      const tA = (a.lastTimestamp instanceof Date ? a.lastTimestamp : new Date(a.lastTimestamp)).getTime() || 0;
-      const tB = (b.lastTimestamp instanceof Date ? b.lastTimestamp : new Date(b.lastTimestamp)).getTime() || 0;
-      if (sortBy === 'newest') {
-        return tB - tA;
-      } else {
-        return tA - tB;
-      }
-    });
 
     return result;
   }, [
     conversations,
     selectedCandidateId,
     selectedGmailAccount,
+    selectedFolder,
+    starredEmailIds,
     selectedConversationFilter,
     selectedStatusFilter,
-    filterChip,
     startDate,
     endDate,
     searchQuery,
-    sortBy,
   ]);
 
+  // Dynamic filter chip counts scoped strictly to current candidate/folder selection
+  const allCount = useMemo(() => baseScopedConversations.length, [baseScopedConversations]);
   const unreadCount = useMemo(
-    () => conversations.filter((c) => c.has_unread).length,
-    [conversations]
+    () => baseScopedConversations.filter((c) => c.has_unread).length,
+    [baseScopedConversations]
+  );
+  const readCount = useMemo(
+    () => baseScopedConversations.filter((c) => !c.has_unread).length,
+    [baseScopedConversations]
   );
   const incomingCount = useMemo(
-    () => conversations.filter((c) => c.latestMessage?.direction === 'incoming').length,
-    [conversations]
+    () => baseScopedConversations.filter((c) => c.latestMessage?.direction === 'incoming').length,
+    [baseScopedConversations]
   );
   const outgoingCount = useMemo(
-    () => conversations.filter((c) => c.latestMessage?.direction === 'outgoing').length,
-    [conversations]
+    () => baseScopedConversations.filter((c) => c.latestMessage?.direction === 'outgoing').length,
+    [baseScopedConversations]
   );
+
+  // FINAL FILTERED CONVERSATIONS FOR MIDDLE PANE (Column 2)
+  const filteredConversations = useMemo(() => {
+    let result = [...baseScopedConversations];
+
+    // Apply Filter Chips (All, Unread, Read, Incoming, Outgoing)
+    if (filterChip === 'incoming') {
+      result = result.filter((c) => c.latestMessage?.direction === 'incoming');
+    } else if (filterChip === 'outgoing') {
+      result = result.filter((c) => c.latestMessage?.direction === 'outgoing');
+    } else if (filterChip === 'unread') {
+      result = result.filter((c) => c.has_unread);
+    } else if (filterChip === 'read') {
+      result = result.filter((c) => !c.has_unread);
+    } else if (filterChip === 'attachments') {
+      result = result.filter((c) => c.has_attachments);
+    }
+
+    // Sort conversations
+    result.sort((a, b) => {
+      const tA = (a.lastTimestamp instanceof Date ? a.lastTimestamp : new Date(a.lastTimestamp)).getTime() || 0;
+      const tB = (b.lastTimestamp instanceof Date ? b.lastTimestamp : new Date(b.lastTimestamp)).getTime() || 0;
+      return sortBy === 'newest' ? tB - tA : tA - tB;
+    });
+
+    return result;
+  }, [baseScopedConversations, filterChip, sortBy]);
 
   // Check if any filter is active
   const isFiltered = useMemo(() => {
@@ -1060,6 +1097,39 @@ export default function EmailTrackingPage() {
             )}
           </div>
 
+          {/* GLOBAL EMAIL SEARCH BOX */}
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <Search size={15} style={{ position: 'absolute', left: '10px', color: '#94a3b8' }} />
+            <input
+              type="text"
+              placeholder="Search all emails by keyword, sender..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                paddingLeft: '32px',
+                paddingRight: searchQuery ? '30px' : '12px',
+                paddingTop: '8px',
+                paddingBottom: '8px',
+                fontSize: '12.5px',
+                borderRadius: '8px',
+                border: '1px solid #cbd5e1',
+                outline: 'none',
+                width: '240px',
+                backgroundColor: '#ffffff',
+                color: '#0f172a',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+              }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                style={{ position: 'absolute', right: '8px', border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center' }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
 
           <button
             type="button"
@@ -1204,46 +1274,57 @@ export default function EmailTrackingPage() {
                     {/* Sub-Folders List (When Expanded) */}
                     {isExpanded && (
                       <div style={{ paddingLeft: '42px', paddingRight: '12px', paddingTop: '4px', paddingBottom: '6px', background: '#f8fafc' }}>
-                        {[
-                          { id: 'inbox', label: 'Inbox', icon: Inbox, count: cand.conversationCount || 0 },
-                          { id: 'sent', label: 'Sent', icon: Send, count: null },
-                          { id: 'junk', label: 'Junk Email', icon: Ban, count: null },
-                          { id: 'drafts', label: 'Drafts', icon: FileText, count: null },
-                          { id: 'deleted', label: 'Deleted Items', icon: Trash2, count: null },
-                          { id: 'archive', label: 'Archive', icon: Archive, count: null },
-                          { id: 'outbox', label: 'Outbox', icon: Send, count: null },
-                          { id: 'scheduled', label: 'Scheduled', icon: Clock, count: null },
-                        ].map((f) => {
-                          const FIcon = f.icon;
-                          const isFolderSelected = selectedFolder === f.id;
-                          return (
-                            <div
-                              key={f.id}
-                              onClick={() => setSelectedFolder(f.id)}
-                              style={{
-                                padding: '6px 10px',
-                                borderRadius: '6px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                cursor: 'pointer',
-                                background: isFolderSelected ? '#dbeafe' : 'transparent',
-                                color: isFolderSelected ? '#1e40af' : '#475569',
-                                fontSize: '12px',
-                                fontWeight: isFolderSelected ? 600 : 500,
-                                marginBottom: '2px',
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <FIcon size={14} color={isFolderSelected ? '#2563eb' : '#64748b'} />
-                                <span>{f.label}</span>
+                        {(() => {
+                          const candStarredCount = conversations.filter(
+                            (c) => c.candidate_id === cand.candidate_id && (starredEmailIds.has(c.key) || c.messages.some((m) => starredEmailIds.has(m.id)))
+                          ).length;
+                          const candSentCount = conversations.filter(
+                            (c) => c.candidate_id === cand.candidate_id && c.messages.some((m) => m.direction === 'outgoing')
+                          ).length;
+
+                          return [
+                            { id: 'inbox', label: 'Inbox', icon: Inbox, count: cand.conversationCount || 0 },
+                            { id: 'starred', label: 'Starred', icon: Star, count: candStarredCount > 0 ? candStarredCount : null },
+                            { id: 'sent', label: 'Sent', icon: Send, count: candSentCount > 0 ? candSentCount : null },
+                            { id: 'junk', label: 'Junk Email', icon: Ban, count: null },
+                            { id: 'drafts', label: 'Drafts', icon: FileText, count: null },
+                            { id: 'deleted', label: 'Deleted Items', icon: Trash2, count: null },
+                            { id: 'archive', label: 'Archive', icon: Archive, count: null },
+                            { id: 'outbox', label: 'Outbox', icon: Send, count: null },
+                            { id: 'scheduled', label: 'Scheduled', icon: Clock, count: null },
+                          ].map((f) => {
+                            const FIcon = f.icon;
+                            const isFolderSelected = selectedFolder === f.id;
+                            const isStarIcon = f.id === 'starred';
+                            return (
+                              <div
+                                key={f.id}
+                                onClick={() => setSelectedFolder(f.id)}
+                                style={{
+                                  padding: '6px 10px',
+                                  borderRadius: '6px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  cursor: 'pointer',
+                                  background: isFolderSelected ? '#dbeafe' : 'transparent',
+                                  color: isFolderSelected ? '#1e40af' : '#475569',
+                                  fontSize: '12px',
+                                  fontWeight: isFolderSelected ? 600 : 500,
+                                  marginBottom: '2px',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <FIcon size={14} color={isFolderSelected ? '#2563eb' : isStarIcon ? '#f59e0b' : '#64748b'} fill={isStarIcon ? '#f59e0b' : 'none'} />
+                                  <span>{f.label}</span>
+                                </div>
+                                {f.count !== null && (
+                                  <span style={{ fontSize: '11px', opacity: 0.8, fontWeight: 700 }}>{f.count}</span>
+                                )}
                               </div>
-                              {f.count !== null && (
-                                <span style={{ fontSize: '11px', opacity: 0.8 }}>{f.count}</span>
-                              )}
-                            </div>
-                          );
-                        })}
+                            );
+                          });
+                        })()}
                       </div>
                     )}
                   </div>
@@ -1258,8 +1339,8 @@ export default function EmailTrackingPage() {
           {/* Column 2 Header */}
           <div style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
-                Inbox ({filteredConversations.length})
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a', textTransform: 'capitalize' }}>
+                {selectedFolder === 'starred' ? 'Starred' : selectedFolder === 'sent' ? 'Sent' : 'Inbox'} ({filteredConversations.length})
               </h3>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1281,8 +1362,9 @@ export default function EmailTrackingPage() {
             {/* Filter Pills Bar */}
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
               {[
-                { id: 'all', label: `All (${conversations.length})` },
+                { id: 'all', label: `All (${allCount})` },
                 { id: 'unread', label: `Unread (${unreadCount})` },
+                { id: 'read', label: `Read (${readCount})` },
                 { id: 'incoming', label: `Incoming (${incomingCount})` },
                 { id: 'outgoing', label: `Outgoing (${outgoingCount})` },
               ].map((tab) => (
@@ -1436,8 +1518,20 @@ export default function EmailTrackingPage() {
                   <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a', lineHeight: '1.3' }}>
                     {selectedConversation.subject}
                   </h2>
-                  <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#cbd5e1' }}>
-                    <Star size={18} />
+                  <button
+                    onClick={() => {
+                      if (!selectedConversation) return;
+                      setStarredEmailIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(selectedConversation.key)) next.delete(selectedConversation.key);
+                        else next.add(selectedConversation.key);
+                        return next;
+                      });
+                    }}
+                    style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: starredEmailIds.has(selectedConversation.key) ? '#f59e0b' : '#cbd5e1' }}
+                    title={starredEmailIds.has(selectedConversation.key) ? 'Unstar email' : 'Star email'}
+                  >
+                    <Star size={20} fill={starredEmailIds.has(selectedConversation.key) ? '#f59e0b' : 'none'} />
                   </button>
                 </div>
 
@@ -1455,106 +1549,171 @@ export default function EmailTrackingPage() {
                 </div>
               </div>
 
-              {/* Message Body & Sender Info Scroll Container */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-                
-                {/* Sender Details Header */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '15px' }}>
-                      {getInitials(selectedConversation.employer_name)}
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '14px', color: '#0f172a' }}>
-                        {selectedConversation.employer_name} <span style={{ fontWeight: 400, color: '#64748b', fontSize: '12px' }}>&lt;{selectedConversation.employer_email}&gt;</span>
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#94a3b8' }}>to me ▾</div>
-                    </div>
-                  </div>
+              {/* OUTLOOK-STYLE THREADED CONVERSATION CHAIN SCROLL CONTAINER */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px', background: '#f8fafc' }}>
+                {selectedConversation.messages && selectedConversation.messages.length > 0 ? (
+                  selectedConversation.messages.map((msg, idx) => {
+                    const msgKey = msg.id || idx;
+                    const isExpanded = expandedMessageIds.has(msgKey);
+                    const isIncoming = msg.direction === 'incoming';
+                    const senderDisplayName = isIncoming
+                      ? selectedConversation.employer_name
+                      : selectedConversation.candidate_name;
+                    const senderEmailAddr = isIncoming
+                      ? selectedConversation.employer_email
+                      : selectedConversation.candidate_gmail;
+                    const recipientLabel = isIncoming ? 'to me' : `to ${selectedConversation.employer_name}`;
 
-                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                    {formatFullTimestamp(
-                      selectedConversation.latestMessage?.sent_at ||
-                      selectedConversation.latestMessage?.created_at ||
-                      selectedConversation.lastTimestamp
-                    )}
-                  </div>
+                    const rawAtts = (msg && msg.attachments) || (msg && msg.attachment_paths) || [];
+                    const messageAtts = Array.isArray(rawAtts) ? [...rawAtts] : [];
 
-                </div>
-
-                {/* Email Content Body */}
-                <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: '1.6', marginBottom: '24px', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-                  {selectedConversation.latestMessage?.body ? (
-                    <div dangerouslySetInnerHTML={{ __html: formatEmailBody(selectedConversation.latestMessage.body) }} />
-                  ) : (
-                    <div>
-                      <p>Dear Candidate,</p>
-                      <p>We are pleased to invite you to apply for the position at {selectedConversation.employer_name}.</p>
-                      <p>Please click the link below to complete your application:</p>
-                      <p><a href="#" style={{ color: '#2563eb' }}>https://visaliv.com/application-link</a></p>
-                      <p>Kind regards,<br />{selectedConversation.employer_name} Recruitment Team</p>
-                    </div>
-                  )}
-                </div>
-                {/* Attachments Box (Only if real attachments or candidate CV exist) */}
-                {(() => {
-                  const msg = selectedConversation.latestMessage;
-                  const rawAtts = (msg && msg.attachments) || (msg && msg.attachment_paths) || [];
-                  const attachments = Array.isArray(rawAtts) ? [...rawAtts] : [];
-
-                  const cvPath = (msg && msg.candidate_cv_path) || selectedConversation.candidate_cv_path;
-                  if (cvPath && typeof cvPath === 'string' && cvPath.trim() !== '') {
-                    const cleanCandName = (selectedConversation.candidate_name || 'Candidate').trim().replace(/\s+/g, '_');
-                    const cvDisplayName = `${cleanCandName}_CV.pdf`;
-                    const exists = attachments.some(a => {
-                      const name = typeof a === 'string' ? a : (a.filename || a.name || '');
-                      return name.toLowerCase() === cvDisplayName.toLowerCase() || (typeof a === 'object' && a.path === cvPath);
-                    });
-                    if (!exists) {
-                      attachments.unshift({
-                        filename: cvDisplayName,
-                        name: cvDisplayName,
-                        path: cvPath,
-                        url: cvPath.startsWith('http') ? cvPath : `${API_BASE_URL}/${cvPath.replace(/^\/+/, '')}`,
-                        size: 'Candidate CV',
+                    const cvPath = (msg && msg.candidate_cv_path) || selectedConversation.candidate_cv_path;
+                    if (cvPath && typeof cvPath === 'string' && cvPath.trim() !== '') {
+                      const cleanCandName = (selectedConversation.candidate_name || 'Candidate').trim().replace(/\s+/g, '_');
+                      const cvDisplayName = `${cleanCandName}_CV.pdf`;
+                      const exists = messageAtts.some(a => {
+                        const name = typeof a === 'string' ? a : (a.filename || a.name || '');
+                        return name.toLowerCase() === cvDisplayName.toLowerCase() || (typeof a === 'object' && a.path === cvPath);
                       });
+                      if (!exists && idx === 0) {
+                        messageAtts.unshift({
+                          filename: cvDisplayName,
+                          name: cvDisplayName,
+                          path: cvPath,
+                          url: cvPath.startsWith('http') ? cvPath : `${API_BASE_URL}/${cvPath.replace(/^\/+/, '')}`,
+                          size: 'Candidate CV',
+                        });
+                      }
                     }
-                  }
 
-                  if (!attachments || attachments.length === 0) return null;
-
-                  return (
-                    <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #f1f5f9' }}>
-                      <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '10px' }}>
-                        Attachments ({attachments.length})
-                      </div>
-
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                        {attachments.map((att, idx) => {
-                          const fileName = typeof att === 'string' ? att : att.filename || att.name || 'Attachment.pdf';
-                          const fileUrl = typeof att === 'object' && att.url ? att.url : (typeof att === 'string' && att.startsWith('http') ? att : (typeof att === 'string' ? `${API_BASE_URL}/${att.replace(/^\/+/, '')}` : null));
-                          const isPdf = fileName.toLowerCase().endsWith('.pdf');
-                          return (
-                            <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc' }}>
-                              <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: isPdf ? '#fee2e2' : '#dbeafe', color: isPdf ? '#dc2626' : '#1d4ed8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '10px' }}>
-                                {isPdf ? 'PDF' : 'FILE'}
-                              </div>
-                              <div>
-                                <div style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{fileName}</div>
-                                <div style={{ fontSize: '11px', color: '#94a3b8' }}>{att.size || 'Attachment'}</div>
-                              </div>
-                              {fileUrl && (
-                                <a href={fileUrl} download={fileName} target="_blank" rel="noopener noreferrer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#475569', marginLeft: '12px', display: 'inline-flex', alignItems: 'center' }}>
-                                  <Download size={16} />
-                                </a>
-                              )}
+                    if (!isExpanded) {
+                      {/* Collapsed Outlook Message Summary Bar */}
+                      return (
+                        <div
+                          key={msgKey}
+                          onClick={() => toggleMessageExpand(msgKey)}
+                          style={{
+                            backgroundColor: '#ffffff',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '10px',
+                            padding: '10px 16px',
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.03)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            transition: 'background 0.15s ease',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, overflow: 'hidden' }}>
+                            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: isIncoming ? '#059669' : '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '11px', flexShrink: 0 }}>
+                              {getInitials(senderDisplayName)}
                             </div>
-                          );
-                        })}
+                            <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a', whiteSpace: 'nowrap' }}>
+                              {senderDisplayName}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#64748b', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 }}>
+                              {stripHtmlTags(msg.body) || 'No message content preview'}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                              {formatTimestamp(msg.sent_at || msg.created_at)}
+                            </span>
+                            <ChevronDown size={16} color="#64748b" />
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div
+                        key={msgKey}
+                        style={{
+                          backgroundColor: '#ffffff',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '12px',
+                          padding: '20px',
+                          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                        }}
+                      >
+                        {/* Thread Message Card Header */}
+                        <div
+                          onClick={() => toggleMessageExpand(msgKey)}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px', cursor: 'pointer' }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: isIncoming ? '#059669' : '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '14px' }}>
+                              {getInitials(senderDisplayName)}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: '14px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span>{senderDisplayName}</span>
+                                <span style={{ fontWeight: 400, color: '#64748b', fontSize: '12px' }}>&lt;{senderEmailAddr}&gt;</span>
+                                <span style={headerTagStyle(isIncoming ? '#dcfce7' : '#dbeafe', isIncoming ? '#15803d' : '#1d4ed8')}>
+                                  {isIncoming ? 'Incoming' : 'Outgoing'}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{recipientLabel}</div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 500 }}>
+                              {formatFullTimestamp(msg.sent_at || msg.created_at)}
+                            </div>
+                            <ChevronUp size={16} color="#64748b" />
+                          </div>
+                        </div>
+
+                        {/* Thread Message Card Body */}
+                        <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: '1.6', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                          {msg.body ? (
+                            <div dangerouslySetInnerHTML={{ __html: formatEmailBody(msg.body) }} />
+                          ) : (
+                            <p style={{ fontStyle: 'italic', color: '#94a3b8' }}>No content in message body</p>
+                          )}
+                        </div>
+
+                        {/* Thread Message Card Attachments */}
+                        {messageAtts.length > 0 && (
+                          <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #f1f5f9' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>
+                              Attachments ({messageAtts.length})
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                              {messageAtts.map((att, attIdx) => {
+                                const fileName = typeof att === 'string' ? att : att.filename || att.name || 'Attachment.pdf';
+                                const fileUrl = typeof att === 'object' && att.url ? att.url : (typeof att === 'string' && att.startsWith('http') ? att : (typeof att === 'string' ? `${API_BASE_URL}/${att.replace(/^\/+/, '')}` : null));
+                                const isPdf = fileName.toLowerCase().endsWith('.pdf');
+                                return (
+                                  <div key={attIdx} style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#f8fafc' }}>
+                                    <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: isPdf ? '#fee2e2' : '#dbeafe', color: isPdf ? '#dc2626' : '#1d4ed8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '9.5px' }}>
+                                      {isPdf ? 'PDF' : 'FILE'}
+                                    </div>
+                                    <div>
+                                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>{fileName}</div>
+                                      <div style={{ fontSize: '10.5px', color: '#94a3b8' }}>{att.size || 'Attachment'}</div>
+                                    </div>
+                                    {fileUrl && (
+                                      <a href={fileUrl} download={fileName} target="_blank" rel="noopener noreferrer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#475569', marginLeft: '8px', display: 'inline-flex', alignItems: 'center' }}>
+                                        <Download size={15} />
+                                      </a>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  );
-                })()}
+                    );
+                  })
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                    No messages found in thread
+                  </div>
+                )}
               </div>
 
               {/* Bottom Gmail-Style Rich Composer Pane */}

@@ -12,7 +12,7 @@ import {
   Inbox
 } from 'lucide-react';
 
-export default function Sidebar({ isOpen, onClose }) {
+export default function Sidebar({ isOpen, isCollapsed, onClose }) {
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutGrid },
     { name: 'Candidates', path: '/candidates', icon: Users },
@@ -32,7 +32,7 @@ export default function Sidebar({ isOpen, onClose }) {
         <div className="sidebar-overlay" onClick={onClose} />
       )}
 
-      <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
+      <aside className={`sidebar ${isOpen ? 'open' : ''} ${isCollapsed ? 'collapsed' : ''}`}>
         {/* Brand Logo & Name */}
         <div className="sidebar-brand">
           <div className="brand-icon-wrapper">
