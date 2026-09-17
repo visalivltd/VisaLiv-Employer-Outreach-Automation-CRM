@@ -177,6 +177,9 @@ export default function EmailTrackingPage() {
   // Selected Conversation Key for Reading Pane
   const [selectedConversationKey, setSelectedConversationKey] = useState(null);
 
+  // Real-time local tracking of read conversations
+  const [locallyReadConvKeys, setLocallyReadConvKeys] = useState(new Set());
+
   // Collapsed / Expanded state for messages in the reading pane thread
   const [expandedMessageIds, setExpandedMessageIds] = useState(new Set());
 
@@ -378,7 +381,8 @@ export default function EmailTrackingPage() {
       }
 
       const notifId = unreadMap.get(log.gmail_message_id) || unreadMap.get(log.id);
-      const isUnread = Boolean(notifId) || (log.direction === 'incoming' && log.status === 'received');
+      // Strictly INCOMING messages from employer generate unread status
+      const isUnread = log.direction === 'incoming' && (Boolean(notifId) || log.status === 'received');
 
       if (isUnread) {
         grouped[key].has_unread = true;
@@ -400,9 +404,11 @@ export default function EmailTrackingPage() {
       const latestMessage = conv.messages[conv.messages.length - 1];
       const rawSubject = latestMessage?.subject || 'Application for Position';
       const cleanSubject = rawSubject.replace(/^(Re:\s*|Fwd:\s*)/i, '').trim();
+      const isReadLocally = locallyReadConvKeys.has(conv.key);
 
       return {
         ...conv,
+        has_unread: isReadLocally ? false : conv.has_unread,
         latestMessage,
         subject: cleanSubject,
         lastTimestamp: latestMessage
@@ -414,7 +420,7 @@ export default function EmailTrackingPage() {
 
 
     return list;
-  }, [logs, notifications]);
+  }, [logs, notifications, locallyReadConvKeys]);
 
   // Derived Accounts List for Left Pane & Filters
   const accountsList = useMemo(() => {
@@ -660,19 +666,30 @@ export default function EmailTrackingPage() {
       }
       setExpandedMessageIds(newSet);
 
-      if (
-        selectedConversation.has_unread &&
-        selectedConversation.unread_notification_ids.length > 0
-      ) {
-        selectedConversation.unread_notification_ids.forEach(async (id) => {
-          try {
-            await fetch(`${API_BASE_URL}/notifications/${id}/read`, {
-              method: 'POST',
-            });
-          } catch (err) {
-            console.error('Failed to mark notification read:', err);
-          }
+      // Instantly mark conversation as read in local state when opened
+      if (selectedConversation.has_unread) {
+        setLocallyReadConvKeys((prev) => {
+          const next = new Set(prev);
+          next.add(selectedConversation.key);
+          return next;
         });
+
+        if (selectedConversation.unread_notification_ids.length > 0) {
+          const notifIdsToRead = new Set(selectedConversation.unread_notification_ids);
+          setNotifications((prev) =>
+            prev.map((n) => (notifIdsToRead.has(n.id) ? { ...n, is_read: true } : n))
+          );
+
+          selectedConversation.unread_notification_ids.forEach(async (id) => {
+            try {
+              await fetch(`${API_BASE_URL}/notifications/${id}/read`, {
+                method: 'POST',
+              });
+            } catch (err) {
+              console.error('Failed to mark notification read:', err);
+            }
+          });
+        }
       }
     }
   }, [selectedConversationKey]);
@@ -853,6 +870,7 @@ export default function EmailTrackingPage() {
 
       setIsReplying(false);
       setReplyBody('');
+      setLocallyReadConvKeys((prev) => new Set(prev).add(selectedConversation.key));
       showToast('Reply sent successfully');
       await fetchData();
     } catch (err) {
