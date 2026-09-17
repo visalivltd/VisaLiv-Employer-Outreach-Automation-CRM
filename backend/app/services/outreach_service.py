@@ -81,9 +81,9 @@ class OutreachService:
     @staticmethod
     def get_start_of_today_ist() -> datetime:
         india_timezone = timezone(timedelta(hours=5, minutes=30))
-        return datetime.now(india_timezone).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        ist_now = datetime.now(india_timezone)
+        start_ist = ist_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return start_ist.astimezone(timezone.utc)
 
     @staticmethod
     def get_candidate_sent_today(db: Session, candidate_id: int, start_of_today: datetime) -> int:
@@ -1690,7 +1690,7 @@ class OutreachService:
         if batch_id:
             job_stmt = job_stmt.where(OutreachJob.batch_id == batch_id)
 
-        failed_jobs = db.scalars(job_stmt).all()
+        failed_jobs = db.scalars(job_stmt).unique().all()
         for job in failed_jobs:
             cand_name = job.candidate.full_name if job.candidate else f"Candidate #{job.candidate_id}"
             cand_email = job.candidate.email if job.candidate else None
@@ -1725,7 +1725,7 @@ class OutreachService:
             .order_by(EmailLog.created_at.desc(), EmailLog.id.desc())
             .limit(limit)
         )
-        failed_logs = db.scalars(log_stmt).all()
+        failed_logs = db.scalars(log_stmt).unique().all()
         for log in failed_logs:
             cand_name = log.candidate.full_name if log.candidate else f"Candidate #{log.candidate_id}"
             cand_email = log.candidate.email if log.candidate else None

@@ -27,41 +27,47 @@ def extract_draft_content(draft: EmailDraft | None, candidate_full_name: str) ->
         path_str = draft.attachment_path
         ext = Path(path_str).suffix.lower()
 
-        # 1. Attempt reading file bytes via storage_service (supports Cloud Storage & local)
-        try:
-            file_bytes = storage_service.get_file_bytes(path_str)
-            if file_bytes:
-                if ext == ".pdf":
-                    try:
-                        import pypdf
-                        reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-                        pdf_lines = []
-                        for page in reader.pages:
-                            text = page.extract_text()
-                            if text:
-                                pdf_lines.extend([l.strip() for l in text.splitlines() if l.strip()])
-                        if pdf_lines:
-                            match = re.match(r"^subject\s*:\s*(.*)$", pdf_lines[0], re.IGNORECASE)
-                            if match:
-                                extracted_subject = match.group(1).strip()
-                                pdf_lines = pdf_lines[1:]
-                            body_paragraphs = pdf_lines
-                    except Exception as pdf_exc:
-                        print(f"Warning: Failed to read PDF draft file ({path_str}): {pdf_exc}")
-                else:
-                    try:
-                        doc = docx.Document(io.BytesIO(file_bytes))
-                        lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-                        if lines:
-                            match = re.match(r"^subject\s*:\s*(.*)$", lines[0], re.IGNORECASE)
-                            if match:
-                                extracted_subject = match.group(1).strip()
-                                lines = lines[1:]
-                            body_paragraphs = lines
-                    except Exception as docx_exc:
-                        print(f"Warning: Failed to read docx draft file via storage_service ({path_str}): {docx_exc}")
-        except Exception as exc:
-            print(f"Warning: Failed to retrieve draft file bytes ({path_str}): {exc}")
+        # 1. Attempt reading file bytes via storage_service (supports Cloud Storage & local) with retry loop
+        file_bytes = None
+        for attempt in range(3):
+            try:
+                file_bytes = storage_service.get_file_bytes(path_str)
+                if file_bytes:
+                    break
+            except Exception as retry_exc:
+                import time
+                time.sleep(0.3)
+
+        if file_bytes:
+            if ext == ".pdf":
+                try:
+                    import pypdf
+                    reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                    pdf_lines = []
+                    for page in reader.pages:
+                        text = page.extract_text()
+                        if text:
+                            pdf_lines.extend([l.strip() for l in text.splitlines() if l.strip()])
+                    if pdf_lines:
+                        match = re.match(r"^subject\s*:\s*(.*)$", pdf_lines[0], re.IGNORECASE)
+                        if match:
+                            extracted_subject = match.group(1).strip()
+                            pdf_lines = pdf_lines[1:]
+                        body_paragraphs = pdf_lines
+                except Exception as pdf_exc:
+                    print(f"Warning: Failed to read PDF draft file ({path_str}): {pdf_exc}")
+            else:
+                try:
+                    doc = docx.Document(io.BytesIO(file_bytes))
+                    lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+                    if lines:
+                        match = re.match(r"^subject\s*:\s*(.*)$", lines[0], re.IGNORECASE)
+                        if match:
+                            extracted_subject = match.group(1).strip()
+                            lines = lines[1:]
+                        body_paragraphs = lines
+                except Exception as docx_exc:
+                    print(f"Warning: Failed to read docx draft file via storage_service ({path_str}): {docx_exc}")
 
         # 2. Local disk fallback if storage_service failed to find paragraphs
         if not body_paragraphs and not extracted_subject:

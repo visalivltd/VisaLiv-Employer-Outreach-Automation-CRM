@@ -160,15 +160,23 @@ def preview_employer_import(
 ) -> EmployerImportPreviewResponse:
     col_map, data_rows = parse_excel_file(file_contents)
 
-    # Fetch existing active employers for duplicate check
-    existing_employers = db.scalars(select(Employer).where(Employer.is_active.is_(True))).all()
-    existing_emails = {e.email.lower() for e in existing_employers if e.email}
-    existing_names = {e.service_name.lower() for e in existing_employers if e.service_name}
+    # Fetch existing active and soft-deleted employers for comprehensive duplicate check
+    all_employers = db.scalars(select(Employer)).all()
+    existing_emails = set()
+    existing_names = set()
     existing_specific_emails = set()
-    for e in existing_employers:
+
+    import re
+    for e in all_employers:
+        if e.service_name:
+            existing_names.add(e.service_name.strip().lower())
+        if e.email:
+            clean_email = re.sub(r"_deleted_\d+$", "", e.email.strip()).lower()
+            existing_emails.add(clean_email)
         for f in (e.hr_email, e.recruitment_email, e.careers_email, e.manager_email, e.info_email, e.general_email):
             if f:
-                existing_specific_emails.add(f.lower())
+                clean_f = re.sub(r"_deleted_\d+$", "", f.strip()).lower()
+                existing_specific_emails.add(clean_f)
 
     preview_rows: list[EmployerImportPreviewRow] = []
     valid_count = 0
