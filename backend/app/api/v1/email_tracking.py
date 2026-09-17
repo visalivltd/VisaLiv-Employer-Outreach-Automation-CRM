@@ -25,22 +25,26 @@ async def upload_tracking_attachment(
     file: UploadFile = File(...),
 ):
     """Upload custom attachment (PDF, DOCX, Images, etc.) for outgoing email/reply."""
-    ext = Path(file.filename).suffix.lower()
-    allowed_exts = {".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg", ".webp", ".txt", ".xlsx", ".csv"}
-    if ext not in allowed_exts:
+    ext = Path(file.filename).suffix.lower() if file.filename else ""
+    disallowed_exts = {".exe", ".bat", ".cmd", ".sh", ".vbs", ".js", ".msi"}
+    if ext in disallowed_exts:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file type '{ext}'. Allowed types: PDF, DOCX, Images (JPG, PNG, WEBP), TXT, Excel."
+            detail=f"Executable file types '{ext}' are not allowed as attachments."
         )
 
     contents = await file.read()
-    filename = f"{uuid.uuid4().hex[:10]}_{file.filename}"
+    clean_filename = file.filename if file.filename else "attachment.pdf"
+    if not ext and not clean_filename.endswith(".pdf"):
+        clean_filename += ".pdf"
+
+    filename = f"{uuid.uuid4().hex[:10]}_{clean_filename}"
     rel_path = f"uploads/attachments/{filename}"
     saved_path = storage_service.save_bytes(contents, rel_path)
 
     return {
         "success": True,
-        "filename": file.filename,
+        "filename": clean_filename,
         "file_path": saved_path,
         "size": len(contents),
         "content_type": file.content_type,

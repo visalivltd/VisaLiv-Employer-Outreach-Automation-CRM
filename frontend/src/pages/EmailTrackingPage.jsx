@@ -1797,12 +1797,54 @@ export default function EmailTrackingPage() {
                   style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '10px 14px', fontSize: '13px', outline: 'none', resize: 'none', marginBottom: '12px' }}
                 />
 
+                {/* Reply Custom Uploaded Attachments List */}
+                {replyAttachments.length > 0 && (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                    {replyAttachments.map((att, idx) => (
+                      <span
+                        key={idx}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '5px 10px',
+                          borderRadius: '6px',
+                          backgroundColor: '#eff6ff',
+                          border: '1px solid #93c5fd',
+                          color: '#1e40af',
+                          fontSize: '12px',
+                          fontWeight: '600',
+                        }}
+                      >
+                        <Paperclip size={13} />
+                        {att.filename} ({Math.round((att.size || 0) / 1024)} KB)
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(idx, true)}
+                          style={{
+                            border: 'none',
+                            background: 'none',
+                            cursor: 'pointer',
+                            color: '#dc2626',
+                            padding: '0 2px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 {/* Composer Bottom Action Toolbar */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#64748b' }}>
-                    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                      <Paperclip size={18} />
-                      <input type="file" multiple onChange={(e) => handleFileUpload(e, true)} style={{ display: 'none' }} />
+                    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }} title="Attach File (PDF, DOCX, Images)">
+                      <Paperclip size={18} color={uploadingAttachment ? '#2563eb' : '#64748b'} />
+                      {uploadingAttachment && <span style={{ fontSize: '12px', color: '#2563eb', fontWeight: 600 }}>Uploading...</span>}
+                      <input type="file" multiple onChange={(e) => handleFileUpload(e, true)} style={{ display: 'none' }} disabled={uploadingAttachment} />
                     </label>
                     <Smile size={18} style={{ cursor: 'pointer' }} />
                     <LinkIcon size={18} style={{ cursor: 'pointer' }} />
