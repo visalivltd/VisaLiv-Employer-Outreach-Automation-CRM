@@ -833,6 +833,7 @@ export default function EmailTrackingPage() {
 
     if (!replyBody.trim()) {
       setReplyError('Please write your reply message.');
+      showToast('Please write your reply message before sending');
       return;
     }
 
@@ -844,6 +845,11 @@ export default function EmailTrackingPage() {
       ? rawSubject
       : `Re: ${rawSubject}`;
 
+    const toEmail =
+      (selectedConversation.employer_email && selectedConversation.employer_email.includes('@'))
+        ? selectedConversation.employer_email
+        : (latestMsg?.employer_email || selectedConversation.messages?.find((m) => m.employer_email)?.employer_email || '');
+
     try {
       setReplySending(true);
       setReplyError('');
@@ -851,17 +857,18 @@ export default function EmailTrackingPage() {
       console.log('[EMAIL SEND DEBUG] Sending reply request:', {
         candidate_id: selectedConversation.candidate_id,
         employer_id: selectedConversation.employer_id,
-        to_email: selectedConversation.employer_email,
+        to_email: toEmail,
         thread_id: threadId,
+        attach_cv: replyAttachCv,
       });
 
-      const response = await fetch(`${API_BASE_URL}/email-tracking/send`, {
+      let response = await fetch(`${API_BASE_URL}/email-tracking/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           candidate_id: selectedConversation.candidate_id,
           employer_id: selectedConversation.employer_id,
-          to_email: selectedConversation.employer_email,
+          to_email: toEmail,
           subject: replySubject,
           body: replyBody.trim(),
           thread_id: threadId,
@@ -869,6 +876,23 @@ export default function EmailTrackingPage() {
           custom_attachment_paths: replyAttachments.map((a) => a.file_path),
         }),
       });
+
+      if (response.status === 404) {
+        response = await fetch(`${API_BASE_URL}/api/v1/email-tracking/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            candidate_id: selectedConversation.candidate_id,
+            employer_id: selectedConversation.employer_id,
+            to_email: toEmail,
+            subject: replySubject,
+            body: replyBody.trim(),
+            thread_id: threadId,
+            attach_cv: replyAttachCv,
+            custom_attachment_paths: replyAttachments.map((a) => a.file_path),
+          }),
+        });
+      }
 
       const data = await response.json().catch(() => ({}));
 
@@ -890,6 +914,7 @@ export default function EmailTrackingPage() {
 
       setIsReplying(false);
       setReplyBody('');
+      setReplyAttachments([]);
       setLocallyReadConvKeys((prev) => new Set(prev).add(selectedConversation.key));
       showToast('Reply sent successfully');
       await fetchData();
@@ -897,6 +922,7 @@ export default function EmailTrackingPage() {
       console.error('[EMAIL SEND DEBUG] Reply send error:', err);
       const rawMsg = err && typeof err.message === 'string' ? err.message : 'Failed to send reply via Gmail API';
       setReplyError(rawMsg);
+      showToast(`Reply error: ${rawMsg}`);
     } finally {
       setReplySending(false);
     }
@@ -1838,10 +1864,58 @@ export default function EmailTrackingPage() {
                   </div>
                 )}
 
+                {/* Reply Error Banner */}
+                {replyError && (
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      backgroundColor: '#fef2f2',
+                      border: '1px solid #fecaca',
+                      color: '#dc2626',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      marginBottom: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                    <span>{replyError}</span>
+                  </div>
+                )}
+
                 {/* Composer Bottom Action Toolbar */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#64748b' }}>
-                    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }} title="Attach File (PDF, DOCX, Images)">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', color: '#64748b' }}>
+                    <label
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '12px',
+                        color: '#334155',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                        backgroundColor: '#f8fafc',
+                        padding: '5px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        userSelect: 'none',
+                      }}
+                      title="Attach candidate's official uploaded CV file to reply email"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={replyAttachCv}
+                        onChange={(e) => setReplyAttachCv(e.target.checked)}
+                        style={{ width: '15px', height: '15px', accentColor: '#2563eb', cursor: 'pointer' }}
+                      />
+                      <span>Attach candidate's uploaded CV file</span>
+                    </label>
+
+                    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }} title="Attach Extra File (PDF, DOCX, Images)">
                       <Paperclip size={18} color={uploadingAttachment ? '#2563eb' : '#64748b'} />
                       {uploadingAttachment && <span style={{ fontSize: '12px', color: '#2563eb', fontWeight: 600 }}>Uploading...</span>}
                       <input type="file" multiple onChange={(e) => handleFileUpload(e, true)} style={{ display: 'none' }} disabled={uploadingAttachment} />
@@ -1869,7 +1943,8 @@ export default function EmailTrackingPage() {
                         cursor: replySending ? 'not-allowed' : 'pointer',
                       }}
                     >
-                      Send
+                      <Send size={14} />
+                      {replySending ? 'Sending...' : 'Send'}
                     </button>
                     <button
                       style={{
