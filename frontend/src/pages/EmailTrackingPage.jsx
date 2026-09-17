@@ -381,8 +381,8 @@ export default function EmailTrackingPage() {
       }
 
       const notifId = unreadMap.get(log.gmail_message_id) || unreadMap.get(log.id);
-      // Strictly INCOMING messages from employer generate unread status
-      const isUnread = log.direction === 'incoming' && (Boolean(notifId) || log.status === 'received');
+      // Strictly INCOMING messages with active unread notifications generate unread status
+      const isUnread = log.direction === 'incoming' && Boolean(notifId);
 
       if (isUnread) {
         grouped[key].has_unread = true;
@@ -649,7 +649,37 @@ export default function EmailTrackingPage() {
     return conversations.find((c) => c.key === selectedConversationKey) || null;
   }, [conversations, selectedConversationKey]);
 
-  // Expand latest message by default & mark unread notifications as read
+  // Manual card click handler to mark unread email read strictly on explicit user click
+  const handleConversationCardClick = (conv) => {
+    setSelectedConversationKey(conv.key);
+
+    if (conv.has_unread) {
+      setLocallyReadConvKeys((prev) => {
+        const next = new Set(prev);
+        next.add(conv.key);
+        return next;
+      });
+
+      if (conv.unread_notification_ids && conv.unread_notification_ids.length > 0) {
+        const notifIdsToRead = new Set(conv.unread_notification_ids);
+        setNotifications((prev) =>
+          prev.map((n) => (notifIdsToRead.has(n.id) ? { ...n, is_read: true } : n))
+        );
+
+        conv.unread_notification_ids.forEach(async (id) => {
+          try {
+            await fetch(`${API_BASE_URL}/notifications/${id}/read`, {
+              method: 'POST',
+            });
+          } catch (err) {
+            console.error('Failed to mark notification read:', err);
+          }
+        });
+      }
+    }
+  };
+
+  // Expand latest message by default when selected conversation changes
   useEffect(() => {
     setIsReplying(false);
     setReplyError('');
@@ -665,32 +695,6 @@ export default function EmailTrackingPage() {
         newSet.add(latestMsg.id);
       }
       setExpandedMessageIds(newSet);
-
-      // Instantly mark conversation as read in local state when opened
-      if (selectedConversation.has_unread) {
-        setLocallyReadConvKeys((prev) => {
-          const next = new Set(prev);
-          next.add(selectedConversation.key);
-          return next;
-        });
-
-        if (selectedConversation.unread_notification_ids.length > 0) {
-          const notifIdsToRead = new Set(selectedConversation.unread_notification_ids);
-          setNotifications((prev) =>
-            prev.map((n) => (notifIdsToRead.has(n.id) ? { ...n, is_read: true } : n))
-          );
-
-          selectedConversation.unread_notification_ids.forEach(async (id) => {
-            try {
-              await fetch(`${API_BASE_URL}/notifications/${id}/read`, {
-                method: 'POST',
-              });
-            } catch (err) {
-              console.error('Failed to mark notification read:', err);
-            }
-          });
-        }
-      }
     }
   }, [selectedConversationKey]);
 
@@ -1423,11 +1427,12 @@ export default function EmailTrackingPage() {
                 return (
                   <div
                     key={conv.key}
-                    onClick={() => setSelectedConversationKey(conv.key)}
+                    onClick={() => handleConversationCardClick(conv)}
                     style={{
-                      padding: '12px 14px',
-                      borderBottom: '1px solid #f1f5f9',
-                      background: isSelectedConv ? '#eff6ff' : conv.has_unread ? '#f8fafc' : '#ffffff',
+                      padding: '12px 14px 12px 10px',
+                      borderBottom: '1px solid #e2e8f0',
+                      background: isSelectedConv ? '#dbeafe' : conv.has_unread ? '#e0f2fe' : '#ffffff',
+                      borderLeft: isSelectedConv ? '4px solid #1d4ed8' : conv.has_unread ? '4px solid #2563eb' : '4px solid transparent',
                       cursor: 'pointer',
                       transition: 'all 0.15s ease',
                       position: 'relative',
@@ -1443,15 +1448,28 @@ export default function EmailTrackingPage() {
 
                       <div style={{ flex: 1, overflow: 'hidden' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
-                          <span style={{ fontWeight: conv.has_unread ? 700 : 600, fontSize: '13px', color: '#0f172a', textOverflow: 'ellipsis', overflow: 'hidden', whitespace: 'nowrap' }}>
-                            {conv.employer_name || 'Donotreply'}
+                          <span style={{
+                            fontWeight: conv.has_unread ? 800 : 600,
+                            fontSize: '13px',
+                            color: conv.has_unread ? '#0f172a' : '#334155',
+                            textOverflow: 'ellipsis',
+                            overflow: 'hidden',
+                            whitespace: 'nowrap',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}>
+                            {conv.has_unread && (
+                              <span style={{ color: '#2563eb', fontSize: '9px', lineHeight: 1 }} title="Unread Email">●</span>
+                            )}
+                            <span>{conv.employer_name || 'Donotreply'}</span>
                           </span>
-                          <span style={{ fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>
+                          <span style={{ fontSize: '11px', color: conv.has_unread ? '#1d4ed8' : '#94a3b8', fontWeight: conv.has_unread ? 700 : 500, flexShrink: 0 }}>
                             {formatTimestamp(conv.lastTimestamp)}
                           </span>
                         </div>
 
-                        <div style={{ fontWeight: conv.has_unread ? 600 : 500, fontSize: '12px', color: '#334155', textOverflow: 'ellipsis', overflow: 'hidden', whitespace: 'nowrap', marginBottom: '4px' }}>
+                        <div style={{ fontWeight: conv.has_unread ? 700 : 500, fontSize: '12px', color: conv.has_unread ? '#0f172a' : '#475569', textOverflow: 'ellipsis', overflow: 'hidden', whitespace: 'nowrap', marginBottom: '4px' }}>
                           {conv.subject}
                         </div>
 
