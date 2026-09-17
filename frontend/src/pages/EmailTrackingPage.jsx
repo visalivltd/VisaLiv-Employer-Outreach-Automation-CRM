@@ -232,10 +232,26 @@ export default function EmailTrackingPage() {
         const formData = new FormData();
         formData.append('file', file);
 
-        const res = await fetch(`${API_BASE_URL}/email-tracking/upload-attachment`, {
+        let res = await fetch(`${API_BASE_URL}/email-tracking/upload-attachment`, {
           method: 'POST',
           body: formData,
         });
+
+        // Smart fallback 1 if /email-tracking/upload-attachment gives 404
+        if (res.status === 404) {
+          res = await fetch(`${API_BASE_URL}/email-drafts/upload-attachment`, {
+            method: 'POST',
+            body: formData,
+          });
+        }
+
+        // Smart fallback 2 if still 404
+        if (res.status === 404) {
+          res = await fetch(`${API_BASE_URL}/api/v1/email-tracking/upload-attachment`, {
+            method: 'POST',
+            body: formData,
+          });
+        }
 
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || 'Failed to upload file');

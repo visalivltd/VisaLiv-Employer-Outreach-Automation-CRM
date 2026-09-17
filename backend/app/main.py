@@ -161,6 +161,7 @@ app.include_router(dashboard_router)
 app.include_router(email_draft_router)
 app.include_router(notification_router)
 app.include_router(email_tracking_router)
+app.include_router(email_tracking_router, prefix="/api/v1")
 app.include_router(real_candidate_router)
 
 
