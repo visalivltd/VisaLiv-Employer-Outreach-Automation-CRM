@@ -76,17 +76,25 @@ const formatEmailBody = (rawBody) => {
   if (!rawBody) return '';
   let str = String(rawBody);
 
-  // Detect if body contains complex rich HTML (tables, images, buttons, styles)
-  const isRichHtml = /<(table|img|iframe|style|svg|button|form|header|footer)[^>]*>/i.test(str);
-
-  if (isRichHtml) {
+  // If the body contains HTML tags, preserve full HTML formatting
+  const isHtml = /<[a-z][\s\S]*>/i.test(str);
+  if (isHtml) {
     return str;
   }
 
-  // Regular email: auto-link URLs and ensure newlines \n are converted to <br/>
+  // Plain text fallback: format URLs cleanly and convert newlines to <br/>
   const urlRegex = /(https?:\/\/[^\s<]+)/g;
   let formatted = str.replace(urlRegex, (url) => {
-    return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; word-break: break-all; text-decoration: underline;">${url}</a>`;
+    let displayUrl = url;
+    if (url.length > 55) {
+      try {
+        const u = new URL(url);
+        displayUrl = `${u.origin}${u.pathname.slice(0, 15)}...`;
+      } catch (e) {
+        displayUrl = url.slice(0, 50) + '...';
+      }
+    }
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" title="${url}" style="color: #2563eb; word-break: break-all; font-weight: 600; text-decoration: underline;">${displayUrl}</a>`;
   });
 
   if (!/<br\s*\/?>/i.test(formatted)) {

@@ -70,8 +70,7 @@ def extract_body_from_gmail_payload(payload: dict) -> str:
     if payload.get("parts"):
         _parse_parts(payload.get("parts"))
 
-    import re
-    if body_html and re.search(r"<(table|img|iframe|style|svg|button|form|header|footer)[^>]*>", body_html, re.IGNORECASE):
+    if body_html and body_html.strip():
         return body_html
     return body_text or body_html
 
