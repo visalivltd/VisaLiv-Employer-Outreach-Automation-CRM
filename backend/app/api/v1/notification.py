@@ -18,7 +18,7 @@ from sqlalchemy.orm import joinedload
 
 @router.get("")
 def get_notifications(
-    limit: int = 200,
+    limit: int = 50,
     db: Session = Depends(get_db),
 ):
     notifications = db.scalars(
