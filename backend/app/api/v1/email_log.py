@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload
 
 @router.get("")
 def get_email_logs(
-    limit: int = 500,
+    limit: int = 100,
     db: Session = Depends(get_db),
 ):
     logs = db.scalars(

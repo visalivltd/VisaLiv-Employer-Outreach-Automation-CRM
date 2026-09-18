@@ -292,7 +292,7 @@ export default function EmailTrackingPage() {
       setError('');
 
       const [logsRes, notifRes, accountsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/email-logs`),
+        fetch(`${API_BASE_URL}/email-logs?limit=100`),
         fetch(`${API_BASE_URL}/notifications`),
         fetch(`${API_BASE_URL}/gmail-accounts`),
       ]);
