@@ -148,58 +148,74 @@ def sync_incoming_replies(db: Session) -> dict:
 
                 gmail = build("gmail", "v1", credentials=creds)
 
-                # Fetch messages directly from Gmail API
+                # Fast Incremental Sync via Google Gmail History API
                 messages_list = []
-                try:
-                    msg_res = (
-                        gmail.users()
-                        .messages()
-                        .list(userId="me", maxResults=50)
-                        .execute()
-                    )
-                    messages_list = msg_res.get("messages", [])
-                except Exception as list_exc:
-                    err_msg = str(list_exc)
-                    print(f"[EMAIL SYNC REAUTH] Account {cand_gmail} list messages failed: {err_msg}", flush=True)
-                    account_errors.append({
-                        "gmail_email": cand_gmail,
-                        "candidate_id": account.candidate_id,
-                        "candidate_name": cand_name,
-                        "status": "REAUTH_REQUIRED",
-                        "error": "GMAIL_READ_SCOPE_MISSING",
-                        "message": f"Gmail read permission missing for {cand_name} ({cand_gmail}). Reauthorization required.",
-                    })
-                    continue
+                used_history_api = False
+                last_hist_id = getattr(account, "last_history_id", None)
 
-                if not messages_list:
+                if last_hist_id:
                     try:
-                        threads_res = (
+                        hist_res = (
                             gmail.users()
-                            .threads()
+                            .history()
+                            .list(userId="me", startHistoryId=last_hist_id)
+                            .execute()
+                        )
+                        new_hist_id = hist_res.get("historyId")
+                        if new_hist_id:
+                            account.last_history_id = str(new_hist_id)
+                            db.commit()
+
+                        history_records = hist_res.get("history", [])
+                        hist_msg_ids = set()
+                        for h in history_records:
+                            for m_added in h.get("messagesAdded", []):
+                                m_item = m_added.get("message")
+                                if m_item and m_item.get("id"):
+                                    hist_msg_ids.add(m_item.get("id"))
+                            for m_item in h.get("messages", []):
+                                if m_item and m_item.get("id"):
+                                    hist_msg_ids.add(m_item.get("id"))
+
+                        messages_list = [{"id": mid} for mid in hist_msg_ids]
+                        used_history_api = True
+                        print(f"[FAST SYNC] Incremental History API returned {len(messages_list)} new/changed messages for {cand_gmail}", flush=True)
+                    except Exception as hist_exc:
+                        print(f"[FAST SYNC FALLBACK] History API error for {cand_gmail} (historyId {last_hist_id}): {hist_exc}", flush=True)
+                        used_history_api = False
+
+                if not used_history_api:
+                    # Full scan fallback
+                    try:
+                        msg_res = (
+                            gmail.users()
+                            .messages()
                             .list(userId="me", maxResults=50)
                             .execute()
                         )
-                        t_list = threads_res.get("threads", [])
-                        for t in t_list:
-                            t_id = t.get("id")
-                            if not t_id:
-                                continue
+                        messages_list = msg_res.get("messages", [])
+                        latest_hist_id = msg_res.get("historyId")
+                        if not latest_hist_id:
                             try:
-                                t_detail = (
-                                    gmail.users()
-                                    .threads()
-                                    .get(userId="me", id=t_id, format="full")
-                                    .execute()
-                                )
-                                t_msgs = t_detail.get("messages", [])
-                                if not t_msgs:
-                                    t_msgs = [t_detail]
-                                for msg in t_msgs:
-                                    messages_list.append(msg)
+                                profile = gmail.users().getProfile(userId="me").execute()
+                                latest_hist_id = profile.get("historyId")
                             except Exception:
                                 pass
-                    except Exception:
-                        pass
+                        if latest_hist_id:
+                            account.last_history_id = str(latest_hist_id)
+                            db.commit()
+                    except Exception as list_exc:
+                        err_msg = str(list_exc)
+                        print(f"[EMAIL SYNC REAUTH] Account {cand_gmail} list messages failed: {err_msg}", flush=True)
+                        account_errors.append({
+                            "gmail_email": cand_gmail,
+                            "candidate_id": account.candidate_id,
+                            "candidate_name": cand_name,
+                            "status": "REAUTH_REQUIRED",
+                            "error": "GMAIL_READ_SCOPE_MISSING",
+                            "message": f"Gmail read permission missing for {cand_name} ({cand_gmail}). Reauthorization required.",
+                        })
+                        continue
 
                 print(f"[EMAIL SYNC] Gmail messages list count: {len(messages_list)} for account {cand_gmail}", flush=True)
 

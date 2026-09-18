@@ -323,6 +323,15 @@ export default function EmailTrackingPage() {
 
   useEffect(() => {
     fetchData();
+
+    // Background auto-sync emails every 60s silently (Google History API fast sync)
+    const autoSyncInterval = setInterval(() => {
+      fetch(`${API_BASE_URL}/notifications/sync`, { method: 'POST' })
+        .then(() => fetchData())
+        .catch((err) => console.error('Auto-sync background error:', err));
+    }, 60000);
+
+    return () => clearInterval(autoSyncInterval);
   }, []);
 
   // Toast Banner
