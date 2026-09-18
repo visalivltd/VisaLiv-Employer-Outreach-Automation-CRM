@@ -44,6 +44,11 @@ class GmailAccount(Base):
         default=True,
     )
 
+    last_history_id: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
     connected_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
