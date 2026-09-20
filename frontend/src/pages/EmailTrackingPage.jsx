@@ -76,32 +76,62 @@ const formatEmailBody = (rawBody) => {
   if (!rawBody) return '';
   let str = String(rawBody);
 
-  // If the body contains HTML tags, preserve full HTML formatting
+  // If the body contains HTML tags, preserve full HTML formatting directly
   const isHtml = /<[a-z][\s\S]*>/i.test(str);
   if (isHtml) {
     return str;
   }
 
-  // Plain text fallback: format URLs cleanly and convert newlines to <br/>
-  const urlRegex = /(https?:\/\/[^\s<]+)/g;
-  let formatted = str.replace(urlRegex, (url) => {
-    let displayUrl = url;
-    if (url.length > 55) {
-      try {
-        const u = new URL(url);
-        displayUrl = `${u.origin}${u.pathname.slice(0, 15)}...`;
-      } catch (e) {
-        displayUrl = url.slice(0, 50) + '...';
-      }
+  // Smart Plain Text -> Gmail-style Rich Card Formatter
+  let lines = str.split('\n');
+  let formattedLines = lines.map((line) => {
+    let trimmed = line.trim();
+
+    // Transform "View job: https://..." or "Apply now: https://..." into styled Gmail blue buttons
+    const actionMatch = trimmed.match(/^(View job|Apply now|Apply|View Job Description|Apply Here)\s*:\s*(https?:\/\/[^\s<]+)$/i);
+    if (actionMatch) {
+      const label = actionMatch[1];
+      const url = actionMatch[2];
+      return `<div style="margin: 10px 0;">
+        <a href="${url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; width: 100%; max-width: 280px; background: #2563eb; color: #ffffff; font-weight: 700; font-size: 13px; padding: 10px 18px; border-radius: 8px; text-decoration: none; text-align: center; box-shadow: 0 2px 4px rgba(37,99,235,0.15); transition: background 0.2s;">
+          ${label} ↗
+        </a>
+      </div>`;
     }
-    return `<a href="${url}" target="_blank" rel="noopener noreferrer" title="${url}" style="color: #2563eb; word-break: break-all; font-weight: 600; text-decoration: underline;">${displayUrl}</a>`;
+
+    // Transform "No: https://...", "Maybe: https://...", "Yes: https://..." into clean styled pills
+    const feedbackMatch = trimmed.match(/^(No|Maybe|Yes)\s*:\s*(https?:\/\/[^\s<]+)$/i);
+    if (feedbackMatch) {
+      const label = feedbackMatch[1];
+      const url = feedbackMatch[2];
+      const isNegative = label.toLowerCase() === 'no';
+      const bg = isNegative ? '#f8fafc' : '#eff6ff';
+      const border = isNegative ? '#cbd5e1' : '#93c5fd';
+      const color = isNegative ? '#475569' : '#1d4ed8';
+      return `<span style="display: inline-block; margin: 4px 6px 4px 0;">
+        <a href="${url}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 4px; background: ${bg}; border: 1px solid ${border}; color: ${color}; font-weight: 600; font-size: 12px; padding: 5px 12px; border-radius: 6px; text-decoration: none;">
+          ${label} ↗
+        </a>
+      </span>`;
+    }
+
+    // Convert generic raw URLs into clean clickable links
+    const urlRegex = /(https?:\/\/[^\s<]+)/g;
+    return line.replace(urlRegex, (url) => {
+      let displayUrl = url;
+      if (url.length > 50) {
+        try {
+          const u = new URL(url);
+          displayUrl = `${u.origin}${u.pathname.slice(0, 15)}...`;
+        } catch (e) {
+          displayUrl = url.slice(0, 45) + '...';
+        }
+      }
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer" title="${url}" style="color: #2563eb; word-break: break-all; font-weight: 600; text-decoration: underline;">${displayUrl}</a>`;
+    });
   });
 
-  if (!/<br\s*\/?>/i.test(formatted)) {
-    formatted = formatted.replace(/\n/g, '<br/>');
-  }
-
-  return formatted;
+  return formattedLines.join('<br/>');
 };
 
 const getInitials = (name) => {
