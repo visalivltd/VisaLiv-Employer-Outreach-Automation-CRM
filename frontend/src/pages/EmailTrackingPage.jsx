@@ -134,6 +134,11 @@ const formatEmailBody = (rawBody) => {
   return formattedLines.join('<br/>');
 };
 
+const cleanEmailAddress = (email) => {
+  if (!email) return '';
+  return String(email).replace(/_deleted_\d+$/i, '').trim();
+};
+
 const getInitials = (name) => {
   if (!name) return 'CL';
   const parts = String(name).trim().split(/\s+/);
@@ -892,10 +897,11 @@ export default function EmailTrackingPage() {
       ? rawSubject
       : `Re: ${rawSubject}`;
 
-    const toEmail =
+    const rawToEmail =
       (selectedConversation.employer_email && selectedConversation.employer_email.includes('@'))
         ? selectedConversation.employer_email
         : (latestMsg?.employer_email || selectedConversation.messages?.find((m) => m.employer_email)?.employer_email || '');
+    const toEmail = cleanEmailAddress(rawToEmail);
 
     try {
       setReplySending(true);
@@ -1685,8 +1691,8 @@ export default function EmailTrackingPage() {
                       ? selectedConversation.employer_name
                       : selectedConversation.candidate_name;
                     const senderEmailAddr = isIncoming
-                      ? selectedConversation.employer_email
-                      : selectedConversation.candidate_gmail;
+                      ? cleanEmailAddress(selectedConversation.employer_email)
+                      : cleanEmailAddress(selectedConversation.candidate_gmail);
                     const recipientLabel = isIncoming ? 'to me' : `to ${selectedConversation.employer_name}`;
 
                     const rawAtts = (msg && msg.attachments) || (msg && msg.attachment_paths) || [];
