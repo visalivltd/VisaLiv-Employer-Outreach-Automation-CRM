@@ -1527,7 +1527,7 @@ export default function EmailTrackingPage() {
                       padding: '12px 14px 12px 10px',
                       borderBottom: '1px solid #e2e8f0',
                       background: isSelectedConv ? '#dbeafe' : conv.has_unread ? '#e0f2fe' : '#ffffff',
-                      borderLeft: isSelectedConv ? '4px solid #1d4ed8' : conv.has_unread ? '4px solid #2563eb' : '4px solid transparent',
+                      borderLeft: conv.latestMessage?.status === 'failed' ? '4px solid #ef4444' : isSelectedConv ? '4px solid #1d4ed8' : conv.has_unread ? '4px solid #2563eb' : '4px solid transparent',
                       cursor: 'pointer',
                       transition: 'all 0.15s ease',
                       position: 'relative',
@@ -1576,6 +1576,23 @@ export default function EmailTrackingPage() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           {(() => {
                             const isIncoming = conv.latestMessage?.direction === 'incoming';
+                            const isFailed = conv.latestMessage?.status === 'failed';
+                            if (isFailed) {
+                              return (
+                                <span style={{
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  backgroundColor: '#fef2f2',
+                                  color: '#dc2626',
+                                  border: '1px solid #fecaca',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  textTransform: 'uppercase'
+                                }}>
+                                  FAILED
+                                </span>
+                              );
+                            }
                             return (
                               <span style={{
                                 fontSize: '10px',
@@ -1669,7 +1686,11 @@ export default function EmailTrackingPage() {
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <span style={headerTagStyle('#f1f5f9', '#475569')}>Inbox</span>
                   {(() => {
+                    const isFailed = selectedConversation.latestMessage?.status === 'failed';
                     const isIncoming = selectedConversation.latestMessage?.direction === 'incoming';
+                    if (isFailed) {
+                      return <span style={headerTagStyle('#fef2f2', '#dc2626')}>FAILED</span>;
+                    }
                     return (
                       <span style={headerTagStyle(isIncoming ? '#dcfce7' : '#dbeafe', isIncoming ? '#15803d' : '#1d4ed8')}>
                         {isIncoming ? 'Incoming' : 'Outgoing'}
@@ -1737,12 +1758,15 @@ export default function EmailTrackingPage() {
                           }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, overflow: 'hidden' }}>
-                            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: isIncoming ? '#059669' : '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '11px', flexShrink: 0 }}>
+                            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: msg.status === 'failed' ? '#dc2626' : isIncoming ? '#059669' : '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '11px', flexShrink: 0 }}>
                               {getInitials(senderDisplayName)}
                             </div>
                             <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a', whiteSpace: 'nowrap' }}>
                               {senderDisplayName}
                             </div>
+                            {msg.status === 'failed' && (
+                              <span style={{ fontSize: '10px', fontWeight: 700, backgroundColor: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', padding: '1px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>FAILED</span>
+                            )}
                             <div style={{ fontSize: '12px', color: '#64748b', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 }}>
                               {stripHtmlTags(msg.body) || 'No message content preview'}
                             </div>
@@ -1762,7 +1786,7 @@ export default function EmailTrackingPage() {
                         key={msgKey}
                         style={{
                           backgroundColor: '#ffffff',
-                          border: '1px solid #e2e8f0',
+                          border: msg.status === 'failed' ? '1px solid #fecaca' : '1px solid #e2e8f0',
                           borderRadius: '12px',
                           padding: '20px',
                           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
@@ -1774,15 +1798,18 @@ export default function EmailTrackingPage() {
                           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px', cursor: 'pointer' }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: isIncoming ? '#059669' : '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '14px' }}>
+                            <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: msg.status === 'failed' ? '#dc2626' : isIncoming ? '#059669' : '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '14px' }}>
                               {getInitials(senderDisplayName)}
                             </div>
                             <div>
                               <div style={{ fontWeight: 700, fontSize: '14px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <span>{senderDisplayName}</span>
                                 <span style={{ fontWeight: 400, color: '#64748b', fontSize: '12px' }}>&lt;{senderEmailAddr}&gt;</span>
-                                <span style={headerTagStyle(isIncoming ? '#dcfce7' : '#dbeafe', isIncoming ? '#15803d' : '#1d4ed8')}>
-                                  {isIncoming ? 'Incoming' : 'Outgoing'}
+                                <span style={headerTagStyle(
+                                  msg.status === 'failed' ? '#fef2f2' : isIncoming ? '#dcfce7' : '#dbeafe',
+                                  msg.status === 'failed' ? '#dc2626' : isIncoming ? '#15803d' : '#1d4ed8'
+                                )}>
+                                  {msg.status === 'failed' ? 'FAILED' : isIncoming ? 'Incoming' : 'Outgoing'}
                                 </span>
                               </div>
                               <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{recipientLabel}</div>
@@ -1798,6 +1825,26 @@ export default function EmailTrackingPage() {
                         </div>
 
                         {/* Thread Message Card Body */}
+                        {msg.status === 'failed' && (
+                          <div style={{
+                            marginBottom: '14px',
+                            padding: '10px 14px',
+                            backgroundColor: '#fef2f2',
+                            border: '1px solid #fecaca',
+                            borderRadius: '8px',
+                            color: '#991b1b',
+                            fontSize: '13px',
+                            fontWeight: 500,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                          }}>
+                            <span style={{ fontSize: '16px' }}>⚠️</span>
+                            <div>
+                              <strong>Email Delivery Failed:</strong> {msg.error_message || 'Google Gmail API rejected sending this message.'}
+                            </div>
+                          </div>
+                        )}
                         <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: '1.6', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                           {msg.body ? (
                             <div dangerouslySetInnerHTML={{ __html: formatEmailBody(msg.body) }} />
