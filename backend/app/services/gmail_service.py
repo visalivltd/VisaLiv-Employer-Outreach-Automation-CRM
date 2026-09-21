@@ -235,3 +235,15 @@ class GmailService:
             print(f"  Error: {exc}", flush=True)
             print("=" * 60, flush=True)
             raise
+
+    def setup_gmail_watch(self, topic_name: str) -> dict:
+        """Subscribes the Gmail account to Google Cloud Pub/Sub push notifications topic."""
+        credentials = self._get_credentials()
+        gmail = build("gmail", "v1", credentials=credentials)
+        body = {
+            "topicName": topic_name,
+            "labelIds": ["INBOX", "SENT"],
+        }
+        res = gmail.users().watch(userId="me", body=body).execute()
+        print(f"[GMAIL WATCH SETUP] Subscribed account to Pub/Sub topic {topic_name}: {res}", flush=True)
+        return res

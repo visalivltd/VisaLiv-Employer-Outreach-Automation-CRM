@@ -1,3 +1,4 @@
+import re
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
@@ -95,7 +96,9 @@ def send_email_from_tracking(
             detail=f"GMAIL_SEND_SCOPE_MISSING: Gmail sending permission is missing for candidate {candidate.full_name} ({gmail_account.gmail_email}). Please reconnect this Gmail account to enable sending.",
         )
 
-    to_email_clean = (req.to_email or "").strip()
+    raw_to = (req.to_email or "").strip()
+    to_email_clean = re.sub(r"_deleted_\d+$", "", raw_to, flags=re.IGNORECASE).strip().lower()
+
     if not to_email_clean or "@" not in to_email_clean:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -107,7 +110,7 @@ def send_email_from_tracking(
     print(f"  Candidate Email: {candidate.email}", flush=True)
     print(f"  Gmail Account ID: {gmail_account.id}", flush=True)
     print(f"  Gmail Account Email: {gmail_account.gmail_email}", flush=True)
-    print(f"  Employer Email: {to_email_clean}", flush=True)
+    print(f"  Employer Email Raw: {raw_to} -> Cleaned: {to_email_clean}", flush=True)
     print(f"  Thread ID: {req.thread_id}", flush=True)
 
     # Find or associate Employer
@@ -117,7 +120,10 @@ def send_email_from_tracking(
 
     if not employer:
         employer = db.scalar(
-            select(Employer).where(Employer.email.ilike(to_email_clean))
+            select(Employer).where(
+                (Employer.email.ilike(to_email_clean)) |
+                (Employer.email.ilike(f"{to_email_clean}_deleted_%"))
+            )
         )
 
     if not employer:
