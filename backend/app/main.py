@@ -17,6 +17,7 @@ from app.api.v1.email_draft import router as email_draft_router
 from app.api.v1.notification import router as notification_router
 from app.api.v1.email_tracking import router as email_tracking_router
 from app.api.v1.real_candidate import router as real_candidate_router
+from app.api.v1.gmail_webhook import router as gmail_webhook_router
 
 
 import asyncio
@@ -163,6 +164,8 @@ app.include_router(notification_router)
 app.include_router(email_tracking_router)
 app.include_router(email_tracking_router, prefix="/api/v1")
 app.include_router(real_candidate_router)
+app.include_router(gmail_webhook_router)
+app.include_router(gmail_webhook_router, prefix="/api/v1")
 
 
 @app.get("/")
