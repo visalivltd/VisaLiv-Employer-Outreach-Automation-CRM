@@ -676,7 +676,35 @@ class OutreachService:
 
         attachment_paths = []
         if candidate and candidate.cv_file_path and candidate.cv_file_path.strip():
-            attachment_paths.append(candidate.cv_file_path.strip())
+            cv_key = candidate.cv_file_path.strip()
+            # Pre-flight resolution check from persistent storage BEFORE attempting Gmail API send
+            if not storage_service.file_exists(cv_key):
+                provider = storage_service.get_storage_provider(cv_key)
+                logger.error(
+                    "[PRE-SEND ATTACHMENT RESOLUTION FAILURE] "
+                    f"candidate_id={candidate_id} job_id={exclude_job_id or 'N/A'} "
+                    f"storage_key='{cv_key}' provider='{provider}' exists=False"
+                )
+                raise ValueError(
+                    f"Candidate '{cand_name}' CV attachment missing in persistent storage ({cv_key}). Please re-upload CV file."
+                )
+
+            try:
+                cv_bytes = storage_service.get_file_bytes(
+                    cv_key, candidate_id=candidate_id, job_id=exclude_job_id
+                )
+                provider = storage_service.get_storage_provider(cv_key)
+                logger.info(
+                    "[PRE-SEND ATTACHMENT RESOLUTION SUCCESS] "
+                    f"candidate_id={candidate_id} job_id={exclude_job_id or 'N/A'} "
+                    f"storage_key='{cv_key}' provider='{provider}' exists=True file_size={len(cv_bytes)} bytes"
+                )
+            except Exception as exc:
+                raise ValueError(
+                    f"Candidate '{cand_name}' CV attachment unresolvable from storage ({cv_key}): {exc}"
+                ) from exc
+
+            attachment_paths.append(cv_key)
         else:
             cand_name = candidate.full_name if candidate else "Candidate"
             raise ValueError(f"Candidate '{cand_name}' is missing a CV file. Email cannot be sent without CV attachment.")
@@ -1543,6 +1571,20 @@ class OutreachService:
             if not cand.cv_file_path or not cand.cv_file_path.strip():
                 job.status = "failed"
                 job.error_message = f"Candidate '{cand.full_name}' is missing a CV file. Email cannot be sent without CV attachment."
+                db.commit()
+                failed_cnt += 1
+                continue
+
+            cv_key = cand.cv_file_path.strip()
+            if not storage_service.file_exists(cv_key):
+                provider = storage_service.get_storage_provider(cv_key)
+                job.status = "failed"
+                job.error_message = f"Candidate '{cand.full_name}' CV attachment missing in persistent storage ({cv_key}). Please re-upload CV file."
+                logger.error(
+                    "[PRE-SEND ATTACHMENT CHECK FAILED] "
+                    f"candidate_id={cand.id} job_id={job.id} "
+                    f"storage_key='{cv_key}' provider='{provider}' exists=False"
+                )
                 db.commit()
                 failed_cnt += 1
                 continue

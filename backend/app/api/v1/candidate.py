@@ -71,7 +71,13 @@ async def upload_cv(
     filename = f"{uuid4().hex}{extension}"
     rel_path = f"uploads/{filename}"
 
-    storage_service.upload_file(rel_path, file_content, content_type=file.content_type)
+    try:
+        storage_service.upload_file(rel_path, file_content, content_type=file.content_type)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save CV file to persistent cloud storage: {exc}",
+        ) from exc
 
     return {
         "success": True,
@@ -142,7 +148,7 @@ def create_candidate(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-        )
+        ) from exc
 
 
 @router.get(
@@ -154,13 +160,7 @@ def get_candidates(
     db: Session = Depends(get_db),
 ):
     candidates = candidate_service.get_candidates(db, active_only=active_only)
-    res = []
-    for c in candidates:
-        resp = CandidateResponse.model_validate(c)
-        if resp.cv_file_path and not storage_service.file_exists(resp.cv_file_path):
-            resp.cv_file_path = None
-        res.append(resp)
-    return res
+    return [CandidateResponse.model_validate(c) for c in candidates]
 
 
 @router.get(
@@ -182,11 +182,7 @@ def get_candidate(
             detail="Candidate not found",
         )
 
-    resp = CandidateResponse.model_validate(candidate)
-    if resp.cv_file_path and not storage_service.file_exists(resp.cv_file_path):
-        resp.cv_file_path = None
-
-    return resp
+    return CandidateResponse.model_validate(candidate)
 
 
 @router.put(
