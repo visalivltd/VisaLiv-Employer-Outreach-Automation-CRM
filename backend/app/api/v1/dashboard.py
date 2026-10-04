@@ -19,6 +19,7 @@ router = APIRouter(
 
 @router.get("")
 def get_dashboard(
+    target_date: str | None = None,
     db: Session = Depends(get_db),
 ):
     # ==========================================
@@ -78,24 +79,26 @@ def get_dashboard(
     daily_target = total_candidates * 5
 
     # ==========================================
-    # EMAILS SENT TODAY
-    #
-    # Use local India date (UTC+05:30)
+    # DATE RANGE FILTERING (India timezone UTC+05:30)
     # ==========================================
 
-    india_timezone = timezone(
-        timedelta(hours=5, minutes=30)
-    )
-
+    india_timezone = timezone(timedelta(hours=5, minutes=30))
     now_india = datetime.now(india_timezone)
 
-    start_of_today = now_india.replace(
-        hour=0,
-        minute=0,
-        second=0,
-        microsecond=0,
-    )
+    if target_date:
+        try:
+            parsed_dt = datetime.strptime(target_date, "%Y-%m-%d")
+            selected_start = datetime(parsed_dt.year, parsed_dt.month, parsed_dt.day, 0, 0, 0, tzinfo=india_timezone)
+        except ValueError:
+            selected_start = now_india.replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        selected_start = now_india.replace(hour=0, minute=0, second=0, microsecond=0)
 
+    selected_end = selected_start + timedelta(days=1)
+    selected_date_str = selected_start.strftime("%Y-%m-%d")
+
+    # Emails sent on today
+    start_of_today = now_india.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_today = start_of_today + timedelta(days=1)
 
     emails_sent_today = db.scalar(
@@ -103,6 +106,24 @@ def get_dashboard(
             EmailLog.status == "sent",
             EmailLog.sent_at >= start_of_today,
             EmailLog.sent_at < end_of_today,
+        )
+    ) or 0
+
+    # Emails sent on target selected date
+    emails_sent_on_date = db.scalar(
+        select(func.count(EmailLog.id)).where(
+            EmailLog.status == "sent",
+            EmailLog.sent_at >= selected_start,
+            EmailLog.sent_at < selected_end,
+        )
+    ) or 0
+
+    # Emails received on target selected date
+    emails_received_on_date = db.scalar(
+        select(func.count(EmailLog.id)).where(
+            EmailLog.direction == "incoming",
+            EmailLog.sent_at >= selected_start,
+            EmailLog.sent_at < selected_end,
         )
     ) or 0
 
@@ -199,5 +220,8 @@ def get_dashboard(
         "totalEmailsReceived": total_emails_received,
         "total_emails_received": total_emails_received,
         "emailsSentToday": emails_sent_today,
+        "selectedDate": selected_date_str,
+        "emailsSentOnDate": emails_sent_on_date,
+        "emailsReceivedOnDate": emails_received_on_date,
         "recentEmails": recent_emails,
     }

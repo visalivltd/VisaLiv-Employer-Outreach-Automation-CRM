@@ -19,9 +19,8 @@ import { getApiUrl } from '../config/api';
 const API_BASE_URL = getApiUrl();
 
 // Interactive Dashboard Outreach Calendar Component
-function DashboardCalendar({ recentEmails }) {
+function DashboardCalendar({ recentEmails, selectedDateStr, onSelectDate }) {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(new Date());
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -47,7 +46,23 @@ function DashboardCalendar({ recentEmails }) {
   const handleToday = () => {
     const now = new Date();
     setCurrentDate(now);
-    setSelectedDate(now);
+    if (onSelectDate) {
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      onSelectDate(`${yyyy}-${mm}-${dd}`);
+    }
+  };
+
+  const handleDayClick = (day) => {
+    if (!day) return;
+    const d = new Date(year, month, day);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    if (onSelectDate) {
+      onSelectDate(`${yyyy}-${mm}-${dd}`);
+    }
   };
 
   // Map dates to activity count from recent logs
@@ -56,7 +71,7 @@ function DashboardCalendar({ recentEmails }) {
     (recentEmails || []).forEach((email) => {
       if (email.sentAt) {
         const d = new Date(email.sentAt);
-        const dateKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+        const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         map.set(dateKey, (map.get(dateKey) || 0) + 1);
       }
     });
@@ -81,17 +96,14 @@ function DashboardCalendar({ recentEmails }) {
   };
 
   const isSelected = (day) => {
-    return (
-      day &&
-      selectedDate.getDate() === day &&
-      selectedDate.getMonth() === month &&
-      selectedDate.getFullYear() === year
-    );
+    if (!day || !selectedDateStr) return false;
+    const [sYear, sMonth, sDay] = selectedDateStr.split('-').map(Number);
+    return day === sDay && (month + 1) === sMonth && year === sYear;
   };
 
   const hasActivity = (day) => {
     if (!day) return false;
-    const dateKey = `${year}-${month}-${day}`;
+    const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     return activityMap.has(dateKey) || isToday(day);
   };
 
@@ -161,7 +173,7 @@ function DashboardCalendar({ recentEmails }) {
           return (
             <button
               key={`day-${day}`}
-              onClick={() => setSelectedDate(new Date(year, month, day))}
+              onClick={() => handleDayClick(day)}
               style={{
                 height: '36px',
                 border: currentIsSelected ? '2px solid #2563eb' : '1px solid #f1f5f9',
@@ -199,10 +211,10 @@ function DashboardCalendar({ recentEmails }) {
       {/* Selected Day Info Footer */}
       <div style={{ marginTop: '16px', padding: '10px 14px', borderRadius: '8px', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: '12px', color: '#475569', fontWeight: 500 }}>
-          Selected Date: <strong>{selectedDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</strong>
+          Selected Date: <strong>{selectedDateStr || 'All Time'}</strong>
         </span>
         <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 700, background: '#eff6ff', padding: '3px 8px', borderRadius: '4px' }}>
-          {selectedDate.getDate() === today.getDate() && selectedDate.getMonth() === today.getMonth() ? 'Outreach Active Today' : 'Scheduled'}
+          Live Dynamic Filter
         </span>
       </div>
     </div>
@@ -242,13 +254,23 @@ export default function DashboardPage() {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [filterDate, setFilterDate] = useState(() => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  });
 
   useEffect(() => {
     async function loadDashboard() {
       try {
-        const response = await fetch(
-          `${API_BASE_URL}/dashboard`
-        );
+        setLoading(true);
+        const url = filterDate
+          ? `${API_BASE_URL}/dashboard?target_date=${filterDate}`
+          : `${API_BASE_URL}/dashboard`;
+
+        const response = await fetch(url);
 
         if (!response.ok) {
           throw new Error(
@@ -275,7 +297,7 @@ export default function DashboardPage() {
     }
 
     loadDashboard();
-  }, []);
+  }, [filterDate]);
 
   if (loading) {
     return (
@@ -345,14 +367,60 @@ export default function DashboardPage() {
   return (
     <div className="content-container">
 
-      {/* Page Title */}
-      <h1 className="page-title">
-        Dashboard
-      </h1>
+      {/* Top Page Header & Live Date Filter Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
+        <div>
+          <h1 className="page-title" style={{ margin: 0 }}>
+            Dashboard
+          </h1>
+          <p className="page-subtitle" style={{ margin: '4px 0 0 0' }}>
+            Welcome back, Admin! Live real-time statistics & activity monitor.
+          </p>
+        </div>
 
-      <p className="page-subtitle">
-        Welcome back, Admin!
-      </p>
+        {/* Live Date Filter Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#ffffff', padding: '8px 14px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          <CalendarIcon size={18} color="#2563eb" />
+          <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>Filter Date:</span>
+          <input
+            type="date"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            style={{ border: '1px solid #cbd5e1', borderRadius: '8px', padding: '5px 10px', fontSize: '13px', color: '#0f172a', fontWeight: 600, outline: 'none', cursor: 'pointer' }}
+          />
+          <button
+            onClick={() => {
+              const today = new Date();
+              const yyyy = today.getFullYear();
+              const mm = String(today.getMonth() + 1).padStart(2, '0');
+              const dd = String(today.getDate()).padStart(2, '0');
+              setFilterDate(`${yyyy}-${mm}-${dd}`);
+            }}
+            style={{ border: '1px solid #2563eb', background: '#eff6ff', color: '#2563eb', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+          >
+            Today
+          </button>
+          <button
+            onClick={() => {
+              const yesterday = new Date();
+              yesterday.setDate(yesterday.getDate() - 1);
+              const yyyy = yesterday.getFullYear();
+              const mm = String(yesterday.getMonth() + 1).padStart(2, '0');
+              const dd = String(yesterday.getDate()).padStart(2, '0');
+              setFilterDate(`${yyyy}-${mm}-${dd}`);
+            }}
+            style={{ border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+          >
+            Yesterday
+          </button>
+          <button
+            onClick={() => setFilterDate('')}
+            style={{ border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+          >
+            All Time
+          </button>
+        </div>
+      </div>
 
       {/* Summary Metric Cards */}
       <div className="summary-grid">
@@ -645,7 +713,11 @@ export default function DashboardPage() {
       <div style={{ display: 'flex', gap: '24px', marginTop: '24px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
         {/* Outreach Calendar Widget */}
-        <DashboardCalendar recentEmails={recentEmails} />
+        <DashboardCalendar
+          recentEmails={recentEmails}
+          selectedDateStr={filterDate}
+          onSelectDate={(newDate) => setFilterDate(newDate)}
+        />
 
         {/* Recent Email Activity Table */}
         <div
