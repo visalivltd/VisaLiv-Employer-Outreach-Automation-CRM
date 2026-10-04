@@ -57,14 +57,24 @@ export default function DashboardPage() {
   const todayStr = getTodayStr();
   const yesterdayStr = getYesterdayStr();
 
-  const [filterDate, setFilterDate] = useState(todayStr);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  const isTodayActive = startDate === todayStr && endDate === todayStr;
+  const isYesterdayActive = startDate === yesterdayStr && endDate === yesterdayStr;
+  const isAllTimeActive = !startDate && !endDate;
+  const isFiltered = !!(startDate || endDate);
 
   useEffect(() => {
     async function loadDashboard() {
       try {
         setLoading(true);
-        const url = filterDate
-          ? `${API_BASE_URL}/dashboard?target_date=${filterDate}`
+        const params = new URLSearchParams();
+        if (startDate) params.append('start_date', startDate);
+        if (endDate) params.append('end_date', endDate);
+
+        const url = params.toString()
+          ? `${API_BASE_URL}/dashboard?${params.toString()}`
           : `${API_BASE_URL}/dashboard`;
 
         const response = await fetch(url);
@@ -86,7 +96,7 @@ export default function DashboardPage() {
     }
 
     loadDashboard();
-  }, [filterDate]);
+  }, [startDate, endDate]);
 
   if (loading) {
     return (
@@ -111,7 +121,7 @@ export default function DashboardPage() {
   return (
     <div className="content-container">
 
-      {/* Top Page Header & Live Date Filter Bar */}
+      {/* Top Page Header & Live Date Range Filter Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h1 className="page-title" style={{ margin: 0 }}>
@@ -122,64 +132,83 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Live Date Filter Controls with Highlighted Active State */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#ffffff', padding: '8px 14px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-          <CalendarIcon size={18} color="#2563eb" />
-          <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>Filter Date:</span>
-          <input
-            type="date"
-            value={filterDate}
-            onChange={(e) => setFilterDate(e.target.value)}
-            style={{ border: '1px solid #cbd5e1', borderRadius: '8px', padding: '5px 10px', fontSize: '13px', color: '#0f172a', fontWeight: 600, outline: 'none', cursor: 'pointer' }}
-          />
-          <button
-            onClick={() => setFilterDate(todayStr)}
-            style={{
-              border: filterDate === todayStr ? '1px solid #2563eb' : '1px solid #e2e8f0',
-              background: filterDate === todayStr ? '#2563eb' : '#eff6ff',
-              color: filterDate === todayStr ? '#ffffff' : '#2563eb',
-              borderRadius: '8px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            Today
-          </button>
-          <button
-            onClick={() => setFilterDate(yesterdayStr)}
-            style={{
-              border: filterDate === yesterdayStr ? '1px solid #2563eb' : '1px solid #e2e8f0',
-              background: filterDate === yesterdayStr ? '#2563eb' : '#f8fafc',
-              color: filterDate === yesterdayStr ? '#ffffff' : '#475569',
-              borderRadius: '8px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            Yesterday
-          </button>
-          <button
-            onClick={() => setFilterDate('')}
-            style={{
-              border: filterDate === '' ? '1px solid #2563eb' : '1px solid #e2e8f0',
-              background: filterDate === '' ? '#2563eb' : '#f8fafc',
-              color: filterDate === '' ? '#ffffff' : '#64748b',
-              borderRadius: '8px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            All Time
-          </button>
+        {/* Live Date Range Filter Controls (Matching reference screenshot) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          
+          {/* Outer Date Range Input Box */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#ffffff', padding: '6px 14px', borderRadius: '12px', border: '1px solid #cbd5e1', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+            <CalendarIcon size={18} color="#2563eb" />
+            <span style={{ fontSize: '13px', fontWeight: 700, color: '#334155' }}>Date:</span>
+            
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              style={{ border: '1px solid #cbd5e1', borderRadius: '8px', padding: '4px 8px', fontSize: '13px', color: '#0f172a', fontWeight: 600, outline: 'none', cursor: 'pointer' }}
+            />
+            
+            <span style={{ fontSize: '13px', fontWeight: 500, color: '#64748b' }}>to</span>
+            
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              style={{ border: '1px solid #cbd5e1', borderRadius: '8px', padding: '4px 8px', fontSize: '13px', color: '#0f172a', fontWeight: 600, outline: 'none', cursor: 'pointer' }}
+            />
+          </div>
+
+          {/* Preset Date Range Buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#ffffff', padding: '4px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+            <button
+              onClick={() => { setStartDate(todayStr); setEndDate(todayStr); }}
+              style={{
+                border: isTodayActive ? '1px solid #2563eb' : '1px solid transparent',
+                background: isTodayActive ? '#2563eb' : 'transparent',
+                color: isTodayActive ? '#ffffff' : '#475569',
+                borderRadius: '8px',
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              Today
+            </button>
+            <button
+              onClick={() => { setStartDate(yesterdayStr); setEndDate(yesterdayStr); }}
+              style={{
+                border: isYesterdayActive ? '1px solid #2563eb' : '1px solid transparent',
+                background: isYesterdayActive ? '#2563eb' : 'transparent',
+                color: isYesterdayActive ? '#ffffff' : '#475569',
+                borderRadius: '8px',
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              Yesterday
+            </button>
+            <button
+              onClick={() => { setStartDate(''); setEndDate(''); }}
+              style={{
+                border: isAllTimeActive ? '1px solid #2563eb' : '1px solid transparent',
+                background: isAllTimeActive ? '#2563eb' : 'transparent',
+                color: isAllTimeActive ? '#ffffff' : '#475569',
+                borderRadius: '8px',
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              All Time
+            </button>
+          </div>
+
         </div>
       </div>
 
@@ -218,16 +247,16 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Card 3: Emails Sent Today */}
+        {/* Card 3: Emails Sent */}
         <div className="kpi-card purple">
           <div className="kpi-card-header">
             <div className="kpi-icon-circle">
               <Send size={20} strokeWidth={2.2} />
             </div>
             <div className="kpi-card-body">
-              <span className="kpi-label">{filterDate ? 'Emails Sent' : 'Emails Sent Today'}</span>
+              <span className="kpi-label">{isFiltered ? 'Emails Sent' : 'Emails Sent'}</span>
               <span className="kpi-value">
-                {filterDate ? (dashboard.emailsSentOnDate ?? 0) : (dashboard.emailsSentToday ?? dashboard.emailsSent ?? 0)}
+                {isFiltered ? (dashboard.emailsSentOnDate ?? 0) : (dashboard.emailsSent ?? 0)}
               </span>
             </div>
           </div>
@@ -261,7 +290,7 @@ export default function DashboardPage() {
             <div className="kpi-card-body">
               <span className="kpi-label">Failed Emails</span>
               <span className="kpi-value">
-                {filterDate ? (dashboard.emailsFailedOnDate ?? 0) : (dashboard.emailsFailed ?? 0)}
+                {isFiltered ? (dashboard.emailsFailedOnDate ?? 0) : (dashboard.emailsFailed ?? 0)}
               </span>
             </div>
           </div>

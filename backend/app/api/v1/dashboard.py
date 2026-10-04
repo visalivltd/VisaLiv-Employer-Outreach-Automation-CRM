@@ -23,6 +23,8 @@ router = APIRouter(
 @router.get("")
 def get_dashboard(
     target_date: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     db: Session = Depends(get_db),
 ):
     # ==========================================
@@ -54,7 +56,7 @@ def get_dashboard(
     ) or 0
 
     # ==========================================
-    # TOTAL EMAILS SENT
+    # TOTAL EMAILS SENT (ALL TIME)
     # ==========================================
 
     emails_sent = db.scalar(
@@ -64,7 +66,17 @@ def get_dashboard(
     ) or 0
 
     # ==========================================
-    # TOTAL EMAILS RECEIVED
+    # TOTAL EMAILS FAILED (ALL TIME)
+    # ==========================================
+
+    emails_failed = db.scalar(
+        select(func.count(EmailLog.id)).where(
+            EmailLog.status.in_(["failed", "bounced", "error"])
+        )
+    ) or 0
+
+    # ==========================================
+    # TOTAL EMAILS RECEIVED (ALL TIME)
     # ==========================================
 
     total_emails_received = db.scalar(
@@ -75,8 +87,6 @@ def get_dashboard(
 
     # ==========================================
     # DAILY OUTREACH TARGET
-    #
-    # 1 candidate = maximum 5 employers/day
     # ==========================================
 
     daily_target = total_candidates * 5
@@ -87,23 +97,36 @@ def get_dashboard(
 
     india_timezone = timezone(timedelta(hours=5, minutes=30))
     now_india = datetime.now(india_timezone)
-
-    if target_date:
-        try:
-            parsed_dt = datetime.strptime(target_date, "%Y-%m-%d")
-            selected_start = datetime(parsed_dt.year, parsed_dt.month, parsed_dt.day, 0, 0, 0, tzinfo=india_timezone)
-        except ValueError:
-            selected_start = now_india.replace(hour=0, minute=0, second=0, microsecond=0)
-    else:
-        selected_start = now_india.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    selected_end = selected_start + timedelta(days=1)
-    selected_date_str = selected_start.strftime("%Y-%m-%d")
-
-    # Emails sent on today
     start_of_today = now_india.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_today = start_of_today + timedelta(days=1)
 
+    eff_start = start_date or target_date
+    eff_end = end_date or target_date
+
+    is_filtered = False
+    if eff_start or eff_end:
+        is_filtered = True
+        try:
+            if eff_start:
+                p_start = datetime.strptime(eff_start, "%Y-%m-%d")
+                selected_start = datetime(p_start.year, p_start.month, p_start.day, 0, 0, 0, tzinfo=india_timezone)
+            else:
+                selected_start = datetime(2000, 1, 1, 0, 0, 0, tzinfo=india_timezone)
+            
+            if eff_end:
+                p_end = datetime.strptime(eff_end, "%Y-%m-%d")
+                selected_end = datetime(p_end.year, p_end.month, p_end.day, 23, 59, 59, 999999, tzinfo=india_timezone)
+            else:
+                selected_end = datetime(2099, 12, 31, 23, 59, 59, 999999, tzinfo=india_timezone)
+        except ValueError:
+            is_filtered = False
+            selected_start = start_of_today
+            selected_end = end_of_today
+    else:
+        selected_start = start_of_today
+        selected_end = end_of_today
+
+    # Emails sent today
     emails_sent_today = db.scalar(
         select(func.count(EmailLog.id)).where(
             EmailLog.status == "sent",
@@ -112,39 +135,34 @@ def get_dashboard(
         )
     ) or 0
 
-    # Emails sent on target selected date
-    emails_sent_on_date = db.scalar(
-        select(func.count(EmailLog.id)).where(
-            EmailLog.status == "sent",
-            EmailLog.sent_at >= selected_start,
-            EmailLog.sent_at < selected_end,
-        )
-    ) or 0
+    if is_filtered:
+        emails_sent_on_date = db.scalar(
+            select(func.count(EmailLog.id)).where(
+                EmailLog.status == "sent",
+                EmailLog.sent_at >= selected_start,
+                EmailLog.sent_at <= selected_end,
+            )
+        ) or 0
 
-    # Total emails failed/bounced
-    emails_failed = db.scalar(
-        select(func.count(EmailLog.id)).where(
-            EmailLog.status.in_(["failed", "bounced", "error"])
-        )
-    ) or 0
+        emails_received_on_date = db.scalar(
+            select(func.count(EmailLog.id)).where(
+                EmailLog.direction == "incoming",
+                EmailLog.sent_at >= selected_start,
+                EmailLog.sent_at <= selected_end,
+            )
+        ) or 0
 
-    # Emails received on target selected date
-    emails_received_on_date = db.scalar(
-        select(func.count(EmailLog.id)).where(
-            EmailLog.direction == "incoming",
-            EmailLog.sent_at >= selected_start,
-            EmailLog.sent_at < selected_end,
-        )
-    ) or 0
-
-    # Emails failed on target selected date
-    emails_failed_on_date = db.scalar(
-        select(func.count(EmailLog.id)).where(
-            EmailLog.status.in_(["failed", "bounced", "error"]),
-            EmailLog.sent_at >= selected_start,
-            EmailLog.sent_at < selected_end,
-        )
-    ) or 0
+        emails_failed_on_date = db.scalar(
+            select(func.count(EmailLog.id)).where(
+                EmailLog.status.in_(["failed", "bounced", "error"]),
+                EmailLog.sent_at >= selected_start,
+                EmailLog.sent_at <= selected_end,
+            )
+        ) or 0
+    else:
+        emails_sent_on_date = emails_sent
+        emails_received_on_date = total_emails_received
+        emails_failed_on_date = emails_failed
 
     # Pending outreach jobs count
     pending_emails = db.scalar(
@@ -154,12 +172,12 @@ def get_dashboard(
     ) or 0
 
     # Calculate success rate
-    effective_sent = emails_sent_on_date if target_date else emails_sent
-    effective_failed = emails_failed_on_date if target_date else emails_failed
-    total_outreach = effective_sent + effective_failed
+    eff_sent_calc = emails_sent_on_date if is_filtered else emails_sent
+    eff_failed_calc = emails_failed_on_date if is_filtered else emails_failed
+    total_outreach = eff_sent_calc + eff_failed_calc
 
     if total_outreach > 0:
-        success_rate = round((effective_sent / total_outreach) * 100, 1)
+        success_rate = round((eff_sent_calc / total_outreach) * 100, 1)
     else:
         success_rate = 100.0
 
@@ -257,6 +275,7 @@ def get_dashboard(
     # ==========================================
 
     return {
+        "isFiltered": is_filtered,
         "totalCandidates": total_candidates,
         "totalEmployers": total_employers,
         "employersWithEmail": employers_with_email,
@@ -266,7 +285,7 @@ def get_dashboard(
         "totalEmailsReceived": total_emails_received,
         "total_emails_received": total_emails_received,
         "emailsSentToday": emails_sent_today,
-        "selectedDate": selected_date_str,
+        "selectedDate": eff_start or "",
         "emailsSentOnDate": emails_sent_on_date,
         "emailsReceivedOnDate": emails_received_on_date,
         "emailsFailed": emails_failed,
