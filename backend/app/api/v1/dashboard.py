@@ -27,7 +27,7 @@ def get_dashboard(
     # ==========================================
 
     total_candidates = db.scalar(
-        select(func.count(Candidate.id)).where(Candidate.is_active.is_(True))
+        select(func.count(Candidate.id))
     ) or 0
 
     # ==========================================

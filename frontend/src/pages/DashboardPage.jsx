@@ -481,7 +481,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Total Emails Sent */}
+        {/* Emails Sent (Dynamic by Date Filter) */}
         <div className="summary-card">
           <div className="summary-card-left">
 
@@ -494,11 +494,15 @@ export default function DashboardPage() {
 
             <div className="summary-info">
               <div className="summary-label">
-                Emails Sent
+                {filterDate ? 'Emails Sent (Date Filter)' : 'Total Emails Sent'}
               </div>
 
               <div className="summary-value purple">
-                {dashboard.emailsSent}
+                {filterDate ? (dashboard.emailsSentOnDate ?? 0) : dashboard.emailsSent}
+              </div>
+
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', fontWeight: 500 }}>
+                {filterDate ? `Filtered for ${filterDate}` : 'All Time Total'}
               </div>
             </div>
 
@@ -509,7 +513,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Total Emails Received */}
+        {/* Emails Received (Dynamic by Date Filter) */}
         <div className="summary-card">
           <div className="summary-card-left">
 
@@ -522,11 +526,15 @@ export default function DashboardPage() {
 
             <div className="summary-info">
               <div className="summary-label">
-                Total Emails Received
+                {filterDate ? 'Emails Received (Date Filter)' : 'Total Emails Received'}
               </div>
 
               <div className="summary-value orange">
-                {dashboard.totalEmailsReceived ?? dashboard.total_emails_received ?? 0}
+                {filterDate ? (dashboard.emailsReceivedOnDate ?? 0) : (dashboard.totalEmailsReceived ?? dashboard.total_emails_received ?? 0)}
+              </div>
+
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', fontWeight: 500 }}>
+                {filterDate ? `Filtered for ${filterDate}` : 'All Time Total'}
               </div>
             </div>
 
