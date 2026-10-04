@@ -19,6 +19,17 @@ import { getApiUrl } from '../config/api';
 
 const API_BASE_URL = getApiUrl();
 
+function GmailLogoIcon() {
+  return (
+    <svg className="gmail-icon" viewBox="0 0 24 24" width="20" height="20">
+      <path fill="#4285F4" d="M22 6v12a2 2 0 0 1-2 2h-2V9.5L12 14 6 9.5V20H4a2 2 0 0 1-2-2V6c0-1.7 1.9-2.7 3.3-1.7L12 9l6.7-4.7C20.1 3.3 22 4.3 22 6z" />
+      <path fill="#34A853" d="M4 20h2V9.5L2 6.5V18a2 2 0 0 0 2 2z" />
+      <path fill="#EA4335" d="M22 6.5l-4 3V20h2a2 2 0 0 0 2-2V6.5z" />
+      <path fill="#FBBC04" d="M18 4.3l-6 4.2-6-4.2A2 2 0 0 0 3.3 6L12 12l8.7-6a2 2 0 0 0-2.7-1.7z" />
+    </svg>
+  );
+}
+
 export default function DashboardPage() {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
