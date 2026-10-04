@@ -1903,7 +1903,7 @@ export default function CandidatesPage() {
                               : '#dc2626',
                         }}
                       >
-                        {candidate.emails_sent_today ?? 0} / 5
+                        {candidate.emails_sent_today ?? 0}
                       </span>
                     </td>
 
