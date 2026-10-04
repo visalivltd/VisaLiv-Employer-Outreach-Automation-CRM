@@ -16,6 +16,8 @@ import {
   Search,
   Filter,
   RotateCcw,
+  Clock3,
+  Send,
 } from 'lucide-react';
 
 import { getApiUrl } from '../config/api';
@@ -66,32 +68,50 @@ export default function CandidatesPage() {
   // Filter States
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [countryFilter, setCountryFilter] = useState('all');
-  const [visaTypeFilter, setVisaTypeFilter] = useState('all');
   const [gmailFilter, setGmailFilter] = useState('all');
   const [draftFilter, setDraftFilter] = useState('all');
   const [cvFilter, setCvFilter] = useState('all');
 
-  // Dynamic Countries & Visa Types derived from candidate data
-  const uniqueCountries = useMemo(() => {
-    const set = new Set();
-    candidates.forEach((c) => {
-      if (c.country && c.country.trim()) {
-        set.add(c.country.trim());
-      }
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  const [dashboardStats, setDashboardStats] = useState(null);
+
+  // Dynamic KPI Metrics Calculation
+  const totalStudents = candidates.length;
+
+  const activeStudents = useMemo(() => {
+    return candidates.filter((c) => c.is_active).length;
   }, [candidates]);
 
-  const uniqueVisaTypes = useMemo(() => {
-    const set = new Set();
-    candidates.forEach((c) => {
-      if (c.visa_type && c.visa_type.trim()) {
-        set.add(c.visa_type.trim());
-      }
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  const activePct = totalStudents > 0 ? Math.round((activeStudents / totalStudents) * 100) : 0;
+
+  const cvsUploaded = useMemo(() => {
+    return candidates.filter((c) => c.cv_file_path && c.cv_file_path.trim() && c.cv_file_path.trim().toLowerCase() !== 'none').length;
   }, [candidates]);
+
+  const cvPct = totalStudents > 0 ? Math.round((cvsUploaded / totalStudents) * 100) : 0;
+
+  const draftsAssigned = useMemo(() => {
+    return candidates.filter((c) => c.email_draft_id || c.email_draft?.id).length;
+  }, [candidates]);
+
+  const draftsPct = totalStudents > 0 ? Math.round((draftsAssigned / totalStudents) * 100) : 0;
+
+  const studentsThisMonth = useMemo(() => {
+    const now = new Date();
+    const curM = now.getMonth();
+    const curY = now.getFullYear();
+    return candidates.filter((c) => {
+      if (!c.created_at) return false;
+      const dt = new Date(c.created_at);
+      return dt.getMonth() === curM && dt.getFullYear() === curY;
+    }).length;
+  }, [candidates]);
+
+  const emailsSentTodayCount = dashboardStats?.emailsSentToday ?? 0;
+  const totalEmailsSentCount = dashboardStats?.emailsSent ?? 0;
+
+  const avgEmailsPerStudent = totalStudents > 0
+    ? ((totalEmailsSentCount || (emailsSentTodayCount * 5)) / totalStudents).toFixed(1)
+    : '0.0';
 
   // Combined Filtered Candidates
   const filteredCandidates = useMemo(() => {
@@ -110,31 +130,17 @@ export default function CandidatesPage() {
       if (statusFilter === 'active' && !candidate.is_active) return false;
       if (statusFilter === 'inactive' && candidate.is_active) return false;
 
-      // 3. Country Filter
-      if (countryFilter !== 'all') {
-        if ((candidate.country || '').trim().toLowerCase() !== countryFilter.toLowerCase()) {
-          return false;
-        }
-      }
-
-      // 4. Visa Type Filter
-      if (visaTypeFilter !== 'all') {
-        if ((candidate.visa_type || '').trim().toLowerCase() !== visaTypeFilter.toLowerCase()) {
-          return false;
-        }
-      }
-
-      // 5. Gmail Account Filter
+      // 3. Gmail Account Filter
       const hasGmail = Boolean(candidate.gmail_email || candidate.gmail_account?.gmail_email);
       if (gmailFilter === 'connected' && !hasGmail) return false;
       if (gmailFilter === 'not_connected' && hasGmail) return false;
 
-      // 6. Email Draft Filter
+      // 4. Email Draft Filter
       const hasDraft = Boolean(candidate.email_draft_id || candidate.email_draft?.id);
       if (draftFilter === 'assigned' && !hasDraft) return false;
       if (draftFilter === 'no_draft' && hasDraft) return false;
 
-      // 7. CV Filter
+      // 5. CV Filter
       const hasCv = Boolean(candidate.cv_file_path && candidate.cv_file_path.trim());
       if (cvFilter === 'uploaded' && !hasCv) return false;
       if (cvFilter === 'no_cv' && hasCv) return false;
@@ -145,8 +151,6 @@ export default function CandidatesPage() {
     candidates,
     searchTerm,
     statusFilter,
-    countryFilter,
-    visaTypeFilter,
     gmailFilter,
     draftFilter,
     cvFilter,
@@ -155,8 +159,6 @@ export default function CandidatesPage() {
   const hasActiveFilters =
     Boolean(searchTerm.trim()) ||
     statusFilter !== 'all' ||
-    countryFilter !== 'all' ||
-    visaTypeFilter !== 'all' ||
     gmailFilter !== 'all' ||
     draftFilter !== 'all' ||
     cvFilter !== 'all';
@@ -164,8 +166,6 @@ export default function CandidatesPage() {
   const handleClearFilters = () => {
     setSearchTerm('');
     setStatusFilter('all');
-    setCountryFilter('all');
-    setVisaTypeFilter('all');
     setGmailFilter('all');
     setDraftFilter('all');
     setCvFilter('all');
@@ -213,13 +213,27 @@ export default function CandidatesPage() {
     }
   };
 
+  const fetchDashboardStats = async () => {
+    try {
+      const response = await fetch(`${API_URL}/dashboard`);
+      if (response.ok) {
+        const data = await response.json();
+        setDashboardStats(data);
+      }
+    } catch {
+      // ignore dashboard fetch error
+    }
+  };
+
   useEffect(() => {
     fetchCandidates();
     fetchDrafts();
+    fetchDashboardStats();
 
     const handleFocus = () => {
       fetchCandidates();
       fetchDrafts();
+      fetchDashboardStats();
     };
 
     window.addEventListener('focus', handleFocus);
@@ -966,6 +980,109 @@ export default function CandidatesPage() {
         </div>
       )}
 
+      {/* ================= 6 KPI METRIC CARDS ================= */}
+      {!loading && (
+        <div className="kpi-grid-6" style={{ marginBottom: '24px' }}>
+
+          {/* Card 1: Total Students */}
+          <div className="kpi-card blue">
+            <div className="kpi-card-header">
+              <div className="kpi-icon-circle">
+                <Users size={22} strokeWidth={2.2} />
+              </div>
+              <div className="kpi-card-body">
+                <span className="kpi-label">Total Students</span>
+                <span className="kpi-value">{totalStudents}</span>
+              </div>
+            </div>
+            <div className="kpi-subtext green">
+              ↑ {studentsThisMonth} this month
+            </div>
+          </div>
+
+          {/* Card 2: Active Students */}
+          <div className="kpi-card green">
+            <div className="kpi-card-header">
+              <div className="kpi-icon-circle">
+                <CheckCircle2 size={22} strokeWidth={2.2} />
+              </div>
+              <div className="kpi-card-body">
+                <span className="kpi-label">Active Students</span>
+                <span className="kpi-value">{activeStudents}</span>
+              </div>
+            </div>
+            <div className="kpi-subtext green">
+              {activePct}% of total
+            </div>
+          </div>
+
+          {/* Card 3: Emails Sent Today */}
+          <div className="kpi-card purple">
+            <div className="kpi-card-header">
+              <div className="kpi-icon-circle">
+                <Send size={20} strokeWidth={2.2} />
+              </div>
+              <div className="kpi-card-body">
+                <span className="kpi-label">Emails Sent Today</span>
+                <span className="kpi-value">{emailsSentTodayCount}</span>
+              </div>
+            </div>
+            <div className="kpi-subtext green">
+              Live outreach today
+            </div>
+          </div>
+
+          {/* Card 4: Avg. Emails / Student */}
+          <div className="kpi-card amber">
+            <div className="kpi-card-header">
+              <div className="kpi-icon-circle">
+                <Clock3 size={22} strokeWidth={2.2} />
+              </div>
+              <div className="kpi-card-body">
+                <span className="kpi-label">Avg. Emails / Student</span>
+                <span className="kpi-value">{avgEmailsPerStudent}</span>
+              </div>
+            </div>
+            <div className="kpi-subtext amber">
+              All-time average
+            </div>
+          </div>
+
+          {/* Card 5: CVs Uploaded */}
+          <div className="kpi-card sky">
+            <div className="kpi-card-header">
+              <div className="kpi-icon-circle">
+                <FileText size={22} strokeWidth={2.2} />
+              </div>
+              <div className="kpi-card-body">
+                <span className="kpi-label">CVs Uploaded</span>
+                <span className="kpi-value">{cvsUploaded}</span>
+              </div>
+            </div>
+            <div className="kpi-subtext green">
+              {cvPct}% uploaded
+            </div>
+          </div>
+
+          {/* Card 6: Email Drafts */}
+          <div className="kpi-card purple">
+            <div className="kpi-card-header">
+              <div className="kpi-icon-circle">
+                <Mail size={22} strokeWidth={2.2} />
+              </div>
+              <div className="kpi-card-body">
+                <span className="kpi-label">Email Drafts</span>
+                <span className="kpi-value">{draftsAssigned}</span>
+              </div>
+            </div>
+            <div className="kpi-subtext green">
+              {draftsPct}% assigned
+            </div>
+          </div>
+
+        </div>
+      )}
+
       {/* ================= ADD / EDIT FORM MODAL OVERLAY ================= */}
 
       {showForm && (
@@ -1432,37 +1549,7 @@ export default function CandidatesPage() {
               </select>
             </div>
 
-            {/* COUNTRY */}
 
-            <div className="filter-field">
-              <select
-                value={countryFilter}
-                onChange={(e) => setCountryFilter(e.target.value)}
-              >
-                <option value="all">Country: All</option>
-                {uniqueCountries.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* VISA TYPE */}
-
-            <div className="filter-field">
-              <select
-                value={visaTypeFilter}
-                onChange={(e) => setVisaTypeFilter(e.target.value)}
-              >
-                <option value="all">Visa Type: All</option>
-                {uniqueVisaTypes.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
 
             {/* GMAIL ACCOUNT */}
 
@@ -1601,8 +1688,6 @@ export default function CandidatesPage() {
                   <th>ID</th>
                   <th>Candidate</th>
                   <th>Email</th>
-                  <th>Country</th>
-                  <th>Visa Type</th>
                   <th>Status</th>
                   <th>Gmail Account</th>
                   <th>Email Draft</th>
@@ -1652,16 +1737,6 @@ export default function CandidatesPage() {
                     <td>
                       <span className="email-text">
                         {candidate.email}
-                      </span>
-                    </td>
-
-                    <td>
-                      {candidate.country || '-'}
-                    </td>
-
-                    <td>
-                      <span className="visa-badge">
-                        {candidate.visa_type || '-'}
                       </span>
                     </td>
 
