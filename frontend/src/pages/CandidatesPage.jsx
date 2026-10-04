@@ -89,6 +89,12 @@ export default function CandidatesPage() {
 
   const cvPct = totalStudents > 0 ? Math.round((cvsUploaded / totalStudents) * 100) : 0;
 
+  const gmailConnected = useMemo(() => {
+    return candidates.filter((c) => c.gmail_email || c.gmail_account?.gmail_email).length;
+  }, [candidates]);
+
+  const gmailPct = totalStudents > 0 ? Math.round((gmailConnected / totalStudents) * 100) : 0;
+
   const draftsAssigned = useMemo(() => {
     return candidates.filter((c) => c.email_draft_id || c.email_draft?.id).length;
   }, [candidates]);
@@ -980,9 +986,9 @@ export default function CandidatesPage() {
         </div>
       )}
 
-      {/* ================= 6 KPI METRIC CARDS ================= */}
+      {/* ================= 7 KPI METRIC CARDS ================= */}
       {!loading && (
-        <div className="kpi-grid-6" style={{ marginBottom: '24px' }}>
+        <div className="kpi-grid-7" style={{ marginBottom: '24px' }}>
 
           {/* Card 1: Total Students */}
           <div className="kpi-card blue">
@@ -1016,7 +1022,23 @@ export default function CandidatesPage() {
             </div>
           </div>
 
-          {/* Card 3: Emails Sent Today */}
+          {/* Card 3: Accounts Connected */}
+          <div className="kpi-card sky">
+            <div className="kpi-card-header">
+              <div className="kpi-icon-circle">
+                <Mail size={20} strokeWidth={2.2} />
+              </div>
+              <div className="kpi-card-body">
+                <span className="kpi-label">Accounts Connected</span>
+                <span className="kpi-value">{gmailConnected}</span>
+              </div>
+            </div>
+            <div className="kpi-subtext green">
+              {gmailPct}% connected
+            </div>
+          </div>
+
+          {/* Card 4: Emails Sent Today */}
           <div className="kpi-card purple">
             <div className="kpi-card-header">
               <div className="kpi-icon-circle">
@@ -1032,7 +1054,7 @@ export default function CandidatesPage() {
             </div>
           </div>
 
-          {/* Card 4: Avg. Emails / Student */}
+          {/* Card 5: Avg. Emails / Student */}
           <div className="kpi-card amber">
             <div className="kpi-card-header">
               <div className="kpi-icon-circle">
@@ -1048,7 +1070,7 @@ export default function CandidatesPage() {
             </div>
           </div>
 
-          {/* Card 5: CVs Uploaded */}
+          {/* Card 6: CVs Uploaded */}
           <div className="kpi-card sky">
             <div className="kpi-card-header">
               <div className="kpi-icon-circle">
@@ -1064,7 +1086,7 @@ export default function CandidatesPage() {
             </div>
           </div>
 
-          {/* Card 6: Email Drafts */}
+          {/* Card 7: Email Drafts */}
           <div className="kpi-card purple">
             <div className="kpi-card-header">
               <div className="kpi-icon-circle">
