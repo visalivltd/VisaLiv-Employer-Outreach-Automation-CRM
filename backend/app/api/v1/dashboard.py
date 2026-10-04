@@ -118,10 +118,26 @@ def get_dashboard(
         )
     ) or 0
 
+    # Total emails failed/bounced
+    emails_failed = db.scalar(
+        select(func.count(EmailLog.id)).where(
+            EmailLog.status.in_(["failed", "bounced", "error"])
+        )
+    ) or 0
+
     # Emails received on target selected date
     emails_received_on_date = db.scalar(
         select(func.count(EmailLog.id)).where(
             EmailLog.direction == "incoming",
+            EmailLog.sent_at >= selected_start,
+            EmailLog.sent_at < selected_end,
+        )
+    ) or 0
+
+    # Emails failed on target selected date
+    emails_failed_on_date = db.scalar(
+        select(func.count(EmailLog.id)).where(
+            EmailLog.status.in_(["failed", "bounced", "error"]),
             EmailLog.sent_at >= selected_start,
             EmailLog.sent_at < selected_end,
         )
@@ -223,5 +239,7 @@ def get_dashboard(
         "selectedDate": selected_date_str,
         "emailsSentOnDate": emails_sent_on_date,
         "emailsReceivedOnDate": emails_received_on_date,
+        "emailsFailed": emails_failed,
+        "emailsFailedOnDate": emails_failed_on_date,
         "recentEmails": recent_emails,
     }

@@ -111,7 +111,7 @@ body {
 
 @media (min-width: 1024px) {
   .summary-grid {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
   }
 }
 
@@ -164,6 +164,11 @@ body {
   color: #ea580c;
 }
 
+.summary-icon-box.red {
+  background-color: #fef2f2;
+  color: #ef4444;
+}
+
 .summary-icon-box.teal {
   background-color: #ecfdf5;
   color: #059669;
@@ -196,6 +201,10 @@ body {
 
 .summary-info .summary-value.orange {
   color: #ea580c;
+}
+
+.summary-info .summary-value.red {
+  color: #ef4444;
 }
 
 .summary-info .summary-value.teal {
