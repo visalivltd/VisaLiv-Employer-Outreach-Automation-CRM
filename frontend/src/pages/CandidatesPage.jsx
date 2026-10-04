@@ -1692,6 +1692,8 @@ export default function CandidatesPage() {
                   <th>Gmail Account</th>
                   <th>Email Draft</th>
                   <th>CV</th>
+                  <th>Emails Sent Today</th>
+                  <th>Total Sent</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -1859,13 +1861,41 @@ export default function CandidatesPage() {
                         </button>
 
                       ) : (
-
                         <span className="no-cv">
                           No CV
                         </span>
-
                       )}
+                    </td>
 
+                    {/* Emails Sent Today */}
+                    <td style={{ textAlign: 'center' }}>
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          fontSize: '13.5px',
+                          color:
+                            (candidate.emails_sent_today ?? 0) >= 5
+                              ? '#16a34a'
+                              : (candidate.emails_sent_today ?? 0) > 0
+                              ? '#d97706'
+                              : '#dc2626',
+                        }}
+                      >
+                        {candidate.emails_sent_today ?? 0} / 5
+                      </span>
+                    </td>
+
+                    {/* Total Sent */}
+                    <td style={{ textAlign: 'center' }}>
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          fontSize: '13.5px',
+                          color: '#1e293b',
+                        }}
+                      >
+                        {candidate.total_emails_sent ?? 0}
+                      </span>
                     </td>
 
                     <td>

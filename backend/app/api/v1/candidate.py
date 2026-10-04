@@ -1,3 +1,4 @@
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -9,9 +10,11 @@ from fastapi import (
     UploadFile,
     status,
 )
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.email_log import EmailLog
 from app.schemas.candidate import (
     CandidateAssignDraft,
     CandidateCreate,
@@ -160,7 +163,40 @@ def get_candidates(
     db: Session = Depends(get_db),
 ):
     candidates = candidate_service.get_candidates(db, active_only=active_only)
-    return [CandidateResponse.model_validate(c) for c in candidates]
+
+    india_timezone = timezone(timedelta(hours=5, minutes=30))
+    now_india = datetime.now(india_timezone)
+    start_of_today = now_india.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_of_today = start_of_today + timedelta(days=1)
+
+    sent_today_dict = dict(
+        db.execute(
+            select(EmailLog.candidate_id, func.count(EmailLog.id))
+            .where(
+                EmailLog.status == "sent",
+                EmailLog.sent_at >= start_of_today,
+                EmailLog.sent_at < end_of_today,
+            )
+            .group_by(EmailLog.candidate_id)
+        ).all()
+    )
+
+    total_sent_dict = dict(
+        db.execute(
+            select(EmailLog.candidate_id, func.count(EmailLog.id))
+            .where(EmailLog.status == "sent")
+            .group_by(EmailLog.candidate_id)
+        ).all()
+    )
+
+    results = []
+    for c in candidates:
+        res = CandidateResponse.model_validate(c)
+        res.emails_sent_today = sent_today_dict.get(c.id, 0)
+        res.total_emails_sent = total_sent_dict.get(c.id, 0)
+        results.append(res)
+
+    return results
 
 
 @router.get(

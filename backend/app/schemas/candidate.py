@@ -49,7 +49,8 @@ class CandidateResponse(BaseModel):
     email_draft_name: str | None = None
     email_draft_subject: str | None = None
     email_draft_body: str | None = None
-    email_draft: EmailDraftInfo | None = None
+    emails_sent_today: int = 0
+    total_emails_sent: int = 0
     created_at: datetime
     updated_at: datetime
 
