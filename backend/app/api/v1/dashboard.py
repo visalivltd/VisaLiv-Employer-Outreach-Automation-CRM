@@ -11,6 +11,9 @@ from app.models.email_log import EmailLog
 from app.models.gmail_account import GmailAccount
 
 
+from app.models.outreach_job import OutreachJob
+
+
 router = APIRouter(
     prefix="/dashboard",
     tags=["Dashboard"],
@@ -143,6 +146,33 @@ def get_dashboard(
         )
     ) or 0
 
+    # Pending outreach jobs count
+    pending_emails = db.scalar(
+        select(func.count(OutreachJob.id)).where(
+            OutreachJob.status.in_(["queued", "pending", "processing"])
+        )
+    ) or 0
+
+    # Calculate success rate
+    effective_sent = emails_sent_on_date if target_date else emails_sent
+    effective_failed = emails_failed_on_date if target_date else emails_failed
+    total_outreach = effective_sent + effective_failed
+
+    if total_outreach > 0:
+        success_rate = round((effective_sent / total_outreach) * 100, 1)
+    else:
+        success_rate = 100.0
+
+    # Growth & Comparison Trends
+    start_of_month = now_india.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    candidates_this_month = db.scalar(
+        select(func.count(Candidate.id)).where(Candidate.created_at >= start_of_month)
+    ) or 0
+
+    employers_this_month = db.scalar(
+        select(func.count(Employer.id)).where(Employer.created_at >= start_of_month)
+    ) or 0
+
     # ==========================================
     # REMAINING DAILY OUTREACH
     # ==========================================
@@ -241,5 +271,9 @@ def get_dashboard(
         "emailsReceivedOnDate": emails_received_on_date,
         "emailsFailed": emails_failed,
         "emailsFailedOnDate": emails_failed_on_date,
+        "pendingEmails": pending_emails,
+        "successRate": success_rate,
+        "candidatesThisMonth": candidates_this_month,
+        "employersThisMonth": employers_this_month,
         "recentEmails": recent_emails,
     }

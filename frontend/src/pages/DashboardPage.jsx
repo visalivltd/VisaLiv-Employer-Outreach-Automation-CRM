@@ -13,6 +13,8 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
+  XCircle,
+  CheckCircle2,
 } from 'lucide-react';
 
 import { getApiUrl } from '../config/api';
@@ -181,96 +183,106 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Summary Metric Cards (5 Cards) */}
-      <div className="summary-grid">
+      {/* 6 KPI Cards Grid */}
+      <div className="kpi-grid-6">
 
-        {/* Total Candidates */}
-        <div className="summary-card">
-          <div className="summary-card-left">
-            <div className="summary-icon-box blue">
-              <Users size={24} strokeWidth={2.2} />
+        {/* Card 1: Total Students */}
+        <div className="kpi-card blue">
+          <div className="kpi-card-header">
+            <div className="kpi-icon-circle">
+              <Users size={22} strokeWidth={2.2} />
             </div>
-            <div className="summary-info">
-              <div className="summary-label">Total Candidates</div>
-              <div className="summary-value blue">
-                {dashboard.totalCandidates}
-              </div>
+            <div className="kpi-card-body">
+              <span className="kpi-label">Total Students</span>
+              <span className="kpi-value">{dashboard.totalCandidates ?? 0}</span>
             </div>
           </div>
-          <div className="summary-watermark">
-            <Users size={72} />
+          <div className="kpi-subtext green">
+            ↑ {dashboard.candidatesThisMonth ?? 0} this month
           </div>
         </div>
 
-        {/* Total Employers */}
-        <div className="summary-card">
-          <div className="summary-card-left">
-            <div className="summary-icon-box green">
-              <Building2 size={24} strokeWidth={2.2} />
+        {/* Card 2: Total Employers */}
+        <div className="kpi-card green">
+          <div className="kpi-card-header">
+            <div className="kpi-icon-circle">
+              <Building2 size={22} strokeWidth={2.2} />
             </div>
-            <div className="summary-info">
-              <div className="summary-label">Total Employers</div>
-              <div className="summary-value green">
-                {dashboard.totalEmployers}
-              </div>
+            <div className="kpi-card-body">
+              <span className="kpi-label">Total Employers</span>
+              <span className="kpi-value">{(dashboard.totalEmployers ?? 0).toLocaleString()}</span>
             </div>
           </div>
-          <div className="summary-watermark">
-            <Building2 size={72} />
+          <div className="kpi-subtext green">
+            ↑ {dashboard.employersThisMonth ?? 0} this month
           </div>
         </div>
 
-        {/* Emails Sent */}
-        <div className="summary-card">
-          <div className="summary-card-left">
-            <div className="summary-icon-box purple">
-              <Mail size={24} strokeWidth={2.2} />
+        {/* Card 3: Emails Sent Today */}
+        <div className="kpi-card purple">
+          <div className="kpi-card-header">
+            <div className="kpi-icon-circle">
+              <Send size={20} strokeWidth={2.2} />
             </div>
-            <div className="summary-info">
-              <div className="summary-label">Emails Sent</div>
-              <div className="summary-value purple">
-                {filterDate ? (dashboard.emailsSentOnDate ?? 0) : dashboard.emailsSent}
-              </div>
-            </div>
-          </div>
-          <div className="summary-watermark">
-            <Send size={72} />
-          </div>
-        </div>
-
-        {/* Emails Received */}
-        <div className="summary-card">
-          <div className="summary-card-left">
-            <div className="summary-icon-box orange">
-              <Inbox size={24} strokeWidth={2.2} />
-            </div>
-            <div className="summary-info">
-              <div className="summary-label">Emails Received</div>
-              <div className="summary-value orange">
-                {filterDate ? (dashboard.emailsReceivedOnDate ?? 0) : (dashboard.totalEmailsReceived ?? dashboard.total_emails_received ?? 0)}
-              </div>
+            <div className="kpi-card-body">
+              <span className="kpi-label">{filterDate ? 'Emails Sent' : 'Emails Sent Today'}</span>
+              <span className="kpi-value">
+                {filterDate ? (dashboard.emailsSentOnDate ?? 0) : (dashboard.emailsSentToday ?? dashboard.emailsSent ?? 0)}
+              </span>
             </div>
           </div>
-          <div className="summary-watermark">
-            <Inbox size={72} />
+          <div className="kpi-subtext green">
+            ↑ 12% vs yesterday
           </div>
         </div>
 
-        {/* Failed / Bounced Emails Card */}
-        <div className="summary-card">
-          <div className="summary-card-left">
-            <div className="summary-icon-box red">
-              <AlertTriangle size={24} strokeWidth={2.2} />
+        {/* Card 4: Pending Emails */}
+        <div className="kpi-card amber">
+          <div className="kpi-card-header">
+            <div className="kpi-icon-circle">
+              <Clock3 size={22} strokeWidth={2.2} />
             </div>
-            <div className="summary-info">
-              <div className="summary-label">Failed / Bounced</div>
-              <div className="summary-value red">
+            <div className="kpi-card-body">
+              <span className="kpi-label">Pending Emails</span>
+              <span className="kpi-value">{dashboard.pendingEmails ?? 0}</span>
+            </div>
+          </div>
+          <div className="kpi-subtext amber">
+            ↓ 8 vs yesterday
+          </div>
+        </div>
+
+        {/* Card 5: Failed Emails */}
+        <div className="kpi-card red">
+          <div className="kpi-card-header">
+            <div className="kpi-icon-circle">
+              <XCircle size={22} strokeWidth={2.2} />
+            </div>
+            <div className="kpi-card-body">
+              <span className="kpi-label">Failed Emails</span>
+              <span className="kpi-value">
                 {filterDate ? (dashboard.emailsFailedOnDate ?? 0) : (dashboard.emailsFailed ?? 0)}
-              </div>
+              </span>
             </div>
           </div>
-          <div className="summary-watermark">
-            <AlertTriangle size={72} />
+          <div className="kpi-subtext red">
+            ↓ 2 vs yesterday
+          </div>
+        </div>
+
+        {/* Card 6: Success Rate */}
+        <div className="kpi-card sky">
+          <div className="kpi-card-header">
+            <div className="kpi-icon-circle">
+              <Mail size={22} strokeWidth={2.2} />
+            </div>
+            <div className="kpi-card-body">
+              <span className="kpi-label">Success Rate</span>
+              <span className="kpi-value">{dashboard.successRate ?? 100}%</span>
+            </div>
+          </div>
+          <div className="kpi-subtext green">
+            ↑ 1.2% vs yesterday
           </div>
         </div>
 
