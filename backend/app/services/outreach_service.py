@@ -745,155 +745,172 @@ class OutreachService:
         db: Session,
         items: list[dict],
     ) -> dict:
-        settings = get_outreach_settings(db)
-        now_utc = datetime.now(timezone.utc)
-        start_of_today = OutreachService.get_start_of_today_ist()
+        try:
+            settings = get_outreach_settings(db)
+            now_utc = datetime.now(timezone.utc)
+            start_of_today = OutreachService.get_start_of_today_ist()
 
-        sent_count = 0
-        queued_count = 0
-        failed_count = 0
-        skipped_count = 0
-        results = []
-        jobs_to_add: list[OutreachJob] = []
+            sent_count = 0
+            queued_count = 0
+            failed_count = 0
+            skipped_count = 0
+            results = []
+            jobs_to_add: list[OutreachJob] = []
 
-        cand_states: dict[int, CandidateBatchState] = {}
-        processed_employers_in_batch: set[int] = set()
+            cand_states: dict[int, CandidateBatchState] = {}
+            processed_employers_in_batch: set[int] = set()
 
-        # Pre-group candidate IDs to apply concurrency row locks
-        candidate_ids = sorted(list({item.get("candidate_id") for item in items if item.get("candidate_id")}))
-        if candidate_ids:
-            # Lock candidates in order to prevent deadlock & race conditions
-            locked_cands = db.scalars(
-                select(Candidate).where(Candidate.id.in_(candidate_ids)).with_for_update().order_by(Candidate.id)
-            ).all()
-
-        # Generate unique batch ID and descriptive batch name for tracking
-        batch_id = f"batch_{now_utc.strftime('%Y%m%d_%H%M%S')}_{len(items)}"
-        c_names = []
-        for cid in candidate_ids[:3]:
-            c_obj = db.get(Candidate, cid)
-            if c_obj:
-                c_names.append(c_obj.full_name)
-        cands_str = ", ".join(c_names) if c_names else "Candidates"
-        if len(candidate_ids) > 3:
-            cands_str += f" +{len(candidate_ids) - 3} more"
-        batch_name = f"Manual Batch #{now_utc.strftime('%H:%M')} ({len(items)} items - {cands_str})"
-
-        for item in items:
-            candidate_id = item.get("candidate_id")
-            employer_id = item.get("employer_id")
-
-            if not candidate_id or not employer_id:
-                skipped_count += 1
-                continue
-
-            if employer_id in processed_employers_in_batch:
-                skipped_count += 1
-                results.append({
-                    "candidate_id": candidate_id,
-                    "employer_id": employer_id,
-                    "status": "skipped",
-                    "reason": "Employer in 3-day cooldown (assigned in current batch)",
-                    "reason_code": ReasonCode.EMPLOYER_COOLDOWN.value,
-                })
-                continue
-
-            # Initialize candidate state if not present
-            if candidate_id not in cand_states:
-                cand = db.get(Candidate, candidate_id)
-                if not cand or not cand.is_active or not cand.gmail_account or not cand.gmail_account.is_active:
-                    skipped_count += 1
-                    results.append({
-                        "candidate_id": candidate_id,
-                        "employer_id": employer_id,
-                        "status": "skipped",
-                        "reason": "Candidate missing, inactive, or Gmail account not connected",
-                        "reason_code": ReasonCode.CANDIDATE_MISSING.value,
-                    })
-                    continue
-
-                if not cand.cv_file_path or not cand.cv_file_path.strip():
-                    skipped_count += 1
-                    results.append({
-                        "candidate_id": candidate_id,
-                        "employer_id": employer_id,
-                        "status": "skipped",
-                        "reason": f"Candidate '{cand.full_name}' is missing a CV file. Email cannot be sent without CV attachment.",
-                        "reason_code": ReasonCode.CANDIDATE_MISSING.value,
-                    })
-                    continue
-
-                actual_sent = OutreachService.get_candidate_sent_today(db, candidate_id, start_of_today)
-                reserved_pending = OutreachService.get_candidate_pending_today(db, candidate_id, start_of_today)
-                last_activity = OutreachService.get_candidate_latest_activity_time(db, candidate_id)
-
-                if last_activity:
-                    next_eligible = last_activity + timedelta(minutes=settings.min_gap_minutes)
-                    initial_next_send = max(now_utc, next_eligible)
-                else:
-                    initial_next_send = now_utc
-
-                cand_states[candidate_id] = CandidateBatchState(
-                    candidate_id=candidate_id,
-                    daily_limit=settings.max_emails_per_candidate_per_day,
-                    actual_sent_today=actual_sent,
-                    reserved_pending_today=reserved_pending,
-                    next_send_at=initial_next_send,
-                )
-
-            state = cand_states.get(candidate_id)
-            if not state:
-                skipped_count += 1
-                continue
-
-            # 1. Check eligibility with candidate's in-flight capacity usage
-            res = OutreachService.check_eligibility(
-                db=db,
-                candidate_id=candidate_id,
-                employer_id=employer_id,
-                now_utc=now_utc,
-                custom_capacity_used=state.capacity_used,
-            )
-
-            if not res.allowed:
-                skipped_count += 1
-                results.append({
-                    "candidate_id": candidate_id,
-                    "employer_id": employer_id,
-                    "status": "skipped",
-                    "reason": res.reason,
-                    "reason_code": res.reason_code.value,
-                })
-                continue
-
-            scheduled_time = state.next_send_at
-            candidate = db.get(Candidate, candidate_id)
-
-            is_ready_now = scheduled_time <= (now_utc + timedelta(seconds=2))
-
-            if is_ready_now and candidate and candidate.gmail_account:
+            # Pre-group candidate IDs to apply concurrency row locks
+            candidate_ids = sorted(list({item.get("candidate_id") for item in items if item.get("candidate_id")}))
+            if candidate_ids:
                 try:
-                    email_log = OutreachService.send_outreach(
-                        db=db,
-                        candidate_id=candidate_id,
-                        employer_id=employer_id,
-                        gmail_account=candidate.gmail_account,
-                        subject=item.get("subject", ""),
-                        body=item.get("body", ""),
-                    )
-                    if email_log.status == "sent":
-                        sent_count += 1
-                        processed_employers_in_batch.add(employer_id)
-                        state.consume_slot()
-                        state.next_send_at = now_utc + timedelta(minutes=settings.min_gap_minutes)
+                    # Lock candidates in order to prevent deadlock & race conditions
+                    locked_cands = db.scalars(
+                        select(Candidate).where(Candidate.id.in_(candidate_ids)).with_for_update().order_by(Candidate.id)
+                    ).all()
+                except Exception as lock_exc:
+                    logger.warning(f"Candidate row locking skipped: {lock_exc}")
+                    db.rollback()
+
+            # Generate unique batch ID and descriptive batch name for tracking
+            batch_id = f"batch_{now_utc.strftime('%Y%m%d_%H%M%S')}_{len(items)}"
+            c_names = []
+            for cid in candidate_ids[:3]:
+                c_obj = db.get(Candidate, cid)
+                if c_obj:
+                    c_names.append(c_obj.full_name)
+            cands_str = ", ".join(c_names) if c_names else "Candidates"
+            if len(candidate_ids) > 3:
+                cands_str += f" +{len(candidate_ids) - 3} more"
+            batch_name = f"Manual Batch #{now_utc.strftime('%H:%M')} ({len(items)} items - {cands_str})"
+
+            for item in items:
+                candidate_id = item.get("candidate_id")
+                employer_id = item.get("employer_id")
+
+                if not candidate_id or not employer_id:
+                    skipped_count += 1
+                    continue
+
+                if employer_id in processed_employers_in_batch:
+                    skipped_count += 1
+                    results.append({
+                        "candidate_id": candidate_id,
+                        "employer_id": employer_id,
+                        "status": "skipped",
+                        "reason": "Employer in 3-day cooldown (assigned in current batch)",
+                        "reason_code": ReasonCode.EMPLOYER_COOLDOWN.value,
+                    })
+                    continue
+
+                # Initialize candidate state if not present
+                if candidate_id not in cand_states:
+                    cand = db.get(Candidate, candidate_id)
+                    if not cand or not cand.is_active or not cand.gmail_account or not cand.gmail_account.is_active:
+                        skipped_count += 1
                         results.append({
                             "candidate_id": candidate_id,
                             "employer_id": employer_id,
-                            "status": "sent",
-                            "email_log_id": email_log.id,
+                            "status": "skipped",
+                            "reason": "Candidate missing, inactive, or Gmail account not connected",
+                            "reason_code": ReasonCode.CANDIDATE_MISSING.value,
                         })
                         continue
+
+                    if not cand.cv_file_path or not cand.cv_file_path.strip():
+                        skipped_count += 1
+                        results.append({
+                            "candidate_id": candidate_id,
+                            "employer_id": employer_id,
+                            "status": "skipped",
+                            "reason": f"Candidate '{cand.full_name}' is missing a CV file. Email cannot be sent without CV attachment.",
+                            "reason_code": ReasonCode.CANDIDATE_MISSING.value,
+                        })
+                        continue
+
+                    actual_sent = OutreachService.get_candidate_sent_today(db, candidate_id, start_of_today)
+                    reserved_pending = OutreachService.get_candidate_pending_today(db, candidate_id, start_of_today)
+                    last_activity = OutreachService.get_candidate_latest_activity_time(db, candidate_id)
+
+                    if last_activity:
+                        next_eligible = last_activity + timedelta(minutes=settings.min_gap_minutes)
+                        initial_next_send = max(now_utc, next_eligible)
                     else:
+                        initial_next_send = now_utc
+
+                    cand_states[candidate_id] = CandidateBatchState(
+                        candidate_id=candidate_id,
+                        daily_limit=settings.max_emails_per_candidate_per_day,
+                        actual_sent_today=actual_sent,
+                        reserved_pending_today=reserved_pending,
+                        next_send_at=initial_next_send,
+                    )
+
+                state = cand_states.get(candidate_id)
+                if not state:
+                    skipped_count += 1
+                    continue
+
+                # 1. Check eligibility with candidate's in-flight capacity usage
+                res = OutreachService.check_eligibility(
+                    db=db,
+                    candidate_id=candidate_id,
+                    employer_id=employer_id,
+                    now_utc=now_utc,
+                    custom_capacity_used=state.capacity_used,
+                )
+
+                if not res.allowed:
+                    skipped_count += 1
+                    results.append({
+                        "candidate_id": candidate_id,
+                        "employer_id": employer_id,
+                        "status": "skipped",
+                        "reason": res.reason,
+                        "reason_code": res.reason_code.value,
+                    })
+                    continue
+
+                scheduled_time = state.next_send_at
+                candidate = db.get(Candidate, candidate_id)
+
+                is_ready_now = scheduled_time <= (now_utc + timedelta(seconds=2))
+
+                if is_ready_now and candidate and candidate.gmail_account:
+                    try:
+                        email_log = OutreachService.send_outreach(
+                            db=db,
+                            candidate_id=candidate_id,
+                            employer_id=employer_id,
+                            gmail_account=candidate.gmail_account,
+                            subject=item.get("subject", ""),
+                            body=item.get("body", ""),
+                        )
+                        if email_log.status == "sent":
+                            sent_count += 1
+                            processed_employers_in_batch.add(employer_id)
+                            state.consume_slot()
+                            state.next_send_at = now_utc + timedelta(minutes=settings.min_gap_minutes)
+                            results.append({
+                                "candidate_id": candidate_id,
+                                "employer_id": employer_id,
+                                "status": "sent",
+                                "email_log_id": email_log.id,
+                            })
+                            continue
+                        else:
+                            failed_count += 1
+                            processed_employers_in_batch.add(employer_id)
+                            state.consume_slot()
+                            results.append({
+                                "candidate_id": candidate_id,
+                                "employer_id": employer_id,
+                                "status": "failed",
+                                "error": email_log.error_message,
+                            })
+                            continue
+                    except Exception as exc:
+                        db.rollback()
                         failed_count += 1
                         processed_employers_in_batch.add(employer_id)
                         state.consume_slot()
@@ -901,54 +918,74 @@ class OutreachService:
                             "candidate_id": candidate_id,
                             "employer_id": employer_id,
                             "status": "failed",
-                            "error": email_log.error_message,
+                            "error": str(exc),
                         })
                         continue
-                except Exception as exc:
-                    failed_count += 1
-                    processed_employers_in_batch.add(employer_id)
-                    state.consume_slot()
-                    results.append({
-                        "candidate_id": candidate_id,
-                        "employer_id": employer_id,
-                        "status": "failed",
-                        "error": str(exc),
-                    })
-                    continue
 
-            # Queue job for async background worker processing
-            job = OutreachJob(
-                candidate_id=candidate_id,
-                employer_id=employer_id,
-                gmail_account_id=candidate.gmail_account.id if candidate and candidate.gmail_account else None,
-                scheduled_at=scheduled_time,
-                status="pending",
-                attempts=0,
-                batch_id=batch_id,
-                batch_name=batch_name,
+                # Queue job for async background worker processing
+                job = OutreachJob(
+                    candidate_id=candidate_id,
+                    employer_id=employer_id,
+                    gmail_account_id=candidate.gmail_account.id if candidate and candidate.gmail_account else None,
+                    scheduled_at=scheduled_time,
+                    status="pending",
+                    attempts=0,
+                    batch_id=batch_id,
+                    batch_name=batch_name,
+                )
+                jobs_to_add.append(job)
+
+                queued_count += 1
+                processed_employers_in_batch.add(employer_id)
+                state.consume_slot()
+                state.next_send_at = scheduled_time + timedelta(minutes=settings.min_gap_minutes)
+
+                results.append({
+                    "candidate_id": candidate_id,
+                    "employer_id": employer_id,
+                    "status": "queued",
+                    "scheduled_at": scheduled_time.isoformat(),
+                })
+
+            if jobs_to_add:
+                try:
+                    db.add_all(jobs_to_add)
+                    db.commit()
+                except Exception as commit_exc:
+                    logger.error(f"[BATCH OUTREACH COMMIT ERROR] {commit_exc}", exc_info=True)
+                    db.rollback()
+
+            logger.info(
+                "Outreach batch execution summary: submitted=%d, sent=%d, queued=%d, failed=%d, skipped=%d",
+                len(items), sent_count, queued_count, failed_count, skipped_count
             )
-            jobs_to_add.append(job)
 
-            queued_count += 1
-            processed_employers_in_batch.add(employer_id)
-            state.consume_slot()
-            state.next_send_at = scheduled_time + timedelta(minutes=settings.min_gap_minutes)
-
-            results.append({
-                "candidate_id": candidate_id,
-                "employer_id": employer_id,
-                "status": "queued",
-                "scheduled_at": scheduled_time.isoformat(),
-            })
-
-        if jobs_to_add:
-            db.add_all(jobs_to_add)
-            db.commit()
-
-        logger.info(
-            "Outreach batch execution summary: submitted=%d, sent=%d, queued=%d, failed=%d, skipped=%d",
-            len(items), sent_count, queued_count, failed_count, skipped_count
-        )
+            return {
+                "sent": sent_count,
+                "queued": queued_count,
+                "failed": failed_count,
+                "skipped": skipped_count,
+                "sent_count": sent_count,
+                "queued_count": queued_count,
+                "failed_count": failed_count,
+                "skipped_count": skipped_count,
+                "details": results,
+            }
+        except Exception as top_exc:
+            logger.error(f"[BATCH OUTREACH UNHANDLED EXCEPTION] {top_exc}", exc_info=True)
+            db.rollback()
+            return {
+                "sent": 0,
+                "queued": 0,
+                "failed": len(items),
+                "skipped": 0,
+                "sent_count": 0,
+                "queued_count": 0,
+                "failed_count": len(items),
+                "skipped_count": 0,
+                "details": [],
+                "error": str(top_exc),
+            }
 
         return {
             "sent": sent_count,
