@@ -112,6 +112,8 @@ class OutreachService:
                     EmailLog.candidate_id == candidate_id,
                     EmailLog.status == "sent",
                     EmailLog.direction == "outgoing",
+                    ~EmailLog.subject.startswith("Your Job Application Update"),
+                    ~EmailLog.subject.startswith("Application Update"),
                     or_(
                         EmailLog.sent_at >= start_of_today,
                         and_(EmailLog.sent_at.is_(None), EmailLog.created_at >= start_of_today)
@@ -396,13 +398,15 @@ class OutreachService:
 
         candidate_ids = [c.id for c in active_candidates]
 
-        # Single bulk query for sent today per candidate
+        # Single bulk query for sent today per candidate (excluding Application Update summary emails)
         sent_today_map = dict(
             db.execute(
                 select(EmailLog.candidate_id, func.count(EmailLog.id))
                 .where(
                     EmailLog.candidate_id.in_(candidate_ids),
                     EmailLog.status == "sent",
+                    ~EmailLog.subject.startswith("Your Job Application Update"),
+                    ~EmailLog.subject.startswith("Application Update"),
                     EmailLog.sent_at >= start_of_today,
                 )
                 .group_by(EmailLog.candidate_id)
@@ -416,6 +420,8 @@ class OutreachService:
                 .where(
                     EmailLog.candidate_id.in_(candidate_ids),
                     EmailLog.status == "sent",
+                    ~EmailLog.subject.startswith("Your Job Application Update"),
+                    ~EmailLog.subject.startswith("Application Update"),
                 )
                 .group_by(EmailLog.candidate_id)
             ).all()
