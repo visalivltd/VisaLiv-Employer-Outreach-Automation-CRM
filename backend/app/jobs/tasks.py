@@ -32,3 +32,18 @@ async def task_sync_incoming_replies(ctx: dict) -> dict:
         raise
     finally:
         db.close()
+
+
+async def task_check_daily_auto_outreach(ctx: dict) -> dict | None:
+    """Background task to check and trigger daily automated outreach campaign."""
+    db = SessionLocal()
+    try:
+        result = OutreachService.check_and_trigger_daily_auto_outreach(db)
+        if result:
+            logger.info(f"[REDIS WORKER] Daily auto outreach triggered: {result}")
+        return result
+    except Exception as exc:
+        logger.error(f"[REDIS WORKER ERROR] Failed to check daily auto outreach: {exc}")
+        raise
+    finally:
+        db.close()

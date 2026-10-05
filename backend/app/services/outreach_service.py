@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+def get_employer_display_name(employer) -> str:
+    if employer is None:
+        return "Employer"
+    return getattr(employer, 'service_name', None) or getattr(employer, 'company_name', None) or getattr(employer, 'email', None) or "Employer"
+
 
 class ReasonCode(str, Enum):
     READY = "READY"
@@ -208,6 +213,12 @@ class OutreachService:
         emp_email = (employer.email or "").strip()
         if not emp_email or not EMAIL_REGEX.match(emp_email):
             return EligibilityResult(False, ReasonCode.EMPLOYER_EMAIL_INVALID, "Invalid employer email address")
+
+        # Domain matching check
+        cand_domain = (getattr(candidate, 'domain', None) or 'Healthcare').strip().lower()
+        emp_domain = (getattr(employer, 'industry', None) or 'Healthcare').strip().lower()
+        if cand_domain != 'all domains' and cand_domain != emp_domain:
+            return EligibilityResult(False, ReasonCode.EMPLOYER_MISSING, f"Domain mismatch — Candidate domain is '{getattr(candidate, 'domain', 'Healthcare')}' while employer domain is '{getattr(employer, 'industry', 'Healthcare')}'")
 
         # 4. Duplicate Pair Check
         previous_email = db.scalar(
@@ -528,12 +539,18 @@ class OutreachService:
 
             # Determine list of employers to evaluate:
             # Evaluate items only if candidate is in active_candidates list
+            cand_domain_lower = (getattr(candidate, 'domain', None) or 'Healthcare').strip().lower()
+
             if candidate in active_candidates:
+                domain_matching_employers = [
+                    emp for emp in all_active_employers
+                    if cand_domain_lower == 'all domains' or (getattr(emp, 'industry', None) or 'Healthcare').strip().lower() == cand_domain_lower
+                ]
                 if only_eligible or candidate_id is not None:
                     max_cand_limit = min(page_size, cand_remaining_quota) if (only_eligible and cand_remaining_quota > 0) else page_size
                     cand_employers = []
                     eligible_found_idx = 0
-                    for emp in all_active_employers:
+                    for emp in domain_matching_employers:
                         if emp.id in ineligible_set:
                             continue
                         if eligible_found_idx < start_offset:
@@ -543,7 +560,10 @@ class OutreachService:
                         if len(cand_employers) >= max_cand_limit:
                             break
                 else:
-                    cand_employers = paginated_employers
+                    cand_employers = [
+                        emp for emp in paginated_employers
+                        if cand_domain_lower == 'all domains' or (getattr(emp, 'industry', None) or 'Healthcare').strip().lower() == cand_domain_lower
+                    ]
             else:
                 cand_employers = []
 
@@ -583,7 +603,7 @@ class OutreachService:
                     "email_draft": cand_draft_name,
                     "cv_file_path": candidate.cv_file_path,
                     "employer_id": employer.id,
-                    "employer_name": employer.service_name or getattr(employer, "company_name", None) or "Employer",
+                    "employer_name": get_employer_display_name(employer),
                     "employer_email": emp_email,
                     "eligible": is_eligible,
                     "reason": res.reason,
@@ -1010,6 +1030,20 @@ class OutreachService:
             cand_stmt = cand_stmt.where(Candidate.id == candidate_id)
         active_candidates = db.scalars(cand_stmt).all()
 
+        # Ensure candidates with active/pending batches are excluded so a candidate belongs to only 1 batch at a time
+        if not candidate_ids and candidate_id is None:
+            active_batch_candidate_ids = set(
+                db.scalars(
+                    select(OutreachJob.candidate_id).where(
+                        OutreachJob.status.in_(["pending", "processing"])
+                    )
+                ).all()
+            )
+            active_candidates = [c for c in active_candidates if c.id not in active_batch_candidate_ids]
+
+        # Enforce max 15 candidates per batch constraint
+        active_candidates = active_candidates[:15]
+
         active_employers = db.scalars(
             select(Employer).where(Employer.is_active.is_(True)).order_by(Employer.id)
         ).all()
@@ -1196,6 +1230,38 @@ class OutreachService:
             bg_db.rollback()
         finally:
             bg_db.close()
+
+    @staticmethod
+    def check_and_trigger_daily_auto_outreach(db: Session) -> dict | None:
+        """
+        Automated Daily Scheduler Engine:
+        Automatically triggers daily outreach for all eligible active candidates
+        if 'enabled' status is True in settings.
+        Ensures auto-outreach is triggered once per day.
+        """
+        settings = get_outreach_settings(db)
+        if not settings.enabled:
+            return None
+
+        # Check if an outreach batch has already been triggered or generated today (IST UTC+05:30)
+        india_tz = timezone(timedelta(hours=5, minutes=30))
+        now_ist = datetime.now(india_tz)
+        start_of_today_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_of_today_utc = start_of_today_ist.astimezone(timezone.utc)
+
+        existing_job_today = db.scalar(
+            select(OutreachJob.id).where(
+                OutreachJob.created_at >= start_of_today_utc
+            ).limit(1)
+        )
+
+        if existing_job_today:
+            return None
+
+        logger.info("[DAILY AUTO-OUTREACH SCHEDULER] Auto-triggering daily outreach campaign for all active candidates...")
+        result = OutreachService.start_outreach(db)
+        logger.info(f"[DAILY AUTO-OUTREACH SCHEDULER RESULT] {result}")
+        return result
 
     @staticmethod
     def start_outreach(
@@ -1736,7 +1802,7 @@ class OutreachService:
         for job in failed_jobs:
             cand_name = job.candidate.full_name if job.candidate else f"Candidate #{job.candidate_id}"
             cand_email = job.candidate.email if job.candidate else None
-            emp_name = (job.employer.service_name or job.employer.email) if job.employer else f"Employer #{job.employer_id}"
+            emp_name = get_employer_display_name(job.employer) if job.employer else f"Employer #{job.employer_id}"
             emp_email = (job.employer.email or job.employer.hr_email) if job.employer else None
 
             key = (job.candidate_id, job.employer_id)
@@ -1771,7 +1837,7 @@ class OutreachService:
         for log in failed_logs:
             cand_name = log.candidate.full_name if log.candidate else f"Candidate #{log.candidate_id}"
             cand_email = log.candidate.email if log.candidate else None
-            emp_name = (log.employer.service_name or log.employer.email) if log.employer else f"Employer #{log.employer_id}"
+            emp_name = get_employer_display_name(log.employer) if log.employer else f"Employer #{log.employer_id}"
             emp_email = (log.employer.email or log.employer.hr_email) if log.employer else None
 
             key = (log.candidate_id, log.employer_id)

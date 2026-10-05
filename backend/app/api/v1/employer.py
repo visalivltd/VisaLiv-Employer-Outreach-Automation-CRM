@@ -79,6 +79,7 @@ async def preview_employer_import(
 )
 async def execute_employer_import(
     file: UploadFile = File(...),
+    domain: str | None = None,
     db: Session = Depends(get_db),
 ):
     if not file.filename.endswith((".xlsx", ".xls")):
@@ -88,7 +89,7 @@ async def execute_employer_import(
         )
     contents = await file.read()
     try:
-        return employer_import_service.execute_employer_import(db, contents)
+        return employer_import_service.execute_employer_import(db, contents, domain=domain)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

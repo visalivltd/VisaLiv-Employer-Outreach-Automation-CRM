@@ -305,6 +305,7 @@ def preview_employer_import(
 def execute_employer_import(
     db: Session,
     file_contents: bytes,
+    domain: str | None = None,
 ) -> EmployerImportResultResponse:
     preview = preview_employer_import(db, file_contents)
 
@@ -332,6 +333,7 @@ def execute_employer_import(
             emp = Employer(
                 service_name=row.service_name,
                 email=row.primary_email,
+                industry=domain or getattr(row, 'industry', None),
                 service_website=row.service_website,
                 hr_email=row.hr_email,
                 recruitment_email=row.recruitment_email,

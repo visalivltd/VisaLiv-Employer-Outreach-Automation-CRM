@@ -38,6 +38,12 @@ class Candidate(Base):
         String(100),
     )
 
+    domain: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        default="Healthcare",
+    )
+
     cv_file_path: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,

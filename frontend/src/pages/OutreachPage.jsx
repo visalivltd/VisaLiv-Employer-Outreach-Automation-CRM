@@ -44,7 +44,7 @@ export default function OutreachPage() {
   
   // Pagination & Filter States
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(10);
   const [selectedCandidateFilters, setSelectedCandidateFilters] = useState([]);
 
   // Selected items stored as a Map (key -> item) across pages
@@ -267,15 +267,15 @@ export default function OutreachPage() {
 
   useEffect(() => {
     loadData();
-    loadPreview(1, []);
+    loadPreview(1, [], 10);
   }, []);
 
-  const loadPreview = async (targetPage = page, targetCandFilters = selectedCandidateFilters) => {
+  const loadPreview = async (targetPage = page, targetCandFilters = selectedCandidateFilters, targetPageSize = pageSize) => {
     try {
       setLoadingPreview(true);
       setError('');
       let baseUrl = getApiUrl();
-      let query = `page=${targetPage}&page_size=${pageSize}`;
+      let query = `page=${targetPage}&page_size=${targetPageSize}`;
       if (Array.isArray(targetCandFilters) && targetCandFilters.length > 0) {
         query += `&candidate_ids=${targetCandFilters.join(',')}`;
       }
@@ -329,8 +329,14 @@ export default function OutreachPage() {
   const handlePageChange = (newPage) => {
     const totalPages = Math.ceil((previewData?.total || 0) / pageSize) || 1;
     if (newPage >= 1 && newPage <= totalPages) {
-      loadPreview(newPage, selectedCandidateFilters);
+      loadPreview(newPage, selectedCandidateFilters, pageSize);
     }
+  };
+
+  const handlePageSizeChange = (newSize) => {
+    setPageSize(newSize);
+    setPage(1);
+    loadPreview(1, selectedCandidateFilters, newSize);
   };
 
   const handleCandidateFilter = (candId) => {
@@ -560,16 +566,23 @@ export default function OutreachPage() {
       // Track globally assigned employers to guarantee ZERO OVERLAP across candidates
       const globallyAssignedEmployers = new Set();
       let totalAutoSelected = 0;
+      let candidatesSelectedCount = 0;
 
       const configuredLimit = Number(settings?.max_emails_per_candidate_per_day) || 10;
 
       for (const [candId, candEligibleItems] of candItemsMap.entries()) {
+        if (candidatesSelectedCount >= 15) break; // Max 15 candidates per batch
+
         const summary = candSummaries.get(candId) || {};
         const sentToday = Number(summary.sent_today_count) || 0;
         const queuedToday = Number(summary.queued_today_count) || 0;
+        
+        // Skip candidate if they already have an active/queued batch today
+        if (queuedToday > 0) continue;
+
         const summaryLimit = summary.daily_limit !== undefined && summary.daily_limit !== null ? Number(summary.daily_limit) : null;
         const dailyLimit = (summaryLimit && summaryLimit > 0) ? Math.min(summaryLimit, configuredLimit) : configuredLimit;
-        const remainingQuota = Math.max(0, dailyLimit - sentToday - queuedToday);
+        const remainingQuota = Math.max(0, dailyLimit - sentToday);
 
         let candSelected = 0;
         for (const item of candEligibleItems) {
@@ -582,11 +595,14 @@ export default function OutreachPage() {
           candSelected++;
           totalAutoSelected++;
         }
+        if (candSelected > 0) {
+          candidatesSelectedCount++;
+        }
       }
 
       setSelectedItemsMap(newMap);
       if (totalAutoSelected > 0) {
-        setMessage(`Auto-selected ${totalAutoSelected} unique, non-overlapping candidate-employer pairing(s) matching your configured daily limit (${configuredLimit}/candidate)!`);
+        setMessage(`Auto-selected ${totalAutoSelected} unique, non-overlapping candidate-employer pairing(s) for ${candidatesSelectedCount} candidate(s) (max 15/batch)!`);
         setTimeout(() => setMessage(''), 6000);
       } else {
         setError('No eligible candidate-employer pairings available for auto-selection today.');
@@ -1683,28 +1699,43 @@ export default function OutreachPage() {
               <div style={{ fontSize: '13px', color: '#475569', fontWeight: 500 }}>
                 Showing <strong>{startIdx.toLocaleString()}–{endIdx.toLocaleString()}</strong> of <strong>{totalCount.toLocaleString()}</strong> records
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button
-                  type="button"
-                  onClick={() => handlePageChange(page - 1)}
-                  disabled={page <= 1 || loadingPreview}
-                  className="secondary-button"
-                  style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <ChevronLeft size={16} /> Previous
-                </button>
-                <span style={{ fontSize: '13px', color: '#64748b', padding: '0 4px' }}>
-                  Page <strong>{page}</strong> of {totalPages}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handlePageChange(page + 1)}
-                  disabled={page >= totalPages || loadingPreview}
-                  className="secondary-button"
-                  style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                >
-                  Next <ChevronRight size={16} />
-                </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#64748b' }}>
+                  <span>Per page:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                    style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12.5px', backgroundColor: '#ffffff', cursor: 'pointer' }}
+                  >
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handlePageChange(page - 1)}
+                    disabled={page <= 1 || loadingPreview}
+                    className="secondary-button"
+                    style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <ChevronLeft size={16} /> Previous
+                  </button>
+                  <span style={{ fontSize: '13px', color: '#64748b', padding: '0 4px' }}>
+                    Page <strong>{page}</strong> of {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handlePageChange(page + 1)}
+                    disabled={page >= totalPages || loadingPreview}
+                    className="secondary-button"
+                    style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    Next <ChevronRight size={16} />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1847,28 +1878,43 @@ export default function OutreachPage() {
               <div style={{ fontSize: '13px', color: '#475569', fontWeight: 500 }}>
                 Showing <strong>{startIdx.toLocaleString()}–{endIdx.toLocaleString()}</strong> of <strong>{totalCount.toLocaleString()}</strong> records
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button
-                  type="button"
-                  onClick={() => handlePageChange(page - 1)}
-                  disabled={page <= 1 || loadingPreview}
-                  className="secondary-button"
-                  style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <ChevronLeft size={16} /> Previous
-                </button>
-                <span style={{ fontSize: '13px', color: '#64748b', padding: '0 4px' }}>
-                  Page <strong>{page}</strong> of {totalPages}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handlePageChange(page + 1)}
-                  disabled={page >= totalPages || loadingPreview}
-                  className="secondary-button"
-                  style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                >
-                  Next <ChevronRight size={16} />
-                </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#64748b' }}>
+                  <span>Per page:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                    style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12.5px', backgroundColor: '#ffffff', cursor: 'pointer' }}
+                  >
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handlePageChange(page - 1)}
+                    disabled={page <= 1 || loadingPreview}
+                    className="secondary-button"
+                    style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <ChevronLeft size={16} /> Previous
+                  </button>
+                  <span style={{ fontSize: '13px', color: '#64748b', padding: '0 4px' }}>
+                    Page <strong>{page}</strong> of {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handlePageChange(page + 1)}
+                    disabled={page >= totalPages || loadingPreview}
+                    className="secondary-button"
+                    style={{ padding: '6px 12px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    Next <ChevronRight size={16} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1981,100 +2027,7 @@ export default function OutreachPage() {
       )}
 
 
-      {/* SINGLE MANUAL OUTREACH FORM */}
-      <div className="outreach-card">
-        <div className="outreach-card-header">
-          <div>
-            <h2 className="outreach-card-title">Single Outreach Email</h2>
-            <p className="outreach-card-subtitle">
-              Send an individual outreach email to a specific employer.
-            </p>
-          </div>
-          <Send size={20} />
-        </div>
 
-        <form className="outreach-form" onSubmit={handleSingleSubmit}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '16px', marginBottom: '16px' }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label htmlFor="candidate">Candidate</label>
-              <select
-                id="candidate"
-                value={candidateId}
-                onChange={(e) => handleCandidateChange(e.target.value)}
-              >
-                <option value="">Select candidate</option>
-                {candidates.filter((c) => c.is_active !== false).map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.full_name} — {candidate.email}
-                    {candidate.email_draft_name ? ` (Draft: ${candidate.email_draft_name})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label htmlFor="employer">Employer</label>
-              <select
-                id="employer"
-                value={employerId}
-                onChange={(e) => setEmployerId(e.target.value)}
-              >
-                <option value="">Select employer</option>
-                {employers.map((employer) => (
-                  <option key={employer.id} value={employer.id}>
-                    {employer.service_name || employer.company_name || 'Employer'} — {employer.email}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="draft">Email Draft Template</label>
-            <select
-              id="draft"
-              value={draftId}
-              onChange={(e) => handleDraftChange(e.target.value)}
-            >
-              <option value="">Select draft (or use candidate default)</option>
-              {drafts.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name || d.attachment_filename || d.subject || `Draft #${d.id}`}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="subject">Subject</label>
-            <input
-              id="subject"
-              type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              placeholder="Enter email subject"
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="body">Email Body</label>
-            <textarea
-              id="body"
-              rows={8}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="Write your outreach email..."
-            />
-          </div>
-
-          <div className="outreach-actions">
-            <button type="submit" className="send-outreach-button" disabled={sending}>
-              <Send size={16} />
-              {sending ? 'Sending...' : 'Send Outreach'}
-            </button>
-          </div>
-        </form>
-      </div>
 
       {/* CANCEL PENDING JOBS CONFIRMATION MODAL */}
       {showCancelConfirmModal && (

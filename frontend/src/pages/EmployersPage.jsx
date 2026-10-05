@@ -14,6 +14,11 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Send,
+  Mail,
+  Users,
+  LayoutGrid,
+  Check,
 } from 'lucide-react';
 
 import { getApiUrl } from '../config/api';
@@ -37,8 +42,48 @@ const emptyForm = {
   is_active: true,
 };
 
+const INITIAL_DOMAINS = [
+  { id: 'Healthcare', label: 'Healthcare', icon: '❤️', color: '#dc2626', bg: '#fef2f2', border: '#fca5a5', description: 'Medical & Healthcare Services', isActive: true },
+  { id: 'IT / Software', label: 'IT / Software', icon: '</>', color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe', description: 'Technology & Software Engineering', isActive: true },
+  { id: 'Electrical / Trades', label: 'Electrical / Trades', icon: '🔧', color: '#d97706', bg: '#fffbe6', border: '#fde68a', description: 'Electrical, Plumbing & Skilled Trades', isActive: true },
+  { id: 'Hospitality', label: 'Hospitality', icon: '🏠', color: '#b45309', bg: '#fef3c7', border: '#fde68a', description: 'Hotels, Catering & Food Services', isActive: true },
+  { id: 'Construction', label: 'Construction', icon: '🏗️', color: '#ea580c', bg: '#ffedd5', border: '#fed7aa', description: 'Building & Infrastructure Construction', isActive: true },
+  { id: 'Finance', label: 'Finance', icon: '📈', color: '#059669', bg: '#ecfdf5', border: '#a7f3d0', description: 'Banking, Accounting & Financial Services', isActive: true },
+  { id: 'Other', label: 'Other', icon: '💬', color: '#475569', bg: '#f1f5f9', border: '#cbd5e1', description: 'Uncategorized or General Industries', isActive: true },
+];
+
+const COLOR_PALETTE = [
+  { color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe', name: 'Blue' },
+  { color: '#ec4899', bg: '#fdf2f8', border: '#fbcfe8', name: 'Pink' },
+  { color: '#22c55e', bg: '#f0fdf4', border: '#bbf7d0', name: 'Green' },
+  { color: '#eab308', bg: '#fefce8', border: '#fef08a', name: 'Yellow' },
+  { color: '#a855f7', bg: '#faf5ff', border: '#e9d5ff', name: 'Purple' },
+  { color: '#ea580c', bg: '#ffedd5', border: '#fed7aa', name: 'Orange' },
+  { color: '#06b6d4', bg: '#ecfeff', border: '#a5f3fc', name: 'Cyan' },
+  { color: '#64748b', bg: '#f8fafc', border: '#cbd5e1', name: 'Grey' },
+];
+
+const ICON_OPTIONS = [
+  { label: 'Briefcase (Default)', icon: '💼' },
+  { label: 'Heart / Healthcare', icon: '❤️' },
+  { label: 'Code / IT', icon: '</>' },
+  { label: 'Wrench / Trades', icon: '🔧' },
+  { label: 'Hospitality / Building', icon: '🏠' },
+  { label: 'Construction / Helmet', icon: '🏗️' },
+  { label: 'Finance / Chart', icon: '📈' },
+  { label: 'Shield / Security', icon: '🔒' },
+  { label: 'Truck / Logistics', icon: '🚚' },
+  { label: 'Dots / Other', icon: '💬' },
+];
+
+const getEmployerDomain = (emp) => {
+  if (emp && emp.industry) return emp.industry;
+  return 'Healthcare';
+};
+
 export default function EmployersPage() {
   const [employers, setEmployers] = useState([]);
+  const [dashboardStats, setDashboardStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -46,19 +91,168 @@ export default function EmployersPage() {
   // Search & Pagination state
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedDomainFilter, setSelectedDomainFilter] = useState('All Domains');
+  const [importTargetDomain, setImportTargetDomain] = useState('Healthcare');
   const pageSize = 50;
 
+  // Manage Domains State
+  const [managedDomains, setManagedDomains] = useState(() => {
+    try {
+      const saved = localStorage.getItem('visaliv_managed_domains');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return INITIAL_DOMAINS;
+  });
+
+  const [showManageDomainsModal, setShowManageDomainsModal] = useState(false);
+  const [editingDomainId, setEditingDomainId] = useState(null);
+  const [domainNameInput, setDomainNameInput] = useState('');
+  const [selectedColorIdx, setSelectedColorIdx] = useState(0);
+  const [selectedIcon, setSelectedIcon] = useState('💼');
+  const [domainDescInput, setDomainDescInput] = useState('');
+  const [domainSearchQuery, setDomainSearchQuery] = useState('');
+
+  // Persist managed domains to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('visaliv_managed_domains', JSON.stringify(managedDomains));
+    } catch {
+      // ignore
+    }
+  }, [managedDomains]);
+
+  // Full domains list formatted for UI
+  const domainsList = useMemo(() => {
+    const activeCustom = managedDomains.filter((d) => d.isActive !== false);
+    return [
+      { id: 'All Domains', label: 'All Domains', icon: null },
+      ...activeCustom,
+    ];
+  }, [managedDomains]);
+
+  const handleSaveDomain = (e) => {
+    e.preventDefault();
+    if (!domainNameInput.trim()) return;
+
+    const cleanName = domainNameInput.trim();
+    const colorObj = COLOR_PALETTE[selectedColorIdx] || COLOR_PALETTE[0];
+
+    if (editingDomainId) {
+      setManagedDomains((prev) =>
+        prev.map((d) => {
+          if (d.id === editingDomainId) {
+            return {
+              ...d,
+              label: cleanName,
+              color: colorObj.color,
+              bg: colorObj.bg,
+              border: colorObj.border,
+              icon: selectedIcon,
+              description: domainDescInput.trim(),
+            };
+          }
+          return d;
+        })
+      );
+      setEditingDomainId(null);
+    } else {
+      if (managedDomains.some((d) => d.id.toLowerCase() === cleanName.toLowerCase())) {
+        alert(`Domain "${cleanName}" already exists!`);
+        return;
+      }
+      const newDomain = {
+        id: cleanName,
+        label: cleanName,
+        icon: selectedIcon,
+        color: colorObj.color,
+        bg: colorObj.bg,
+        border: colorObj.border,
+        description: domainDescInput.trim(),
+        isActive: true,
+      };
+      setManagedDomains((prev) => [...prev, newDomain]);
+    }
+
+    setDomainNameInput('');
+    setSelectedColorIdx(0);
+    setSelectedIcon('💼');
+    setDomainDescInput('');
+  };
+
+  const handleEditDomainClick = (domain) => {
+    setEditingDomainId(domain.id);
+    setDomainNameInput(domain.label);
+    const colorIdx = COLOR_PALETTE.findIndex((c) => c.color === domain.color);
+    setSelectedColorIdx(colorIdx >= 0 ? colorIdx : 0);
+    setSelectedIcon(domain.icon || '💼');
+    setDomainDescInput(domain.description || '');
+  };
+
+  const handleToggleDomainStatus = (domainId) => {
+    setManagedDomains((prev) =>
+      prev.map((d) => (d.id === domainId ? { ...d, isActive: !d.isActive } : d))
+    );
+  };
+
+  const handleDeleteDomain = (domain) => {
+    const employerCount = domainCounts[domain.id] || 0;
+    if (employerCount > 0) {
+      if (!window.confirm(`Warning: Domain "${domain.label}" has ${employerCount} employer(s) assigned to it. Are you sure you want to delete this domain?`)) {
+        return;
+      }
+    } else {
+      if (!window.confirm(`Are you sure you want to delete domain "${domain.label}"?`)) return;
+    }
+
+    setManagedDomains((prev) => prev.filter((d) => d.id !== domain.id));
+    if (editingDomainId === domain.id) {
+      setEditingDomainId(null);
+      setDomainNameInput('');
+      setDomainDescInput('');
+    }
+  };
+
+  const handleCancelDomainEdit = () => {
+    setEditingDomainId(null);
+    setDomainNameInput('');
+    setSelectedColorIdx(0);
+    setSelectedIcon('💼');
+    setDomainDescInput('');
+  };
+
+  const domainCounts = useMemo(() => {
+    const counts = { 'All Domains': employers.length };
+    domainsList.forEach((d) => {
+      if (d.id !== 'All Domains') counts[d.id] = 0;
+    });
+
+    employers.forEach((emp) => {
+      const domain = getEmployerDomain(emp);
+      if (counts[domain] !== undefined) {
+        counts[domain] += 1;
+      } else {
+        counts['Other'] = (counts['Other'] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [employers, domainsList]);
+
   const filteredEmployers = useMemo(() => {
-    if (!searchQuery.trim()) return employers;
+    let list = employers;
+    if (selectedDomainFilter !== 'All Domains') {
+      list = list.filter((emp) => getEmployerDomain(emp) === selectedDomainFilter);
+    }
+    if (!searchQuery.trim()) return list;
     const q = searchQuery.toLowerCase().trim();
-    return employers.filter(
+    return list.filter(
       (emp) =>
         (emp.service_name && emp.service_name.toLowerCase().includes(q)) ||
         (emp.email && emp.email.toLowerCase().includes(q)) ||
-        (emp.country && emp.country.toLowerCase().includes(q)) ||
         (emp.industry && emp.industry.toLowerCase().includes(q))
     );
-  }, [employers, searchQuery]);
+  }, [employers, selectedDomainFilter, searchQuery]);
 
   const totalPages = Math.ceil(filteredEmployers.length / pageSize) || 1;
 
@@ -155,12 +349,15 @@ export default function EmployersPage() {
       setLoading(true);
       setError('');
 
-      const response = await fetch(`${API_URL}/employers`);
+      const [empRes, dashRes] = await Promise.all([
+        fetch(`${API_URL}/employers`),
+        fetch(`${API_URL}/dashboard`).catch(() => null),
+      ]);
 
-      if (!response.ok) {
+      if (!empRes.ok) {
         let detailMsg = 'Failed to fetch employers';
         try {
-          const errData = await response.json();
+          const errData = await empRes.json();
           detailMsg = typeof errData.detail === 'string' ? errData.detail : detailMsg;
         } catch {
           // ignore
@@ -168,8 +365,13 @@ export default function EmployersPage() {
         throw new Error(detailMsg);
       }
 
-      const data = await response.json();
-      setEmployers(data);
+      const data = await empRes.json();
+      setEmployers(Array.isArray(data) ? data : []);
+
+      if (dashRes && dashRes.ok) {
+        const dashData = await dashRes.json();
+        setDashboardStats(dashData);
+      }
       setError('');
     } catch (err) {
       console.error('Fetch employers error:', err);
@@ -182,6 +384,17 @@ export default function EmployersPage() {
   useEffect(() => {
     fetchEmployers();
   }, []);
+
+  const kpiTotalEmployers = employers.length > 0 ? employers.length : (dashboardStats?.totalEmployers ?? 0);
+  const kpiDomains = useMemo(() => {
+    const industries = new Set(employers.map((e) => getEmployerDomain(e)).filter(Boolean));
+    return industries.size > 0 ? industries.size : 1;
+  }, [employers]);
+  const kpiOutreachSent = dashboardStats?.emailsSent ?? dashboardStats?.emails_sent ?? 0;
+  const kpiActiveEmployers = useMemo(() => {
+    return employers.filter((e) => e.is_active !== false).length;
+  }, [employers]);
+  const kpiResponses = dashboardStats?.totalEmailsReceived ?? dashboardStats?.total_emails_received ?? 0;
 
   const handleChange = (event) => {
     setForm((prev) => ({
@@ -358,6 +571,7 @@ export default function EmployersPage() {
     setImportFile(null);
     setImportPreview(null);
     setImportResult(null);
+    setImportTargetDomain('Healthcare');
     setError('');
     setShowImportModal(true);
   };
@@ -416,7 +630,7 @@ export default function EmployersPage() {
       const formData = new FormData();
       formData.append('file', importFile);
 
-      const res = await fetch(`${API_URL}/employers/import`, {
+      const res = await fetch(`${API_URL}/employers/import?domain=${encodeURIComponent(importTargetDomain)}`, {
         method: 'POST',
         body: formData,
       });
@@ -432,6 +646,35 @@ export default function EmployersPage() {
     } finally {
       setImporting(false);
     }
+  };
+
+  const renderDomainBadge = (domainName) => {
+    const domInfo = managedDomains.find((d) => d.id === domainName) || {
+      label: domainName || 'Healthcare',
+      icon: '❤️',
+      color: '#dc2626',
+      bg: '#fef2f2',
+      border: '#fca5a5',
+    };
+
+    return (
+      <span style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '3px 9px',
+        borderRadius: '8px',
+        fontSize: '12px',
+        fontWeight: '600',
+        backgroundColor: domInfo.bg,
+        color: domInfo.color,
+        border: `1px solid ${domInfo.border}`,
+        whiteSpace: 'nowrap',
+      }}>
+        {domInfo.icon && <span>{domInfo.icon}</span>}
+        <span>{domInfo.label}</span>
+      </span>
+    );
   };
 
   const renderEmailTypeBadge = (type) => {
@@ -454,10 +697,10 @@ export default function EmployersPage() {
   };
 
   return (
-    <div className="content-container">
+    <div className="content-container full-width-page">
 
       {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', gap: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', gap: '20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Building2 size={25} color="#2563eb" />
@@ -482,6 +725,154 @@ export default function EmployersPage() {
             Add Employer
           </button>
         </div>
+      </div>
+
+      {/* TOP 5 KPI CARDS BANNER */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+        gap: '16px',
+        marginBottom: '24px',
+        width: '100%',
+      }}>
+        {/* Card 1: Total Employers */}
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Building2 size={22} />
+          </div>
+          <div>
+            <div style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', lineHeight: '1.2' }}>
+              {kpiTotalEmployers.toLocaleString()}
+            </div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', marginTop: '2px' }}>Total Employers</div>
+            <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '1px' }}>Across all domains</div>
+          </div>
+        </div>
+
+        {/* Card 2: Domains */}
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Users size={22} />
+          </div>
+          <div>
+            <div style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', lineHeight: '1.2' }}>
+              {kpiDomains.toLocaleString()}
+            </div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', marginTop: '2px' }}>Domains</div>
+            <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '1px' }}>Active industries</div>
+          </div>
+        </div>
+
+        {/* Card 3: Outreach Sent */}
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#faf5ff', color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Send size={22} />
+          </div>
+          <div>
+            <div style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', lineHeight: '1.2' }}>
+              {kpiOutreachSent.toLocaleString()}
+            </div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', marginTop: '2px' }}>Outreach Sent</div>
+            <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '1px' }}>Total emails sent</div>
+          </div>
+        </div>
+
+        {/* Card 4: Active Employers */}
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <CheckCircle2 size={22} />
+          </div>
+          <div>
+            <div style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', lineHeight: '1.2' }}>
+              {kpiActiveEmployers.toLocaleString()}
+            </div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', marginTop: '2px' }}>Active Employers</div>
+            <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '1px' }}>Currently enabled</div>
+          </div>
+        </div>
+
+        {/* Card 5: Responses */}
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Mail size={22} />
+          </div>
+          <div>
+            <div style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', lineHeight: '1.2' }}>
+              {kpiResponses.toLocaleString()}
+            </div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', marginTop: '2px' }}>Responses</div>
+            <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '1px' }}>Total replies received</div>
+          </div>
+        </div>
+      </div>
+
+      {/* DOMAIN FILTER CHIPS BAR */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px', flexWrap: 'wrap' }}>
+        {domainsList.map((item) => {
+          const isSelected = selectedDomainFilter === item.id;
+          const count = domainCounts[item.id] || 0;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                setSelectedDomainFilter(item.id);
+                setCurrentPage(1);
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                borderRadius: '10px',
+                fontSize: '13px',
+                fontWeight: isSelected ? '700' : '600',
+                border: '1px solid',
+                borderColor: isSelected ? '#2563eb' : '#cbd5e1',
+                backgroundColor: isSelected ? '#2563eb' : '#ffffff',
+                color: isSelected ? '#ffffff' : '#334155',
+                cursor: 'pointer',
+                boxShadow: isSelected ? '0 2px 6px rgba(37, 99, 235, 0.25)' : '0 1px 2px rgba(0,0,0,0.03)',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {item.icon && <span>{item.icon}</span>}
+              <span>{item.label}</span>
+              <span style={{
+                fontSize: '11.5px',
+                fontWeight: '700',
+                padding: '2px 8px',
+                borderRadius: '6px',
+                backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.25)' : '#f1f5f9',
+                color: isSelected ? '#ffffff' : '#475569',
+              }}>
+                {count.toLocaleString()}
+              </span>
+            </button>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={() => setShowManageDomainsModal(true)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '8px 14px',
+            borderRadius: '10px',
+            fontSize: '13px',
+            fontWeight: '600',
+            border: '1px dashed #2563eb',
+            backgroundColor: '#eff6ff',
+            color: '#2563eb',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          title="Manage or add Domain categories"
+        >
+          <Plus size={15} /> Add Domain
+        </button>
       </div>
 
       {/* Error */}
@@ -584,11 +975,10 @@ export default function EmployersPage() {
                       />
                     </th>
                     <th style={thStyle}>#</th>
-                    <th style={thStyle}>Service Name</th>
-                    <th style={thStyle}>Primary Outreach Email</th>
+                    <th style={thStyle}>Employer Name</th>
+                    <th style={thStyle}>Primary Email</th>
                     <th style={thStyle}>Email Type</th>
-                    <th style={thStyle}>Country</th>
-                    <th style={thStyle}>Industry</th>
+                    <th style={thStyle}>Domain</th>
                     <th style={thStyle}>Status</th>
                     <th style={thStyle}>Service Website</th>
                     <th style={{ ...thStyle, textAlign: 'center' }}>Actions</th>
@@ -623,8 +1013,9 @@ export default function EmployersPage() {
                         <td style={tdStyle}>
                           {renderEmailTypeBadge(employer.primary_email_type)}
                         </td>
-                        <td style={tdStyle}>{employer.country || '-'}</td>
-                        <td style={tdStyle}>{employer.industry || '-'}</td>
+                        <td style={tdStyle}>
+                          {renderDomainBadge(getEmployerDomain(employer))}
+                        </td>
                         <td style={tdStyle}>
                           <button
                             onClick={() => toggleStatus(employer)}
@@ -788,12 +1179,26 @@ export default function EmployersPage() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <FormField label="Country" name="country" value={form.country} onChange={handleChange} placeholder="United Kingdom" />
-                <FormField label="Industry" name="industry" value={form.industry} onChange={handleChange} placeholder="Healthcare" />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '7px', fontSize: '14px', fontWeight: 600, color: '#334155' }}>
+                    Domain / Industry Sector
+                  </label>
+                  <select
+                    name="industry"
+                    value={form.industry || 'Healthcare'}
+                    onChange={handleChange}
+                    style={{ width: '100%', padding: '11px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none', backgroundColor: '#ffffff', fontWeight: '500' }}
+                  >
+                    {domainsList.filter((d) => d.id !== 'All Domains').map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.icon ? `${d.icon} ${d.label}` : d.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <FormField label="Service Website" name="service_website" type="url" value={form.service_website} onChange={handleChange} placeholder="https://example.com" />
               </div>
-
-              <FormField label="Service Website" name="service_website" type="url" value={form.service_website} onChange={handleChange} placeholder="https://example.com" />
 
               <label style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', marginBottom: '22px', fontSize: '14px', fontWeight: 600, color: '#334155', cursor: 'pointer' }}>
                 <input type="checkbox" name="is_active" checked={form.is_active} onChange={handleChange} style={{ width: '18px', height: '18px', accentColor: '#2563eb', cursor: 'pointer' }} />
@@ -825,6 +1230,37 @@ export default function EmployersPage() {
                 </p>
               </div>
               <button onClick={closeImportModal} style={closeButtonStyle}><X size={18} /></button>
+            </div>
+
+            {/* Target Domain Selector */}
+            <div style={{ marginBottom: '16px', backgroundColor: '#f8fafc', padding: '14px 18px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#0f172a', marginBottom: '6px' }}>
+                🎯 Target Domain / Industry Sector:
+              </label>
+              <select
+                value={importTargetDomain}
+                onChange={(e) => setImportTargetDomain(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '13.5px',
+                  backgroundColor: '#ffffff',
+                  color: '#0f172a',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+              >
+                {domainsList.filter((d) => d.id !== 'All Domains').map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.icon ? `${d.icon} ${d.label}` : d.label}
+                  </option>
+                ))}
+              </select>
+              <span style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                Employers imported from this Excel file will be assigned to <strong>{importTargetDomain}</strong>.
+              </span>
             </div>
 
             {/* File Selection Box */}
@@ -938,6 +1374,365 @@ export default function EmployersPage() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MANAGE DOMAINS MODAL */}
+      {showManageDomainsModal && (
+        <div style={modalOverlayStyle}>
+          <div style={{
+            ...modalStyle,
+            maxWidth: '940px',
+            padding: '28px',
+            borderRadius: '20px',
+          }}>
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '22px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <LayoutGrid size={22} color="#2563eb" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>Manage Domains</h2>
+                  <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b' }}>
+                    Add, edit or delete domains (industries) to categorize employers. These domains will be used across the system.
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowManageDomainsModal(false)} style={closeButtonStyle}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Content - 2 Columns */}
+            <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '28px' }}>
+
+              {/* Left Column: Add / Edit Form */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '20px' }}>
+                <h3 style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+                  {editingDomainId ? 'Edit Domain' : 'Add New Domain'}
+                </h3>
+                <p style={{ margin: '0 0 18px', fontSize: '12.5px', color: '#64748b' }}>
+                  {editingDomainId ? 'Modify details of the domain.' : 'Create a new domain to categorize employers.'}
+                </p>
+
+                <form onSubmit={handleSaveDomain}>
+                  {/* Domain Name */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                      Domain Name <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter domain name (e.g. Cyber Security, Logistics)"
+                      value={domainNameInput}
+                      onChange={(e) => setDomainNameInput(e.target.value)}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '10px 12px',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        outline: 'none',
+                        background: '#ffffff',
+                      }}
+                    />
+                  </div>
+
+                  {/* Display Color */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                      Display Color
+                    </label>
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      {COLOR_PALETTE.map((c, idx) => {
+                        const isSelected = selectedColorIdx === idx;
+                        return (
+                          <button
+                            key={c.name}
+                            type="button"
+                            onClick={() => setSelectedColorIdx(idx)}
+                            style={{
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '50%',
+                              backgroundColor: c.color,
+                              border: isSelected ? '3px solid #ffffff' : 'none',
+                              boxShadow: isSelected ? `0 0 0 2px ${c.color}` : 'none',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              transition: 'transform 0.15s ease',
+                              transform: isSelected ? 'scale(1.15)' : 'scale(1)',
+                            }}
+                            title={c.name}
+                          >
+                            {isSelected && <Check size={14} color="#ffffff" strokeWidth={3} />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Icon */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                      Icon
+                    </label>
+                    <select
+                      value={selectedIcon}
+                      onChange={(e) => setSelectedIcon(e.target.value)}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '10px 12px',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        outline: 'none',
+                        background: '#ffffff',
+                      }}
+                    >
+                      {ICON_OPTIONS.map((opt) => (
+                        <option key={opt.label} value={opt.icon}>
+                          {opt.icon} {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Description */}
+                  <div style={{ marginBottom: '20px' }}>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                      Description (Optional)
+                    </label>
+                    <textarea
+                      rows={3}
+                      placeholder="Add a short description..."
+                      value={domainDescInput}
+                      onChange={(e) => setDomainDescInput(e.target.value)}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '10px 12px',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        outline: 'none',
+                        background: '#ffffff',
+                        resize: 'none',
+                      }}
+                    />
+                  </div>
+
+                  {/* Form Action Buttons */}
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      type="submit"
+                      style={{
+                        flex: 1,
+                        padding: '11px',
+                        border: 'none',
+                        borderRadius: '8px',
+                        backgroundColor: '#2563eb',
+                        color: '#ffffff',
+                        fontWeight: 700,
+                        fontSize: '13.5px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <Plus size={16} /> {editingDomainId ? 'Update Domain' : 'Add Domain'}
+                    </button>
+                    {editingDomainId && (
+                      <button
+                        type="button"
+                        onClick={handleCancelDomainEdit}
+                        style={{
+                          padding: '11px 14px',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '8px',
+                          backgroundColor: '#ffffff',
+                          color: '#475569',
+                          fontWeight: 600,
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
+
+              {/* Right Column: Existing Domains Table */}
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Existing Domains</h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+                      Manage your existing domains. Edit or delete as needed.
+                    </p>
+                  </div>
+                  {/* Search bar */}
+                  <div style={{ position: 'relative', width: '200px' }}>
+                    <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
+                    <input
+                      type="text"
+                      placeholder="Search domains..."
+                      value={domainSearchQuery}
+                      onChange={(e) => setDomainSearchQuery(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '7px 10px 7px 30px',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '12.5px',
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Domains Table Container */}
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: '12px', color: '#64748b', fontWeight: 600 }}>#</th>
+                        <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: '12px', color: '#64748b', fontWeight: 600 }}>Domain Name</th>
+                        <th style={{ padding: '10px 14px', textAlign: 'center', fontSize: '12px', color: '#64748b', fontWeight: 600 }}>Employers</th>
+                        <th style={{ padding: '10px 14px', textAlign: 'center', fontSize: '12px', color: '#64748b', fontWeight: 600 }}>Status</th>
+                        <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: '12px', color: '#64748b', fontWeight: 600 }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {managedDomains
+                        .filter((dom) => !domainSearchQuery.trim() || dom.label.toLowerCase().includes(domainSearchQuery.toLowerCase().trim()))
+                        .map((dom, index) => {
+                          const count = domainCounts[dom.id] || 0;
+                          return (
+                            <tr key={dom.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '12px 14px', fontSize: '12.5px', color: '#64748b', fontWeight: 600 }}>
+                                {index + 1}
+                              </td>
+                              <td style={{ padding: '12px 14px' }}>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  padding: '4px 10px',
+                                  borderRadius: '8px',
+                                  fontSize: '12.5px',
+                                  fontWeight: '600',
+                                  backgroundColor: dom.bg || '#f1f5f9',
+                                  color: dom.color || '#334155',
+                                  border: `1px solid ${dom.border || '#cbd5e1'}`,
+                                }}>
+                                  {dom.icon && <span>{dom.icon}</span>}
+                                  <span>{dom.label}</span>
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px 14px', textAlign: 'center', fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
+                                {count}
+                              </td>
+                              <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleDomainStatus(dom.id)}
+                                  style={{
+                                    width: '38px',
+                                    height: '20px',
+                                    borderRadius: '10px',
+                                    border: 'none',
+                                    backgroundColor: dom.isActive !== false ? '#2563eb' : '#cbd5e1',
+                                    position: 'relative',
+                                    cursor: 'pointer',
+                                    transition: 'background-color 0.2s',
+                                  }}
+                                  title={dom.isActive !== false ? 'Active' : 'Inactive'}
+                                >
+                                  <div style={{
+                                    width: '16px',
+                                    height: '16px',
+                                    borderRadius: '50%',
+                                    backgroundColor: '#ffffff',
+                                    position: 'absolute',
+                                    top: '2px',
+                                    left: dom.isActive !== false ? '20px' : '2px',
+                                    transition: 'left 0.2s',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                                  }} />
+                                </button>
+                              </td>
+                              <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                                <div style={{ display: 'inline-flex', gap: '6px' }}>
+                                  <button
+                                    onClick={() => handleEditDomainClick(dom)}
+                                    style={{
+                                      padding: '5px 8px',
+                                      borderRadius: '6px',
+                                      border: '1px solid #cbd5e1',
+                                      background: '#ffffff',
+                                      color: '#2563eb',
+                                      cursor: 'pointer',
+                                    }}
+                                    title="Edit Domain"
+                                  >
+                                    <Pencil size={13} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteDomain(dom)}
+                                    style={{
+                                      padding: '5px 8px',
+                                      borderRadius: '6px',
+                                      border: '1px solid #fecaca',
+                                      background: '#fef2f2',
+                                      color: '#dc2626',
+                                      cursor: 'pointer',
+                                    }}
+                                    title="Delete Domain"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Bottom Right Close Button */}
+                <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setShowManageDomainsModal(false)}
+                    style={{
+                      padding: '9px 24px',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '8px',
+                      backgroundColor: '#ffffff',
+                      color: '#334155',
+                      fontWeight: 600,
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       )}

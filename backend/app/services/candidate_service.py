@@ -23,6 +23,7 @@ def create_candidate(
         phone=data.phone,
         country=data.country,
         visa_type=data.visa_type,
+        domain=data.domain or "Healthcare",
         cv_file_path=data.cv_file_path,
         email_draft_id=data.email_draft_id,
         is_active=True,

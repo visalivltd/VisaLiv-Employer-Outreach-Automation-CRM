@@ -67,21 +67,53 @@ async def periodic_outreach_worker():
         await asyncio.sleep(15)
 
 
+def _run_daily_auto_outreach_sync():
+    from app.db.session import SessionLocal
+    from app.services.outreach_service import OutreachService
+    db = SessionLocal()
+    try:
+        OutreachService.check_and_trigger_daily_auto_outreach(db)
+    except Exception as exc:
+        print(f"[DAILY AUTO OUTREACH SCHEDULER ERROR] {exc}", flush=True)
+    finally:
+        db.close()
+
+
+async def periodic_daily_auto_scheduler():
+    """Background scheduler that checks every 60 seconds if daily automated outreach should run."""
+    await asyncio.sleep(10)
+    while True:
+        try:
+            await asyncio.to_thread(_run_daily_auto_outreach_sync)
+        except Exception as exc:
+            print(f"[BACKGROUND DAILY AUTO SCHEDULER ERROR] {exc}", flush=True)
+
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.db.base import Base
     from app.db.session import engine
     from app.core.redis import check_redis_online, close_redis_pool
+    from sqlalchemy import text
 
-    # Ensure missing database tables are created
+    # Ensure missing database tables and columns are created
     try:
         Base.metadata.create_all(bind=engine)
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS domain VARCHAR(100) DEFAULT 'Healthcare';"))
+            conn.execute(text("ALTER TABLE employers ADD COLUMN IF NOT EXISTS industry VARCHAR(100) DEFAULT 'Healthcare';"))
+            conn.commit()
     except Exception as exc:
         print(f"[STARTUP TABLE CREATE WARNING] {exc}", flush=True)
 
     redis_online = await check_redis_online()
     sync_task = None
     outreach_task = None
+
+    # Always start daily auto-scheduler loop (checks 'enabled' setting & daily status)
+    daily_auto_task = asyncio.create_task(periodic_daily_auto_scheduler())
 
     if redis_online:
         print("[STARTUP QUEUE] Redis Queue is ONLINE. Background jobs delegated to Redis Worker.", flush=True)
@@ -96,6 +128,8 @@ async def lifespan(app: FastAPI):
         sync_task.cancel()
     if outreach_task:
         outreach_task.cancel()
+    if daily_auto_task:
+        daily_auto_task.cancel()
 
     await close_redis_pool()
 

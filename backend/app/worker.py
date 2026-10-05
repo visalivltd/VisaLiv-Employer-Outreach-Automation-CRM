@@ -2,7 +2,11 @@ import asyncio
 import logging
 from arq.cron import cron
 from app.core.redis import get_redis_settings
-from app.jobs.tasks import task_process_due_outreach_jobs, task_sync_incoming_replies
+from app.jobs.tasks import (
+    task_process_due_outreach_jobs,
+    task_sync_incoming_replies,
+    task_check_daily_auto_outreach,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,10 +24,12 @@ class WorkerSettings:
     functions = [
         task_process_due_outreach_jobs,
         task_sync_incoming_replies,
+        task_check_daily_auto_outreach,
     ]
     cron_jobs = [
         cron(task_process_due_outreach_jobs, second=set(range(0, 60, 15)), unique=True),
         cron(task_sync_incoming_replies, second=0, unique=True),
+        cron(task_check_daily_auto_outreach, minute=set(range(0, 60, 5)), unique=True),
     ]
     redis_settings = get_redis_settings()
     on_startup = startup

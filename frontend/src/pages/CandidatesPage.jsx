@@ -28,12 +28,49 @@ const API_URL = rawApiUrl.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
 const emptyForm = {
   full_name: '',
   email: '',
-  phone: '',
-  country: '',
-  visa_type: '',
+  domain: 'Healthcare',
   cv_file_path: '',
   email_draft_id: '',
   is_active: true,
+};
+
+const DOMAINS_LIST = [
+  { id: 'Healthcare', label: 'Healthcare', icon: '❤️', color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+  { id: 'IT / Software', label: 'IT / Software', icon: '</>', color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
+  { id: 'Electrical / Trades', label: 'Electrical / Trades', icon: '🔧', color: '#d97706', bg: '#fffbe6', border: '#fde68a' },
+  { id: 'Hospitality', label: 'Hospitality', icon: '🏠', color: '#b45309', bg: '#fef3c7', border: '#fde68a' },
+  { id: 'Construction', label: 'Construction', icon: '🏗️', color: '#ea580c', bg: '#ffedd5', border: '#fed7aa' },
+  { id: 'Finance', label: 'Finance', icon: '📈', color: '#059669', bg: '#ecfdf5', border: '#a7f3d0' },
+  { id: 'Other', label: 'Other', icon: '💬', color: '#475569', bg: '#f1f5f9', border: '#cbd5e1' },
+];
+
+const renderDomainBadge = (domainName) => {
+  const domInfo = DOMAINS_LIST.find((d) => d.id === domainName) || {
+    label: domainName || 'Healthcare',
+    icon: '❤️',
+    color: '#dc2626',
+    bg: '#fef2f2',
+    border: '#fca5a5',
+  };
+
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '6px',
+      padding: '3px 9px',
+      borderRadius: '8px',
+      fontSize: '12px',
+      fontWeight: '600',
+      backgroundColor: domInfo.bg,
+      color: domInfo.color,
+      border: `1px solid ${domInfo.border}`,
+      whiteSpace: 'nowrap',
+    }}>
+      {domInfo.icon && <span>{domInfo.icon}</span>}
+      <span>{domInfo.label}</span>
+    </span>
+  );
 };
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -67,6 +104,7 @@ export default function CandidatesPage() {
 
   // Filter States
   const [searchTerm, setSearchTerm] = useState('');
+  const [domainFilter, setDomainFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [gmailFilter, setGmailFilter] = useState('all');
   const [draftFilter, setDraftFilter] = useState('all');
@@ -132,6 +170,9 @@ export default function CandidatesPage() {
         }
       }
 
+      // Domain Filter
+      if (domainFilter !== 'all' && (candidate.domain || 'Healthcare') !== domainFilter) return false;
+
       // 2. Status Filter
       if (statusFilter === 'active' && !candidate.is_active) return false;
       if (statusFilter === 'inactive' && candidate.is_active) return false;
@@ -156,6 +197,7 @@ export default function CandidatesPage() {
   }, [
     candidates,
     searchTerm,
+    domainFilter,
     statusFilter,
     gmailFilter,
     draftFilter,
@@ -164,6 +206,7 @@ export default function CandidatesPage() {
 
   const hasActiveFilters =
     Boolean(searchTerm.trim()) ||
+    domainFilter !== 'all' ||
     statusFilter !== 'all' ||
     gmailFilter !== 'all' ||
     draftFilter !== 'all' ||
@@ -171,6 +214,7 @@ export default function CandidatesPage() {
 
   const handleClearFilters = () => {
     setSearchTerm('');
+    setDomainFilter('all');
     setStatusFilter('all');
     setGmailFilter('all');
     setDraftFilter('all');
@@ -615,9 +659,7 @@ export default function CandidatesPage() {
       const payload = {
         full_name: form.full_name.trim(),
         email: form.email.trim(),
-        phone: form.phone ? form.phone.trim() || null : null,
-        country: form.country ? form.country.trim() || null : null,
-        visa_type: form.visa_type ? form.visa_type.trim() || null : null,
+        domain: form.domain || 'Healthcare',
         cv_file_path: cvFilePath,
         email_draft_id: form.email_draft_id ? parseInt(form.email_draft_id, 10) : null,
         is_active: isEditing ? form.is_active : true,
@@ -679,9 +721,7 @@ export default function CandidatesPage() {
     setForm({
       full_name: candidate.full_name || '',
       email: candidate.email || '',
-      phone: candidate.phone || '',
-      country: candidate.country || '',
-      visa_type: candidate.visa_type || '',
+      domain: candidate.domain || 'Healthcare',
       cv_file_path: candidate.cv_file_path || '',
       email_draft_id: candidate.email_draft_id || candidate.email_draft?.id || '',
       is_active: candidate.is_active ?? true,
@@ -1224,52 +1264,25 @@ export default function CandidatesPage() {
                 />
               </div>
 
-              {/* PHONE */}
+              {/* DOMAIN */}
 
               <div className="form-field">
                 <label>
-                  Phone
+                  Domain <span className="required">*</span>
                 </label>
 
-                <input
-                  type="tel"
-                  name="phone"
-                  value={form.phone}
+                <select
+                  name="domain"
+                  value={form.domain || 'Healthcare'}
                   onChange={handleChange}
-                  placeholder="9876543210"
-                />
-              </div>
-
-              {/* COUNTRY */}
-
-              <div className="form-field">
-                <label>
-                  Country
-                </label>
-
-                <input
-                  type="text"
-                  name="country"
-                  value={form.country}
-                  onChange={handleChange}
-                  placeholder="India"
-                />
-              </div>
-
-              {/* VISA */}
-
-              <div className="form-field">
-                <label>
-                  Visa Type
-                </label>
-
-                <input
-                  type="text"
-                  name="visa_type"
-                  value={form.visa_type}
-                  onChange={handleChange}
-                  placeholder="H1B / Work Visa"
-                />
+                  required
+                >
+                  {DOMAINS_LIST.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.icon} {d.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* EMAIL DRAFT */}
@@ -1558,6 +1571,22 @@ export default function CandidatesPage() {
               </div>
             </div>
 
+            {/* DOMAIN */}
+
+            <div className="filter-field">
+              <select
+                value={domainFilter}
+                onChange={(e) => setDomainFilter(e.target.value)}
+              >
+                <option value="all">Domain: All</option>
+                {DOMAINS_LIST.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.icon} {d.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* STATUS */}
 
             <div className="filter-field">
@@ -1710,6 +1739,7 @@ export default function CandidatesPage() {
                   <th>ID</th>
                   <th>Candidate</th>
                   <th>Email</th>
+                  <th>Domain</th>
                   <th>Status</th>
                   <th>Gmail Account</th>
                   <th>Email Draft</th>
@@ -1748,10 +1778,6 @@ export default function CandidatesPage() {
                             {candidate.full_name}
                           </strong>
 
-                          <span>
-                            {candidate.phone || '-'}
-                          </span>
-
                         </div>
 
                       </div>
@@ -1762,6 +1788,10 @@ export default function CandidatesPage() {
                       <span className="email-text">
                         {candidate.email}
                       </span>
+                    </td>
+
+                    <td>
+                      {renderDomainBadge(candidate.domain || 'Healthcare')}
                     </td>
 
                     <td>

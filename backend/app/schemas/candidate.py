@@ -9,6 +9,7 @@ class CandidateCreate(BaseModel):
     phone: str | None = None
     country: str | None = None
     visa_type: str | None = None
+    domain: str | None = "Healthcare"
     cv_file_path: str | None = None
     email_draft_id: int | None = None
 
@@ -19,6 +20,7 @@ class CandidateUpdate(BaseModel):
     phone: str | None = None
     country: str | None = None
     visa_type: str | None = None
+    domain: str | None = None
     cv_file_path: str | None = None
     email_draft_id: int | None = None
     is_active: bool | None = None
@@ -39,9 +41,10 @@ class CandidateResponse(BaseModel):
     id: int
     full_name: str
     email: str
-    phone: str | None
-    country: str | None
-    visa_type: str | None
+    phone: str | None = None
+    country: str | None = None
+    visa_type: str | None = None
+    domain: str | None = "Healthcare"
     cv_file_path: str | None = None
     is_active: bool
     gmail_email: str | None = None
@@ -68,6 +71,7 @@ class CandidateImportPreviewRow(BaseModel):
     phone: str | None = None
     country: str | None = None
     visa_type: str | None = None
+    domain: str | None = "Healthcare"
     cv_file_path: str | None = None
     status: str
     status_reason: str
