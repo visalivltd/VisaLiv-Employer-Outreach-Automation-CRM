@@ -103,7 +103,10 @@ async def lifespan(app: FastAPI):
         Base.metadata.create_all(bind=engine)
         with engine.connect() as conn:
             conn.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS domain VARCHAR(100) DEFAULT 'Healthcare';"))
+            conn.execute(text("ALTER TABLE employers ADD COLUMN IF NOT EXISTS domain VARCHAR(100) DEFAULT 'Healthcare';"))
             conn.execute(text("ALTER TABLE employers ADD COLUMN IF NOT EXISTS industry VARCHAR(100) DEFAULT 'Healthcare';"))
+            conn.execute(text("ALTER TABLE outreach_jobs ADD COLUMN IF NOT EXISTS batch_id VARCHAR(100);"))
+            conn.execute(text("ALTER TABLE outreach_jobs ADD COLUMN IF NOT EXISTS batch_name VARCHAR(255);"))
             conn.commit()
     except Exception as exc:
         print(f"[STARTUP TABLE CREATE WARNING] {exc}", flush=True)

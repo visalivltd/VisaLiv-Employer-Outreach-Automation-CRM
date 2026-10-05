@@ -1341,9 +1341,14 @@ class OutreachService:
     def get_outreach_batches(db: Session) -> list[dict]:
         """Returns aggregated list of recent outreach execution batches for CRM tracker UI."""
         batches_map = {}
-        jobs = db.scalars(
-            select(OutreachJob).order_by(OutreachJob.created_at.desc(), OutreachJob.id.desc()).limit(1000)
-        ).all()
+        try:
+            jobs = db.scalars(
+                select(OutreachJob).order_by(OutreachJob.created_at.desc(), OutreachJob.id.desc()).limit(1000)
+            ).all()
+        except Exception as exc:
+            print(f"[GET_OUTREACH_BATCHES ERROR] {exc}", flush=True)
+            db.rollback()
+            return []
 
         for job in jobs:
             b_id = job.batch_id or (
