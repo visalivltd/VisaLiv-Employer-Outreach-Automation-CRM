@@ -1850,7 +1850,8 @@ class OutreachService:
             key = (job.candidate_id, job.employer_id)
             seen_keys.add(key)
 
-            sort_t = job.updated_at or job.created_at or datetime.min
+            raw_t = job.updated_at or job.created_at
+            sort_t = raw_t.replace(tzinfo=timezone.utc) if raw_t and raw_t.tzinfo is None else (raw_t or datetime.min.replace(tzinfo=timezone.utc))
             result.append({
                 "job_id": job.id,
                 "batch_id": job.batch_id,
@@ -1887,7 +1888,8 @@ class OutreachService:
                 continue
             seen_keys.add(key)
 
-            sort_t = log.created_at or datetime.min
+            raw_t = log.created_at
+            sort_t = raw_t.replace(tzinfo=timezone.utc) if raw_t and raw_t.tzinfo is None else (raw_t or datetime.min.replace(tzinfo=timezone.utc))
             result.append({
                 "job_id": f"log-{log.id}",
                 "batch_id": None,
