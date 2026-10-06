@@ -74,16 +74,22 @@ const headerTagStyle = (bg, color) => ({
 
 const HtmlEmailViewer = ({ htmlContent }) => {
   const iframeRef = useRef(null);
-  const [iframeHeight, setIframeHeight] = useState('350px');
+  const [iframeHeight, setIframeHeight] = useState('650px');
 
   const adjustHeight = () => {
     if (iframeRef.current && iframeRef.current.contentWindow) {
       try {
         const doc = iframeRef.current.contentWindow.document;
         if (doc && doc.body) {
-          const contentH = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
-          if (contentH > 0) {
-            setIframeHeight(`${contentH + 30}px`);
+          const bodyScroll = doc.body.scrollHeight || 0;
+          const docScroll = doc.documentElement ? doc.documentElement.scrollHeight : 0;
+          const bodyOffset = doc.body.offsetHeight || 0;
+          const docOffset = doc.documentElement ? doc.documentElement.offsetHeight : 0;
+          const boundingH = doc.body.getBoundingClientRect ? doc.body.getBoundingClientRect().height : 0;
+
+          const maxH = Math.max(bodyScroll, docScroll, bodyOffset, docOffset, boundingH);
+          if (maxH > 100) {
+            setIframeHeight(`${maxH + 40}px`);
           }
         }
       } catch {
@@ -94,11 +100,13 @@ const HtmlEmailViewer = ({ htmlContent }) => {
 
   useEffect(() => {
     adjustHeight();
-    const t1 = setTimeout(adjustHeight, 300);
-    const t2 = setTimeout(adjustHeight, 800);
+    const t1 = setTimeout(adjustHeight, 200);
+    const t2 = setTimeout(adjustHeight, 600);
+    const t3 = setTimeout(adjustHeight, 1500);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
+      clearTimeout(t3);
     };
   }, [htmlContent]);
 
@@ -109,6 +117,7 @@ const HtmlEmailViewer = ({ htmlContent }) => {
       onLoad={adjustHeight}
       style={{
         width: '100%',
+        minHeight: '400px',
         height: iframeHeight,
         border: 'none',
         overflow: 'hidden',

@@ -169,9 +169,22 @@ export default function RealCandidatesPage() {
       setCustomSubject(`Application Update — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`);
       setCustomBody('');
       setCustomEmployers([]);
-      await fetchPreviewBodyForEmployers(rc, []);
+      setLoadingPreview(true);
+
+      const res = await fetch(`${API_URL}/real-candidates/${rc.id}/preview-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCustomSubject(data.subject || `Application Update — ${rc.name}`);
+        setCustomBody(data.body || '');
+        setCustomEmployers(data.employers_list || []);
+      }
     } catch (err) {
       console.error('Preview open error:', err);
+    } finally {
+      setLoadingPreview(false);
     }
   };
 
