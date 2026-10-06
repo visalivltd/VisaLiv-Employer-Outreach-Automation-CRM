@@ -87,8 +87,17 @@ const formatEmailBody = (rawBody) => {
   let formattedLines = lines.map((line) => {
     let trimmed = line.trim();
 
-    // Transform "View job: https://..." or "Apply now: https://..." into styled Gmail blue buttons
-    const actionMatch = trimmed.match(/^(View job|Apply now|Apply|View Job Description|Apply Here)\s*:\s*(https?:\/\/[^\s<]+)$/i);
+    // Transform OTP / Verification code into prominent styled badge
+    const otpMatch = trimmed.match(/(?:OTP|verification code|security code|passcode|code)\s*(?:is|:)?\s*([0-9]{4,8})/i);
+    if (otpMatch) {
+      const code = otpMatch[1];
+      return `<div style="margin: 10px 0; display: inline-block; background: #e0e7ff; border: 1.5px solid #6366f1; color: #4338ca; font-size: 20px; font-weight: 800; letter-spacing: 4px; padding: 10px 20px; border-radius: 8px; box-shadow: 0 2px 6px rgba(99,102,241,0.15);">
+        ${code}
+      </div>`;
+    }
+
+    // Transform "View job", "Verify email", "Click here", "Apply now" links into styled Gmail blue buttons
+    const actionMatch = trimmed.match(/^(View job|Apply now|Apply|Verify email|Confirm email|Verify account|Click here to verify|Sign document|View Job Description|Apply Here)\s*:\s*(https?:\/\/[^\s<]+)$/i);
     if (actionMatch) {
       const label = actionMatch[1];
       const url = actionMatch[2];
@@ -430,7 +439,8 @@ export default function EmailTrackingPage() {
     const grouped = {};
 
     logs.forEach((log) => {
-      const key = `${log.candidate_id}_${log.employer_id}`;
+      const empKey = log.employer_id ? log.employer_id : (log.gmail_thread_id ? `sys_thread_${log.gmail_thread_id}` : `sys_msg_${log.id}`);
+      const key = `${log.candidate_id}_${empKey}`;
       if (!grouped[key]) {
         grouped[key] = {
           key,
@@ -439,7 +449,7 @@ export default function EmailTrackingPage() {
           candidate_gmail: log.gmail_email || '',
           candidate_cv_path: log.candidate_cv_path || null,
           employer_id: log.employer_id,
-          employer_name: log.employer_name || `Employer #${log.employer_id}`,
+          employer_name: log.employer_name || (log.employer_id ? `Employer #${log.employer_id}` : (log.subject || 'System / OTP Email')),
           employer_email: log.employer_email || '',
           messages: [],
           has_unread: false,
@@ -549,13 +559,19 @@ export default function EmailTrackingPage() {
       );
     }
 
-    // 3. Sub-Folder Filter (Inbox, Starred, Sent, Junk, Drafts, etc.)
+    // 3. Sub-Folder Filter (Inbox, Starred, Sent, Spam, Deleted Items)
     if (selectedFolder === 'starred') {
       result = result.filter(
         (c) => starredEmailIds.has(c.key) || c.messages.some((m) => starredEmailIds.has(m.id))
       );
     } else if (selectedFolder === 'sent') {
-      result = result.filter((c) => c.messages.some((m) => m.direction === 'outgoing'));
+      result = result.filter((c) => c.messages.some((m) => m.direction === 'outgoing' && m.status !== 'spam' && m.status !== 'deleted'));
+    } else if (selectedFolder === 'spam') {
+      result = result.filter((c) => c.messages.some((m) => m.status === 'spam' || m.status === 'junk'));
+    } else if (selectedFolder === 'deleted') {
+      result = result.filter((c) => c.messages.some((m) => m.status === 'deleted' || m.status === 'trash'));
+    } else if (selectedFolder === 'inbox') {
+      result = result.filter((c) => !c.messages.every((m) => m.status === 'spam' || m.status === 'junk' || m.status === 'deleted' || m.status === 'trash'));
     }
 
     // 4. Global Filters
@@ -1401,23 +1417,19 @@ export default function EmailTrackingPage() {
                     {isExpanded && (
                       <div style={{ paddingLeft: '42px', paddingRight: '12px', paddingTop: '4px', paddingBottom: '6px', background: '#f8fafc' }}>
                         {(() => {
-                          const candStarredCount = conversations.filter(
-                            (c) => c.candidate_id === cand.candidate_id && (starredEmailIds.has(c.key) || c.messages.some((m) => starredEmailIds.has(m.id)))
+                          const candSpamCount = conversations.filter(
+                            (c) => c.candidate_id === cand.candidate_id && c.messages.some((m) => m.status === 'spam' || m.status === 'junk')
                           ).length;
-                          const candSentCount = conversations.filter(
-                            (c) => c.candidate_id === cand.candidate_id && c.messages.some((m) => m.direction === 'outgoing')
+                          const candDeletedCount = conversations.filter(
+                            (c) => c.candidate_id === cand.candidate_id && c.messages.some((m) => m.status === 'deleted' || m.status === 'trash')
                           ).length;
 
                           return [
                             { id: 'inbox', label: 'Inbox', icon: Inbox, count: cand.conversationCount || 0 },
                             { id: 'starred', label: 'Starred', icon: Star, count: candStarredCount > 0 ? candStarredCount : null },
                             { id: 'sent', label: 'Sent', icon: Send, count: candSentCount > 0 ? candSentCount : null },
-                            { id: 'junk', label: 'Junk Email', icon: Ban, count: null },
-                            { id: 'drafts', label: 'Drafts', icon: FileText, count: null },
-                            { id: 'deleted', label: 'Deleted Items', icon: Trash2, count: null },
-                            { id: 'archive', label: 'Archive', icon: Archive, count: null },
-                            { id: 'outbox', label: 'Outbox', icon: Send, count: null },
-                            { id: 'scheduled', label: 'Scheduled', icon: Clock, count: null },
+                            { id: 'spam', label: 'Spam', icon: Ban, count: candSpamCount > 0 ? candSpamCount : null },
+                            { id: 'deleted', label: 'Deleted Items', icon: Trash2, count: candDeletedCount > 0 ? candDeletedCount : null },
                           ].map((f) => {
                             const FIcon = f.icon;
                             const isFolderSelected = selectedFolder === f.id;
@@ -1466,7 +1478,7 @@ export default function EmailTrackingPage() {
           <div style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a', textTransform: 'capitalize' }}>
-                {selectedFolder === 'starred' ? 'Starred' : selectedFolder === 'sent' ? 'Sent' : 'Inbox'} ({filteredConversations.length})
+                {selectedFolder === 'starred' ? 'Starred' : selectedFolder === 'sent' ? 'Sent' : selectedFolder === 'spam' ? 'Spam' : selectedFolder === 'deleted' ? 'Deleted Items' : 'Inbox'} ({filteredConversations.length})
               </h3>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>

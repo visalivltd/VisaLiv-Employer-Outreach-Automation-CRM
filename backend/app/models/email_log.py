@@ -23,9 +23,9 @@ class EmailLog(Base):
         nullable=False,
     )
 
-    employer_id: Mapped[int] = mapped_column(
+    employer_id: Mapped[int | None] = mapped_column(
         ForeignKey("employers.id"),
-        nullable=False,
+        nullable=True,
     )
 
     gmail_account_id: Mapped[int] = mapped_column(

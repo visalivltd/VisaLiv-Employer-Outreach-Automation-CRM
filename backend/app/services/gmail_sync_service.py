@@ -357,28 +357,28 @@ def sync_incoming_replies(db: Session) -> dict:
                                 matched_by = "employer_email_lookup"
 
                         # Priority 3: Do not auto-create missing Employers (only match existing Employers)
-                        if not matched_employer:
-                            matched_by = None
+                        # Label detection for SPAM & TRASH (Deleted Items)
+                        label_ids = m_detail.get("labelIds", [])
+                        if "SPAM" in label_ids:
+                            msg_status = "spam"
+                        elif "TRASH" in label_ids:
+                            msg_status = "deleted"
+                        else:
+                            msg_status = "sent" if direction == "outgoing" else "received"
 
-                        # Validate matched_employer existence in database
-                        if matched_employer and matched_employer.id:
-                            emp_in_db = db.get(Employer, matched_employer.id)
-                            if not emp_in_db:
-                                matched_employer = None
-
-                        if not matched_employer or not matched_employer.id:
-                            print(f"[EMAIL SYNC SKIPPED] No valid employer matched for email subject '{subject}' from '{sender_email}' (target: '{target_email}'). Skipping EmailLog creation.", flush=True)
-                            continue
+                        emp_id = matched_employer.id if (matched_employer and matched_employer.id) else None
 
                         if direction == "outgoing":
+                            if not emp_id and is_system_sender:
+                                continue
                             outgoing_messages += 1
                             new_messages += 1
                             out_log = EmailLog(
                                 candidate_id=candidate.id,
-                                employer_id=matched_employer.id,
+                                employer_id=emp_id,
                                 gmail_account_id=account.id,
                                 subject=subject,
-                                status="sent",
+                                status=msg_status,
                                 direction="outgoing",
                                 sent_at=received_at,
                                 gmail_message_id=msg_id,
@@ -390,17 +390,17 @@ def sync_incoming_replies(db: Session) -> dict:
                             db.add(out_log)
                             db.commit()
                             email_logs_created += 1
-                            print(f"[INCOMING EMAIL CREATED] email_log_id: #{out_log.id} | thread_id: {msg_thread_id} | direction: outgoing", flush=True)
+                            print(f"[OUTGOING EMAIL CREATED] email_log_id: #{out_log.id} | thread_id: {msg_thread_id} | emp_id: {emp_id}", flush=True)
 
                         else:
                             incoming_messages += 1
                             new_messages += 1
                             incoming_log = EmailLog(
                                 candidate_id=candidate.id,
-                                employer_id=matched_employer.id,
+                                employer_id=emp_id,
                                 gmail_account_id=account.id,
                                 subject=subject,
-                                status="received",
+                                status=msg_status,
                                 direction="incoming",
                                 sent_at=received_at,
                                 gmail_message_id=msg_id,
@@ -414,30 +414,28 @@ def sync_incoming_replies(db: Session) -> dict:
                             db.refresh(incoming_log)
                             email_logs_created += 1
 
-                            print(f"[INCOMING EMAIL MATCH] candidate_id: {candidate.id} | employer_id: {matched_employer.id} | matched_by: {matched_by}", flush=True)
-                            print(f"[INCOMING EMAIL CREATED] email_log_id: #{incoming_log.id} | thread_id: {msg_thread_id}", flush=True)
+                            print(f"[INCOMING EMAIL CREATED] email_log_id: #{incoming_log.id} | thread_id: {msg_thread_id} | status: {msg_status} | emp_id: {emp_id}", flush=True)
 
-                            # CREATE CRM UNREAD NOTIFICATION FOR REAL EMPLOYER REPLIES (Excluding system notices)
-                            if not is_system_sender and matched_employer:
-                                existing_notif = db.scalar(
-                                    select(Notification).where(Notification.gmail_message_id == msg_id)
+                            # CREATE CRM UNREAD NOTIFICATION FOR REPLIES & OTP/VERIFICATION EMAILS
+                            existing_notif = db.scalar(
+                                select(Notification).where(Notification.gmail_message_id == msg_id)
+                            )
+                            if not existing_notif:
+                                sender_label = matched_employer.service_name if (matched_employer and matched_employer.service_name) else (sender_email or "System/Portal")
+                                notif = Notification(
+                                    type="employer_reply" if matched_employer else "system_notice",
+                                    title="New Email Received",
+                                    message=f"New email from {sender_label} regarding \"{subject}\"",
+                                    candidate_id=candidate.id,
+                                    employer_id=emp_id,
+                                    email_log_id=incoming_log.id,
+                                    gmail_message_id=msg_id,
+                                    is_read=False,
                                 )
-                                if not existing_notif:
-                                    employer_name = matched_employer.service_name or matched_employer.email
-                                    notif = Notification(
-                                        type="employer_reply",
-                                        title="New Email Received",
-                                        message=f"New email from {employer_name} regarding \"{subject}\"",
-                                        candidate_id=candidate.id,
-                                        employer_id=matched_employer.id,
-                                        email_log_id=incoming_log.id,
-                                        gmail_message_id=msg_id,
-                                        is_read=False,
-                                    )
-                                    db.add(notif)
-                                    db.commit()
-                                    notifications_created += 1
-                                    print(f"[NOTIFICATION CREATED] notification_id: #{notif.id}", flush=True)
+                                db.add(notif)
+                                db.commit()
+                                notifications_created += 1
+                                print(f"[NOTIFICATION CREATED] notification_id: #{notif.id}", flush=True)
                             elif is_system_sender:
                                 print(f"[INCOMING SYSTEM NOTICE] System/bounce message from {sender_email} logged without employer reply notification.", flush=True)
                     except Exception as msg_exc:
