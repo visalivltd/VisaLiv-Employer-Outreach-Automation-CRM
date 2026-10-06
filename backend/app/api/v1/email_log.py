@@ -13,12 +13,15 @@ router = APIRouter(
 
 from sqlalchemy.orm import Session, joinedload
 
+from datetime import datetime, timedelta, timezone
+
 @router.get("")
 def get_email_logs(
-    limit: int = 100,
+    limit: int = 2000,
+    days: int | None = 60,
     db: Session = Depends(get_db),
 ):
-    logs = db.scalars(
+    stmt = (
         select(EmailLog)
         .options(
             joinedload(EmailLog.candidate),
@@ -26,8 +29,13 @@ def get_email_logs(
             joinedload(EmailLog.gmail_account),
         )
         .order_by(EmailLog.id.desc())
-        .limit(limit)
-    ).unique().all()
+    )
+
+    if days and days > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        stmt = stmt.where(EmailLog.created_at >= cutoff)
+
+    logs = db.scalars(stmt.limit(limit)).unique().all()
 
     result = []
     for log in logs:
