@@ -525,12 +525,18 @@ export default function EmailTrackingPage() {
     return Object.values(map);
   }, [gmailAccounts, conversations]);
 
+  const totalStarredCount = useMemo(() => {
+    return conversations.filter(
+      (c) => starredEmailIds.has(c.key) || c.messages.some((m) => starredEmailIds.has(m.id))
+    ).length;
+  }, [conversations, starredEmailIds]);
+
   // BASE SCOPED CONVERSATIONS ACCORDING TO CANDIDATE AND FOLDER SELECTION
   const baseScopedConversations = useMemo(() => {
     let result = conversations;
 
-    // 1. Candidate Filter
-    if (selectedCandidateId !== 'all') {
+    // 1. Candidate Filter (Bypassed if viewing starred folder to keep it global across all candidates)
+    if (selectedCandidateId !== 'all' && selectedFolder !== 'starred') {
       result = result.filter(
         (c) => c.candidate_id === Number(selectedCandidateId)
       );
@@ -1463,7 +1469,51 @@ export default function EmailTrackingPage() {
                 {selectedFolder === 'starred' ? 'Starred' : selectedFolder === 'sent' ? 'Sent' : 'Inbox'} ({filteredConversations.length})
               </h3>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {/* Global Starred Filter Button */}
+                <button
+                  onClick={() => {
+                    if (selectedFolder === 'starred') {
+                      setSelectedFolder('inbox');
+                    } else {
+                      setSelectedFolder('starred');
+                      setSelectedCandidateId('all'); // Global across all candidates
+                    }
+                  }}
+                  title="Show all Starred emails globally across all candidates"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    border: selectedFolder === 'starred' ? '1px solid #f59e0b' : '1px solid #cbd5e1',
+                    background: selectedFolder === 'starred' ? '#fffbeb' : '#ffffff',
+                    color: selectedFolder === 'starred' ? '#b45309' : '#475569',
+                    borderRadius: '6px',
+                    padding: '4px 8px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <Star size={14} fill={selectedFolder === 'starred' ? '#f59e0b' : 'none'} color="#f59e0b" />
+                  <span>Starred</span>
+                  {totalStarredCount > 0 && (
+                    <span
+                      style={{
+                        background: selectedFolder === 'starred' ? '#f59e0b' : '#f1f5f9',
+                        color: selectedFolder === 'starred' ? '#ffffff' : '#64748b',
+                        borderRadius: '10px',
+                        padding: '1px 6px',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {totalStarredCount}
+                    </span>
+                  )}
+                </button>
+
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
