@@ -335,7 +335,7 @@ export default function EmailTrackingPage() {
       setError('');
 
       const [logsRes, notifRes, accountsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/email-logs?limit=2000&days=60`),
+        fetch(`${API_BASE_URL}/email-logs?limit=15000&days=60`),
         fetch(`${API_BASE_URL}/notifications?limit=100`),
         fetch(`${API_BASE_URL}/gmail-accounts`),
       ]);
@@ -582,18 +582,21 @@ export default function EmailTrackingPage() {
     }
 
     // 5. Date Range Filter
-    if (startDate) {
-      const startMs = new Date(startDate).setHours(0, 0, 0, 0);
+    if (startDate || endDate) {
+      const startMs = startDate ? new Date(startDate).setHours(0, 0, 0, 0) : null;
+      const endMs = endDate ? new Date(endDate).setHours(23, 59, 59, 999) : null;
+
       result = result.filter((c) => {
-        const d = c.lastTimestamp instanceof Date ? c.lastTimestamp : new Date(c.lastTimestamp);
-        return !isNaN(d.getTime()) && d.getTime() >= startMs;
-      });
-    }
-    if (endDate) {
-      const endMs = new Date(endDate).setHours(23, 59, 59, 999);
-      result = result.filter((c) => {
-        const d = c.lastTimestamp instanceof Date ? c.lastTimestamp : new Date(c.lastTimestamp);
-        return !isNaN(d.getTime()) && d.getTime() <= endMs;
+        return c.messages.some((m) => {
+          const dateVal = m.sent_at || m.created_at;
+          if (!dateVal) return false;
+          const d = dateVal instanceof Date ? dateVal : new Date(dateVal);
+          const t = d.getTime();
+          if (isNaN(t)) return false;
+          if (startMs && t < startMs) return false;
+          if (endMs && t > endMs) return false;
+          return true;
+        });
       });
     }
 

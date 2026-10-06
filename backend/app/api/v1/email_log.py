@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 @router.get("")
 def get_email_logs(
-    limit: int = 2000,
+    limit: int = 15000,
     days: int | None = 60,
     db: Session = Depends(get_db),
 ):
