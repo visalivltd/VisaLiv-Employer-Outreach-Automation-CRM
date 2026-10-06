@@ -240,16 +240,18 @@ def preview_daily_summary(
     applications = daily_summary_service.get_todays_applications_for_real_candidate(db, rc)
     custom_subj = req.subject_template if req else None
     custom_body = req.body_template if req else None
+    emp_override = req.employer_names if req and req.employer_names is not None else None
 
     subj, body, employer_names = daily_summary_service.generate_summary_content(
         real_candidate=rc,
-        applications=applications,
+        applications=applications if emp_override is None else None,
         custom_subject=custom_subj,
         custom_body=custom_body,
+        employer_names_override=emp_override,
     )
 
-    # Sample preview fallback if no real applications today
-    if not employer_names:
+    # Sample preview fallback if no real applications today AND no explicit employer override passed
+    if emp_override is None and not employer_names:
         employer_names = ["Phoenix Healthcare", "Stanhope Lodge", "The Whitebeach"]
         subj, body, _ = daily_summary_service.generate_summary_content(
             real_candidate=rc,
@@ -257,7 +259,6 @@ def preview_daily_summary(
             custom_subject=custom_subj,
             custom_body=custom_body,
         )
-        # Manually substitute sample employer list in preview if empty
         sample_bullets = "• Phoenix Healthcare\n• Stanhope Lodge\n• The Whitebeach"
         body = body.replace("• None", sample_bullets)
 

@@ -51,6 +51,7 @@ class RealCandidateResponse(BaseModel):
 class DailySummaryPreviewRequest(BaseModel):
     subject_template: str | None = None
     body_template: str | None = None
+    employer_names: list[str] | None = None
 
 
 class DailySummaryPreviewResponse(BaseModel):

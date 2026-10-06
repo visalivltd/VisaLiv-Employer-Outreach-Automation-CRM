@@ -72,6 +72,55 @@ const headerTagStyle = (bg, color) => ({
   fontWeight: 700,
 });
 
+const HtmlEmailViewer = ({ htmlContent }) => {
+  const iframeRef = useRef(null);
+  const [iframeHeight, setIframeHeight] = useState('350px');
+
+  const adjustHeight = () => {
+    if (iframeRef.current && iframeRef.current.contentWindow) {
+      try {
+        const doc = iframeRef.current.contentWindow.document;
+        if (doc && doc.body) {
+          const contentH = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+          if (contentH > 0) {
+            setIframeHeight(`${contentH + 30}px`);
+          }
+        }
+      } catch {
+        // Ignore cross-origin error
+      }
+    }
+  };
+
+  useEffect(() => {
+    adjustHeight();
+    const t1 = setTimeout(adjustHeight, 300);
+    const t2 = setTimeout(adjustHeight, 800);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [htmlContent]);
+
+  return (
+    <iframe
+      ref={iframeRef}
+      srcDoc={htmlContent}
+      onLoad={adjustHeight}
+      style={{
+        width: '100%',
+        height: iframeHeight,
+        border: 'none',
+        overflow: 'hidden',
+        display: 'block',
+        borderRadius: '8px',
+        backgroundColor: '#ffffff',
+      }}
+      title="Email Message Content"
+    />
+  );
+};
+
 const formatEmailBody = (rawBody) => {
   if (!rawBody) return '';
   let str = String(rawBody);
@@ -1919,7 +1968,11 @@ export default function EmailTrackingPage() {
                         )}
                         <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: '1.6', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                           {msg.body ? (
-                            <div dangerouslySetInnerHTML={{ __html: formatEmailBody(msg.body) }} />
+                            /<[a-z][\s\S]*>/i.test(msg.body) ? (
+                              <HtmlEmailViewer htmlContent={msg.body} />
+                            ) : (
+                              <div dangerouslySetInnerHTML={{ __html: formatEmailBody(msg.body) }} />
+                            )
                           ) : (
                             <p style={{ fontStyle: 'italic', color: '#94a3b8' }}>No content in message body</p>
                           )}

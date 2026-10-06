@@ -143,28 +143,35 @@ export default function RealCandidatesPage() {
     }
   };
 
+  const fetchPreviewBodyForEmployers = async (rc, employersList) => {
+    if (!rc) return;
+    try {
+      setLoadingPreview(true);
+      const res = await fetch(`${API_URL}/real-candidates/${rc.id}/preview-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employer_names: employersList }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCustomBody(data.body || '');
+      }
+    } catch (err) {
+      console.error('Preview fetch error:', err);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
   const handleOpenCustomSend = async (rc) => {
     try {
       setCustomModalCand(rc);
       setCustomSubject(`Application Update — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`);
       setCustomBody('');
       setCustomEmployers([]);
-      setLoadingPreview(true);
-
-      const res = await fetch(`${API_URL}/real-candidates/${rc.id}/preview-summary`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setCustomSubject(data.subject || `Application Update — ${rc.name}`);
-        setCustomBody(data.body || '');
-        setCustomEmployers([]); // Blank by default as requested!
-      }
+      await fetchPreviewBodyForEmployers(rc, []);
     } catch (err) {
-      console.error('Preview fetch error:', err);
-    } finally {
-      setLoadingPreview(false);
+      console.error('Preview open error:', err);
     }
   };
 
@@ -199,15 +206,20 @@ export default function RealCandidatesPage() {
   };
 
   const handleToggleEmployer = (empName) => {
-    setCustomEmployers((prev) =>
-      prev.includes(empName) ? prev.filter((e) => e !== empName) : [...prev, empName]
-    );
+    setCustomEmployers((prev) => {
+      const nextList = prev.includes(empName) ? prev.filter((e) => e !== empName) : [...prev, empName];
+      fetchPreviewBodyForEmployers(customModalCand, nextList);
+      return nextList;
+    });
   };
 
   const handleAddCustomEmployer = () => {
     if (!newEmployerInput.trim()) return;
-    if (!customEmployers.includes(newEmployerInput.trim())) {
-      setCustomEmployers((prev) => [...prev, newEmployerInput.trim()]);
+    const addedName = newEmployerInput.trim();
+    if (!customEmployers.includes(addedName)) {
+      const nextList = [...customEmployers, addedName];
+      setCustomEmployers(nextList);
+      fetchPreviewBodyForEmployers(customModalCand, nextList);
     }
     setNewEmployerInput('');
   };
