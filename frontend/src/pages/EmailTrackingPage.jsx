@@ -1417,6 +1417,12 @@ export default function EmailTrackingPage() {
                     {isExpanded && (
                       <div style={{ paddingLeft: '42px', paddingRight: '12px', paddingTop: '4px', paddingBottom: '6px', background: '#f8fafc' }}>
                         {(() => {
+                          const candStarredCount = conversations.filter(
+                            (c) => c.candidate_id === cand.candidate_id && (starredEmailIds.has(c.key) || c.messages.some((m) => starredEmailIds.has(m.id)))
+                          ).length;
+                          const candSentCount = conversations.filter(
+                            (c) => c.candidate_id === cand.candidate_id && c.messages.some((m) => m.direction === 'outgoing')
+                          ).length;
                           const candSpamCount = conversations.filter(
                             (c) => c.candidate_id === cand.candidate_id && c.messages.some((m) => m.status === 'spam' || m.status === 'junk')
                           ).length;
