@@ -580,6 +580,12 @@ export default function RealCandidatesPage() {
       return;
     }
 
+    const count = selectedRealCandIds.size;
+    const confirmed = window.confirm(
+      `Are you sure you want to send application summary email from support@visaliv.com to ${count} selected Real Candidate(s)?`
+    );
+    if (!confirmed) return;
+
     try {
       setSendingOutreach(true);
       setError('');

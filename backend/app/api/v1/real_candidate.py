@@ -65,9 +65,16 @@ def trigger_daily_summaries(
 ):
     try:
         real_cand_ids = payload.get("real_candidate_ids") if payload else None
+        if not real_cand_ids or len(real_cand_ids) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No Real Candidates selected. Please explicitly select candidate(s) to send summary emails.",
+            )
         force = payload.get("force", True) if (payload and "force" in payload) else True
         result = daily_summary_service.send_all_daily_summaries(db, real_candidate_ids=real_cand_ids, force=force)
         return result
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
