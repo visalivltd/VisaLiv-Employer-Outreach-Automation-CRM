@@ -165,6 +165,18 @@ def get_system_account_status(
     }
 
 
+@router.post("/disconnect-system")
+def disconnect_system_gmail(
+    db: Session = Depends(get_db),
+):
+    accounts = db.query(SystemGmailAccount).all()
+    for acc in accounts:
+        acc.is_active = False
+        acc.refresh_token = None
+    db.commit()
+    return {"success": True, "message": "System Gmail account disconnected successfully."}
+
+
 @router.get("/connect-system", operation_id="connect_system_gmail")
 def connect_system_gmail(
     db: Session = Depends(get_db),

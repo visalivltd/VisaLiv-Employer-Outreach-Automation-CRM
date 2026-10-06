@@ -489,7 +489,7 @@ def send_custom_summary_for_real_candidate(
         is_html=True,
     )
 
-    cand_id = real_cand.candidates[0].id if real_cand.candidates else 1
+    cand_id = real_cand.candidates[0].id if (real_cand.candidates and len(real_cand.candidates) > 0) else 1
 
     summary_log = EmailLog(
         candidate_id=cand_id,

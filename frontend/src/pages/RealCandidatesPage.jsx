@@ -11,7 +11,8 @@ import {
   CheckCircle2,
   X,
   FileText,
-  Mail
+  Mail,
+  LogOut
 } from 'lucide-react';
 
 import { getApiUrl } from '../config/api';
@@ -158,7 +159,7 @@ export default function RealCandidatesPage() {
         const data = await res.json();
         setCustomSubject(data.subject || `Application Update — ${rc.name}`);
         setCustomBody(data.body || '');
-        setCustomEmployers(data.employers_list || []);
+        setCustomEmployers([]); // Blank by default as requested!
       }
     } catch (err) {
       console.error('Preview fetch error:', err);
@@ -283,6 +284,21 @@ export default function RealCandidatesPage() {
 
   const connectSystemGmail = () => {
     window.location.href = `${API_URL}/gmail-oauth/connect-system`;
+  };
+
+  const handleDisconnectSystemGmail = async () => {
+    if (!window.confirm('Are you sure you want to disconnect support@visaliv.com System Gmail Account?')) return;
+    try {
+      setError('');
+      const res = await fetch(`${API_URL}/gmail-oauth/disconnect-system`, { method: 'POST' });
+      if (res.ok) {
+        setSuccess('System Gmail Account (support@visaliv.com) disconnected successfully.');
+        setSystemAccount(null);
+      }
+    } catch (err) {
+      console.error('Error disconnecting system account:', err);
+      setError('Failed to disconnect system account');
+    }
   };
 
   useEffect(() => {
@@ -758,7 +774,31 @@ export default function RealCandidatesPage() {
           </p>
         </div>
 
-        <div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {systemAccount && systemAccount.connected !== false && (
+            <button
+              type="button"
+              onClick={handleDisconnectSystemGmail}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 16px',
+                borderRadius: '6px',
+                border: '1px solid #fca5a5',
+                backgroundColor: '#fff2f2',
+                color: '#dc2626',
+                fontWeight: '600',
+                fontSize: '13px',
+                cursor: 'pointer',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+              }}
+            >
+              <LogOut size={15} />
+              Disconnect Gmail
+            </button>
+          )}
+
           <button
             type="button"
             onClick={connectSystemGmail}

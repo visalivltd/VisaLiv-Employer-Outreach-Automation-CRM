@@ -1779,12 +1779,13 @@ export default function EmailTrackingPage() {
                     const msgKey = msg.id || idx;
                     const isExpanded = expandedMessageIds.has(msgKey);
                     const isIncoming = msg.direction === 'incoming';
+                    const isSystemSupportMsg = msg.gmail_email === 'support@visaliv.com' || msg.subject?.includes('Job Application Update') || msg.subject?.includes('Application Summary');
                     const senderDisplayName = isIncoming
                       ? selectedConversation.employer_name
-                      : selectedConversation.candidate_name;
+                      : (isSystemSupportMsg ? 'VisaLiv Support' : selectedConversation.candidate_name);
                     const senderEmailAddr = isIncoming
                       ? cleanEmailAddress(selectedConversation.employer_email)
-                      : cleanEmailAddress(selectedConversation.candidate_gmail);
+                      : (isSystemSupportMsg ? 'support@visaliv.com' : cleanEmailAddress(selectedConversation.candidate_gmail));
                     const recipientLabel = isIncoming ? 'to me' : `to ${selectedConversation.employer_name}`;
 
                     const rawAtts = (msg && msg.attachments) || (msg && msg.attachment_paths) || [];
