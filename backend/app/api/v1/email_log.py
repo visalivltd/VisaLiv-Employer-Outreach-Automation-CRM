@@ -44,7 +44,7 @@ def get_email_logs(
         gm = log.gmail_account
 
         raw_body = getattr(log, "body", None)
-        body_summary = raw_body[:2000] if raw_body and len(raw_body) > 2000 else raw_body
+        body_summary = raw_body
 
         result.append({
             "id": log.id,
