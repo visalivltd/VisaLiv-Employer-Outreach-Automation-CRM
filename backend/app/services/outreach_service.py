@@ -1438,14 +1438,12 @@ class OutreachService:
             b["candidate_count"] = len(b["candidate_ids"])
             del b["candidate_ids"]
 
-            if b["pending_count"] > 0 or b["processing_count"] > 0:
+            if b["pending_count"] > 0:
                 b["status"] = "running"
-            elif b["total_jobs"] > 0 and b["sent_count"] == b["total_jobs"]:
-                b["status"] = "completed"
             elif b["total_jobs"] > 0 and b["cancelled_count"] == b["total_jobs"]:
                 b["status"] = "cancelled"
             else:
-                b["status"] = "finished"
+                b["status"] = "completed"
 
             result.append(b)
 
@@ -1597,6 +1595,24 @@ class OutreachService:
             return {"processed": 0, "sent": 0, "skipped": 0, "failed": 0, "reason": "Outreach disabled"}
 
         now_utc = datetime.now(timezone.utc)
+
+        # Auto-recover jobs stuck in 'processing' status for over 10 minutes
+        try:
+            db.execute(
+                update(OutreachJob)
+                .where(
+                    OutreachJob.status == "processing",
+                    OutreachJob.updated_at < (now_utc - timedelta(minutes=10))
+                )
+                .values(
+                    status="failed",
+                    error_message="Job timed out while processing",
+                    updated_at=now_utc
+                )
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
 
         due_jobs = db.scalars(
             select(OutreachJob)

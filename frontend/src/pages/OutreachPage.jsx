@@ -1594,7 +1594,7 @@ export default function OutreachPage() {
                       {batches.slice(0, 10).map((batch, index) => {
                         const total = batch.total_jobs || 1;
                         const percent = Math.min(100, Math.round(((batch.sent_count || 0) / total) * 100));
-                        const isRunning = batch.status === 'processing' || batch.status === 'pending' || batch.status === 'running' || (batch.pending_count > 0);
+                        const isRunning = (batch.pending_count > 0) || (batch.status === 'processing' || batch.status === 'running');
 
                         let statusBadge = (
                           <span className="visa-badge" style={{ backgroundColor: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', fontWeight: '600' }}>
