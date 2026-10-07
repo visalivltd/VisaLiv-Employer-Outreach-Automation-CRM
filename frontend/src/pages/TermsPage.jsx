@@ -147,7 +147,7 @@ export default function TermsPage() {
                 </p>
                 <div className="contact-card font-mono">
                   <p><strong>VisaLiv Ltd. - Legal Department</strong></p>
-                  <p>Email: <a href="mailto:support@visaliv.com">support@visaliv.com</a> / <a href="mailto:privacy@visaliv.com">privacy@visaliv.com</a></p>
+                  <p>Email: <a href="mailto:support@visaliv.com">support@visaliv.com</a></p>
                   <p>Application: VisaLiv CRM</p>
                   <p>Website: <a href="https://app.visaliv.com">https://app.visaliv.com</a></p>
                 </div>

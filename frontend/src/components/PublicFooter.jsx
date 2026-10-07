@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Send, ShieldCheck, FileText, Mail, ArrowRight } from 'lucide-react';
+import { ShieldCheck, FileText, Mail, ArrowRight } from 'lucide-react';
+import VisaLivIcon from './VisaLivIcon';
 
 export default function PublicFooter() {
   return (
@@ -8,11 +9,8 @@ export default function PublicFooter() {
       <div className="public-footer-container">
         <div className="public-footer-grid">
           <div className="public-footer-brand-col">
-            <div className="public-brand">
-              <div className="public-brand-icon">
-                <Send size={22} strokeWidth={2.2} />
-              </div>
-              <span className="public-brand-title">VisaLiv CRM</span>
+            <div className="public-brand" style={{ display: 'flex', alignItems: 'center' }}>
+              <img src="/logo/logo.png" alt="VisaLiv CRM" style={{ height: '48px', width: 'auto', objectFit: 'contain' }} />
             </div>
             <p className="public-footer-desc">
               VisaLiv CRM is a candidate placement and employer outreach management platform. 
@@ -72,10 +70,6 @@ export default function PublicFooter() {
             <p className="public-footer-contact-item">
               <Mail size={16} />
               <span>support@visaliv.com</span>
-            </p>
-            <p className="public-footer-contact-item" style={{ marginTop: '8px' }}>
-              <Mail size={16} />
-              <span>privacy@visaliv.com</span>
             </p>
             <div style={{ marginTop: '16px' }}>
               <Link to="/dashboard" className="public-btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>

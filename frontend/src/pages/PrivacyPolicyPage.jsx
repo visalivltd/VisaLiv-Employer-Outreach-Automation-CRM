@@ -233,8 +233,8 @@ export default function PrivacyPolicyPage() {
                   If you have any questions, concerns, or requests regarding this Privacy Policy, Google OAuth data handling, or your personal data rights, please contact our Data Protection Officer:
                 </p>
                 <div className="contact-card font-mono">
-                  <p><strong>VisaLiv Ltd. - Legal & Privacy Team</strong></p>
-                  <p>Email: <a href="mailto:privacy@visaliv.com">privacy@visaliv.com</a> / <a href="mailto:support@visaliv.com">support@visaliv.com</a></p>
+                  <p><strong>VisaLiv Ltd. - Support Team</strong></p>
+                  <p>Email: <a href="mailto:support@visaliv.com">support@visaliv.com</a></p>
                   <p>Application: VisaLiv CRM</p>
                   <p>Website: <a href="https://app.visaliv.com">https://app.visaliv.com</a></p>
                 </div>

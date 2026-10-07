@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Send, LayoutGrid, ShieldCheck, FileText } from 'lucide-react';
+import { LayoutGrid, ShieldCheck, FileText } from 'lucide-react';
+import VisaLivIcon from './VisaLivIcon';
 
 export default function PublicNavbar() {
   const location = useLocation();
@@ -10,11 +11,8 @@ export default function PublicNavbar() {
   return (
     <header className="public-navbar">
       <div className="public-nav-container">
-        <Link to="/" className="public-brand">
-          <div className="public-brand-icon">
-            <Send size={24} strokeWidth={2.2} />
-          </div>
-          <span className="public-brand-title">VisaLiv CRM</span>
+        <Link to="/" className="public-brand" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+          <img src="/logo/logo.png" alt="VisaLiv CRM" style={{ height: '52px', width: 'auto', objectFit: 'contain' }} />
         </Link>
 
         <nav className="public-nav-links">

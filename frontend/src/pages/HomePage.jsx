@@ -1,7 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { 
-  Send, 
   Users, 
   Building2, 
   Mail, 
@@ -14,6 +13,7 @@ import {
   RefreshCw,
   FileCheck
 } from 'lucide-react';
+import VisaLivIcon from '../components/VisaLivIcon';
 
 export default function HomePage() {
   return (
@@ -23,7 +23,7 @@ export default function HomePage() {
         <div className="public-container">
           <div className="public-hero-content">
             <div className="public-badge">
-              <Send size={14} />
+              <VisaLivIcon size={16} />
               <span>Recruitment & Outreach Management Platform</span>
             </div>
 

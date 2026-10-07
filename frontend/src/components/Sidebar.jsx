@@ -12,6 +12,8 @@ import {
   Inbox
 } from 'lucide-react';
 
+import VisaLivIcon from './VisaLivIcon';
+
 export default function Sidebar({ isOpen, isCollapsed, onClose }) {
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutGrid },
@@ -35,10 +37,23 @@ export default function Sidebar({ isOpen, isCollapsed, onClose }) {
       <aside className={`sidebar ${isOpen ? 'open' : ''} ${isCollapsed ? 'collapsed' : ''}`}>
         {/* Brand Logo & Name */}
         <div className="sidebar-brand">
-          <div className="brand-icon-wrapper">
-            <Send className="w-7 h-7" size={26} strokeWidth={2.2} />
+          <div className="brand-logo-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+            {isCollapsed ? (
+              <img 
+                src="/logo/icon.png" 
+                alt="VisaLiv" 
+                style={{ height: '32px', width: 'auto', objectFit: 'contain' }} 
+              />
+            ) : (
+              <>
+                <img 
+                  src="/logo/logo.png" 
+                  alt="VisaLiv CRM" 
+                  style={{ height: '50px', width: 'auto', objectFit: 'contain', maxWidth: '210px' }} 
+                />
+              </>
+            )}
           </div>
-          <span className="brand-text">VisaLiv CRM</span>
         </div>
 
         {/* Navigation Menu */}
