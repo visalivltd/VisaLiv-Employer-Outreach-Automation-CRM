@@ -2,6 +2,12 @@ import React, { useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
+import PublicLayout from './components/PublicLayout';
+
+import HomePage from './pages/HomePage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import TermsPage from './pages/TermsPage';
+
 import DashboardPage from './pages/DashboardPage';
 import CandidatesPage from './pages/CandidatesPage';
 import RealCandidatesPage from './pages/RealCandidatesPage';
@@ -12,11 +18,10 @@ import EmailLogsPage from './pages/EmailLogsPage';
 import OutreachPage from './pages/OutreachPage';
 import EmailTrackingPage from './pages/EmailTrackingPage';
 
-
 import { ErrorBoundary } from './components/ErrorBoundary';
+import './public.css';
 
-
-export default function App() {
+function CrmLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -42,23 +47,36 @@ export default function App() {
         {/* Top Header */}
         <Header onToggleSidebar={toggleSidebar} />
 
-        {/* Page Routes */}
+        {/* CRM Page View */}
         <main>
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
-            <Route path="/candidates" element={<ErrorBoundary><CandidatesPage /></ErrorBoundary>} />
-            <Route path="/real-candidates" element={<ErrorBoundary><RealCandidatesPage /></ErrorBoundary>} />
-            <Route path="/employers" element={<ErrorBoundary><EmployersPage /></ErrorBoundary>} />
-            <Route path="/gmail-accounts" element={<ErrorBoundary><GmailAccountsPage /></ErrorBoundary>} />
-            <Route path="/email-drafts" element={<ErrorBoundary><EmailDraftsPage /></ErrorBoundary>} />
-            <Route path="/email-tracking" element={<ErrorBoundary><EmailTrackingPage /></ErrorBoundary>} />
-            <Route path="/email-logs" element={<ErrorBoundary><EmailLogsPage /></ErrorBoundary>} />
-            <Route path="/outreach" element={<ErrorBoundary><OutreachPage /></ErrorBoundary>} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
+          {children}
         </main>
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      {/* Public Unauthenticated Routes */}
+      <Route path="/" element={<PublicLayout><HomePage /></PublicLayout>} />
+      <Route path="/privacy-policy" element={<PublicLayout><PrivacyPolicyPage /></PublicLayout>} />
+      <Route path="/terms" element={<PublicLayout><TermsPage /></PublicLayout>} />
+
+      {/* CRM Dashboard & Feature Routes */}
+      <Route path="/dashboard" element={<CrmLayout><ErrorBoundary><DashboardPage /></ErrorBoundary></CrmLayout>} />
+      <Route path="/candidates" element={<CrmLayout><ErrorBoundary><CandidatesPage /></ErrorBoundary></CrmLayout>} />
+      <Route path="/real-candidates" element={<CrmLayout><ErrorBoundary><RealCandidatesPage /></ErrorBoundary></CrmLayout>} />
+      <Route path="/employers" element={<CrmLayout><ErrorBoundary><EmployersPage /></ErrorBoundary></CrmLayout>} />
+      <Route path="/gmail-accounts" element={<CrmLayout><ErrorBoundary><GmailAccountsPage /></ErrorBoundary></CrmLayout>} />
+      <Route path="/email-drafts" element={<CrmLayout><ErrorBoundary><EmailDraftsPage /></ErrorBoundary></CrmLayout>} />
+      <Route path="/email-tracking" element={<CrmLayout><ErrorBoundary><EmailTrackingPage /></ErrorBoundary></CrmLayout>} />
+      <Route path="/email-logs" element={<CrmLayout><ErrorBoundary><EmailLogsPage /></ErrorBoundary></CrmLayout>} />
+      <Route path="/outreach" element={<CrmLayout><ErrorBoundary><OutreachPage /></ErrorBoundary></CrmLayout>} />
+
+      {/* Catch-all fallback route */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
